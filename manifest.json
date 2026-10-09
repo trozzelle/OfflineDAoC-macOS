@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "server": {
+    "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
+    "ref": "3e3ffd0b3a1dddf596b1999440399498efcb9b13",
+    "archive_url": "https://codeload.github.com/catastrophic-impact/daoc-offline-linux-server-bots/tar.gz/3e3ffd0b3a1dddf596b1999440399498efcb9b13",
+    "archive_sha256": "7c835554b954baf557bddd3adf3860ff993f0cf63a7bbdc997095d8261dbbce1",
+    "note": "Pinned OpenDAoC fork (Offline DAoC 0.33 lineage); macOS port overlay in server/ is applied on top.",
+    "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
+    "version": "0.35b",
+    "manifest_asset": "download-manifest.json",
+    "note": "Per-part and whole-archive SHA-256 are verified against the release's own download-manifest.json at install time."
+  },
+  "wine": {
+    "url": "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-staging-11.18-osx64.tar.xz",
+    "tarball": "wine-staging-11.18-osx64.tar.xz",
+    "sha256": "b63704b91af269bc026a87f12bd297c4a50caaf570c322e600b6621ef918f127",
+    "note": "Gcenx Wine Staging 11.18 (x86_64, Rosetta 2); requires GStreamer.framework."
+  }
+}

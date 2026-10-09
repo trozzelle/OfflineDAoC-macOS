@@ -1,0 +1,16 @@
+# Build and runtime artifacts — never commit.
+/dist/
+/build/
+/.cache/
+# Vendored source build outputs
+vendor/System.Data.SQLite/obj/
+vendor/System.Data.SQLite/bin/
+# Runtime state (never commit player data, logs or credentials)
+data/
+logs/
+run/
+*.db
+*.db-wal
+*.db-shm
+serverconfig.xml
+admins.json
