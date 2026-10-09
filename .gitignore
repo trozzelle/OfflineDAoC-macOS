@@ -1,0 +1,16 @@
+# Heavy artifacts — downloaded at install time, never committed
+downloads/
+upstream/
+dist/
+prefix*/
+*.tar.gz
+*.tar.xz
+*.zip
+*.7z
+*.dll
+*.exe
+proxy.log
+*.log
+
+# macOS noise
+.DS_Store
