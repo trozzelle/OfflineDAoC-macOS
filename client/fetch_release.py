@@ -48,7 +48,8 @@ def main() -> int:
     if len(sys.argv) != 5:
         print(__doc__)
         return 2
-    release_url, cache_dir, root_folder, dest_dir = (Path(a) for a in sys.argv[1:])
+    release_url = sys.argv[1]  # URL — must stay a string; a Path would mangle '//'
+    cache_dir, root_folder, dest_dir = (Path(a) for a in sys.argv[2:])
     cache_dir.mkdir(parents=True, exist_ok=True)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
