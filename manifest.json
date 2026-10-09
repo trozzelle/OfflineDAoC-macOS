@@ -5,11 +5,22 @@
     "ref": "3e3ffd0b3a1dddf596b1999440399498efcb9b13",
     "archive_url": "https://codeload.github.com/catastrophic-impact/daoc-offline-linux-server-bots/tar.gz/3e3ffd0b3a1dddf596b1999440399498efcb9b13",
     "archive_sha256": "7c835554b954baf557bddd3adf3860ff993f0cf63a7bbdc997095d8261dbbce1",
-    "note": "Pinned OpenDAoC fork (Offline DAoC 0.33 lineage); macOS port overlay in server/ is applied on top.",
+    "note": "Pinned OpenDAoC fork (Offline DAoC 0.33 lineage); macOS port overlay in server/ is applied on top."
+  },
+  "client": {
     "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
     "version": "0.35b",
     "manifest_asset": "download-manifest.json",
-    "note": "Per-part and whole-archive SHA-256 are verified against the release's own download-manifest.json at install time."
+    "root_folder": "OfflineDAoC-v0.35b",
+    "archive_sha256": "5a1d77df4168dbe286f4161ca93e608422a9cd91ebd693d1cf1e88767234e7b6",
+    "archive_bytes": 5099005010,
+    "parts": [
+      { "name": "OfflineDAoC-v0.35b.zip.001", "bytes": 1900000000, "sha256": "02fcffc21ac66e7cbd714e698927fb28be289df4c9c159164e24db9aabd2109d" },
+      { "name": "OfflineDAoC-v0.35b.zip.002", "bytes": 1900000000, "sha256": "4710e99c73a58e82129bc10a3e0d358b4365b8d2521212b0ba9267d7d06d4241" },
+      { "name": "OfflineDAoC-v0.35b.zip.003", "bytes": 1299005010, "sha256": "95f11848419a150d65b4e3b7c853449d4f0b29e9b67a58ec2769365aa7d61bf7" }
+    ],
+    "game_dll_sha256": "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b",
+    "note": "Hashes pinned from the release's download-manifest.json; game.dll hash is the pristine v0.35b Sluaghbinder client."
   },
   "wine": {
     "url": "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-staging-11.18-osx64.tar.xz",
