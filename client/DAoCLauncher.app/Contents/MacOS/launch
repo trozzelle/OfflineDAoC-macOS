@@ -8,8 +8,7 @@
 # the bundled d3d9/dxgi overrides. The install sets the WINEPREFIX and client
 # directory up; this wrapper only wires the environment and execs wine.
 set -euo pipefail
-
-INSTALL_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"   # .../daoc-macos/client
+INSTALL_DIR="$(cd "$(dirname "$0")/../../../.." && pwd)"   # .../daoc-macos (bundle sits in dist/)
 CLIENT_ROOT="$INSTALL_DIR/dist/OfflineDAoC"
 WINE_APP="$INSTALL_DIR/dist/wine/Wine Staging.app"
 

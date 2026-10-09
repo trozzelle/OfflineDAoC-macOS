@@ -96,48 +96,53 @@ else
 fi
 [[ -f $CLIENT_ROOT/runtime/client-opendaoc/app/game.dll ]] || { fail "game.dll missing after client install"; exit 1; }
 
-# --- 5. Launch the client ---------------------------------------------------
-step "client launch"
-# Snapshot the wine log so the liveness check only sees bytes from THIS launch.
+# Snapshot log positions BEFORE the launch so verification only sees new bytes.
 WINE_LOG=/tmp/daoc-wine.log
 : > "$WINE_LOG"
+SERVER_LOG="$SERVER_DIR/logs/server.log"
+LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
 open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
-LAUNCH_LINE_COUNT=$(wc -l < "$WINE_LOG" | tr -d ' ')
 echo "client launch requested; waiting for the login to register server-side"
 
-# --- 6. Verify: login reached character select; client stays alive ----------
+# --- 6. Verify: login reached the server; client stays alive ----------------
 step "login evidence + 120 s aliveness"
 deadline=$((SECONDS + 90))
 LOGIN_OK=""
 while (( SECONDS < deadline )); do
-  if tail -n +"$((LAUNCH_LINE_COUNT + 1))" "$WINE_LOG" 2>/dev/null \
-     | grep -q "login"; then
-    LOGIN_OK=1
-    break
-  fi
-  if grep -qE "logging in|Login request|entering the world" "$SERVER_DIR/logs/server.log" 2>/dev/null; then
+  # Strict, offset-windowed check: only bytes the server logged AFTER this
+  # launch, only the real login event for THIS account. A wine fixme or a
+  # stale "logging in" line from an earlier run must not satisfy it.
+  if tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" 2>/dev/null \
+     | grep -q "LoginRequestHandler.*User $ACCOUNT logging in"; then
     LOGIN_OK=1
     break
   fi
   sleep 2
 done
-cp "$SERVER_DIR/logs/server.log" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
+cp "$SERVER_LOG" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
 cp "$WINE_LOG" "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
 
 if [[ -z $LOGIN_OK ]]; then
-  fail "no client login appeared in the server log within 90 s"
+  fail "no 'User $ACCOUNT logging in' appeared in the server log within 90 s"
 else
-  echo "login observed; holding the client for the 120 s aliveness window"
+  echo "login observed in the server log; holding the client for the 120 s window"
+  # Liveness is judged by the exact pid of THIS launch only — no fallback to
+  # "any game.dll process" (another install's client could satisfy that).
   CLIENT_PID=$(pgrep -f "game.dll 127.0.0.1 20300" | head -1)
-  [[ -n $CLIENT_PID ]] || CLIENT_PID=$(pgrep -f "game.dll" | head -1)
-  echo "client pid: ${CLIENT_PID:-unknown}"
-  sleep 120
-  if [[ -n $CLIENT_PID ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then
-    echo "client process alive 120 s after login — PASS"
-  elif pgrep -f "game.dll" > /dev/null; then
-    echo "client process (re-checked) alive 120 s after login — PASS"
+  if [[ -z $CLIENT_PID ]]; then
+    fail "could not find the client process from this launch"
   else
-    fail "client process died within 120 s after login"
+    echo "client pid: $CLIENT_PID"
+    sleep 120
+    if kill -0 "$CLIENT_PID" 2>/dev/null; then
+      echo "client process alive 120 s after login — PASS"
+    else
+      fail "client process died within 120 s after login"
+    fi
+    # A wine crash signature means the client is broken even if a process lingers.
+    if grep -q "nodrv_CreateWindow" "$WINE_LOG" 2>/dev/null; then
+      fail "wine log shows nodrv_CreateWindow (client window creation failed)"
+    fi
   fi
 fi
 
