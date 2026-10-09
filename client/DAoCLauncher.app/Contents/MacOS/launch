@@ -1,0 +1,28 @@
+#!/bin/bash
+# DAoCLauncher — runs the DAoC client inside the GUI (Aqua) login session, so the
+# game window appears on the desktop instead of inside a terminal's context.
+#
+#   DAoCLauncher wine <wine-args...>
+#
+# The 'wine' mode is the proven working configuration: wined3d GL renderer with
+# the bundled d3d9/dxgi overrides. The install sets the WINEPREFIX and client
+# directory up; this wrapper only wires the environment and execs wine.
+set -euo pipefail
+
+INSTALL_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"   # .../daoc-macos/client
+CLIENT_ROOT="$INSTALL_DIR/dist/OfflineDAoC"
+WINE_APP="$INSTALL_DIR/dist/wine/Wine Staging.app"
+
+MODE="${1:-}"
+[ -z "$MODE" ] && { echo "usage: DAoCLauncher wine <wine-args...>" >&2; exit 1; }
+shift
+
+if [ "$MODE" = "wine" ]; then
+    export WINEDLLOVERRIDES='d3d9,dxgi=b'
+    export WINEPREFIX="$INSTALL_DIR/dist/prefix"
+    cd "$CLIENT_ROOT/runtime/client-opendaoc/app"
+    exec "$WINE_APP/Contents/Resources/wine/bin/wine" "$@" >> /tmp/daoc-wine.log 2>&1
+fi
+
+echo "DAoCLauncher: unknown mode '$MODE' (supported: wine)" >&2
+exit 1
