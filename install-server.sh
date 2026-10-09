@@ -45,7 +45,7 @@ if [[ ! -d $SRC_DIR ]]; then
   echo "== extracting upstream source"
   mkdir -p upstream/tmp
   tar -xzf "$ARCHIVE" -C upstream/tmp
-  mv "upstream/daoc-offline-linux-server-bots-$UPSTREAM_REF" "$SRC_DIR"
+  mv "upstream/tmp/daoc-offline-linux-server-bots-$UPSTREAM_REF" "$SRC_DIR"
   rm -rf upstream/tmp
 fi
 
