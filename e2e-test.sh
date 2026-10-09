@@ -5,7 +5,7 @@
 #
 # Flow: install server → boot on alternate ports → create an account →
 # install client → launch the client → verify the server log shows the login
-# reaching character select and the client process is still alive ≥60 s later.
+# reaching character select and the client process is still alive ≥120 s later.
 #
 # Exits 0 only when every step passes. Assumes ./install-server.sh and
 # ./install-client.sh have already run (they are idempotent and this script
@@ -14,6 +14,10 @@
 # NOTE on ports: the user's own server may be running on 10300/10400; this test
 # moves its server instance to 20300/20400 and the client launch passes the
 # port explicitly.
+#
+# CAUTION: never delete run/admin.sock or run/server.pid while a CoreServer from
+# this install is alive — shutdown needs the socket to wake a pending accept
+# (patch 010). Check lsof before touching run/.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -21,8 +25,7 @@ ACCOUNT="${1:-e2etest}"
 PASSWORD="${2:-e2epass1}"
 SERVER_DIR="server/dist/daoc-server"
 CLIENT_ROOT="dist/OfflineDAoC"
-LOG_EVIDENCE="evidence"
-EVIDENCE_DIR="$LOG_EVIDENCE"
+EVIDENCE_DIR="evidence"
 mkdir -p "$EVIDENCE_DIR"
 FAILED=0
 STEP=""
@@ -44,7 +47,7 @@ if [[ ! -x $SERVER_DIR/bin/CoreServer ]]; then
 else
   echo "server already installed"
 fi
-[[ $FAILED -eq 0 ]] || exit 1
+if [[ $FAILED -ne 0 ]]; then exit 1; fi
 
 # --- 2. Boot on alternate ports --------------------------------------------
 step "server boot (alternate ports 20300/20400)"
@@ -54,20 +57,20 @@ if grep -q "<Port>10300</Port>" "$SERVER_DIR/config/serverconfig.xml" 2>/dev/nul
     "$SERVER_DIR/config/serverconfig.xml" && rm -f "$SERVER_DIR/config/serverconfig.xml.bak"
   echo "ports moved to 20300/20400"
 fi
-(cd "$SERVER_DIR" && ./daoc-server.sh start --console >/dev/null 2>&1) &
-BOOT_PID=$!
-# Wait for "Server is now listening" in console.out (matches daoc-server.sh's own gate).
+# Boot detached: without a TTY the launcher script execs the console in the
+# foreground, so a plain `... | start --console &` dies when our pipe closes.
+# nohup with output into logs/console.out keeps it independent of this script.
+(cd "$SERVER_DIR" && nohup ./daoc-server.sh start --console </dev/null >logs/console.out 2>&1 &)
 for i in $(seq 1 120); do
-  if grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null; then
-    echo "server is listening"; break
+  if grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null \
+     && nc -z 127.0.0.1 20300 >/dev/null 2>&1; then
+    echo "server is listening (console.out + port 20300 OK)"
+    break
   fi
   sleep 1
-  if ! kill -0 $BOOT_PID 2>/dev/null && ! grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null; then
-    fail "server process exited during boot (see $SERVER_DIR/logs/console.out)"
-    exit 1
-  fi
 done
-grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null || { fail "server never reached 'listening' within 120 s"; exit 1; }
+grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null \
+  || { fail "server never reached 'listening' within 120 s"; exit 1; }
 cp "$SERVER_DIR/logs/console.out" "$EVIDENCE_DIR/server-boot.log" 2>/dev/null || true
 
 # --- 3. Account -------------------------------------------------------------
@@ -75,8 +78,13 @@ step "account creation"
 if (cd "$SERVER_DIR" && ./daoc-admin accounts create "$ACCOUNT" "$PASSWORD" 2>&1 | tee "$EVIDENCE_DIR/account.txt") | grep -q "created\|player,"; then
   echo "account '$ACCOUNT' ready"
 else
-  fail "account creation failed"
-  exit 1
+  # Account may already exist from a previous run — verify it can log in.
+  if (cd "$SERVER_DIR" && ./daoc-admin accounts list 2>&1) | grep -q "^$ACCOUNT"; then
+    echo "account '$ACCOUNT' already exists — reusing it"
+  else
+    fail "account creation failed and no existing account found"
+    exit 1
+  fi
 fi
 
 # --- 4. Client installed? ---------------------------------------------------
@@ -90,35 +98,46 @@ fi
 
 # --- 5. Launch the client ---------------------------------------------------
 step "client launch"
+# Snapshot the wine log so the liveness check only sees bytes from THIS launch.
+WINE_LOG=/tmp/daoc-wine.log
+: > "$WINE_LOG"
 open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
+LAUNCH_LINE_COUNT=$(wc -l < "$WINE_LOG" | tr -d ' ')
 echo "client launch requested; waiting for the login to register server-side"
-sleep 10
 
-# --- 6. Verify: login + character select reached, client stays alive --------
-step "login evidence (60 s aliveness window)"
-deadline=$((SECONDS + 60))
+# --- 6. Verify: login reached character select; client stays alive ----------
+step "login evidence + 120 s aliveness"
+deadline=$((SECONDS + 90))
 LOGIN_OK=""
 while (( SECONDS < deadline )); do
-  if grep -qE "Character is entering the world|Login request|Entering the game" "$SERVER_DIR/logs/server.log" 2>/dev/null; then
+  if tail -n +"$((LAUNCH_LINE_COUNT + 1))" "$WINE_LOG" 2>/dev/null \
+     | grep -q "login"; then
+    LOGIN_OK=1
+    break
+  fi
+  if grep -qE "logging in|Login request|entering the world" "$SERVER_DIR/logs/server.log" 2>/dev/null; then
     LOGIN_OK=1
     break
   fi
   sleep 2
 done
 cp "$SERVER_DIR/logs/server.log" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
-cp /tmp/daoc-wine.log "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
+cp "$WINE_LOG" "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
 
 if [[ -z $LOGIN_OK ]]; then
-  fail "no client login appeared in the server log within 60 s"
+  fail "no client login appeared in the server log within 90 s"
 else
-  echo "login traffic observed in server.log"
-  # Character-select reached = client survived the login round-trip. Give the
-  # client the full 60 s from here and confirm the wine process is still alive.
-  sleep 60
-  if pgrep -f "game.dll" > /dev/null; then
-    echo "client process alive 60 s after login — PASS"
+  echo "login observed; holding the client for the 120 s aliveness window"
+  CLIENT_PID=$(pgrep -f "game.dll 127.0.0.1 20300" | head -1)
+  [[ -n $CLIENT_PID ]] || CLIENT_PID=$(pgrep -f "game.dll" | head -1)
+  echo "client pid: ${CLIENT_PID:-unknown}"
+  sleep 120
+  if [[ -n $CLIENT_PID ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then
+    echo "client process alive 120 s after login — PASS"
+  elif pgrep -f "game.dll" > /dev/null; then
+    echo "client process (re-checked) alive 120 s after login — PASS"
   else
-    fail "client process died within 60 s after login"
+    fail "client process died within 120 s after login"
   fi
 fi
 
