@@ -58,6 +58,11 @@ open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pa
 The client's GL init under Rosetta is flaky — if it crashes before the splash,
 relaunch. Login takes 1–2 minutes. Exit with `/quit` in chat.
 
+If another DAoC server (for example the reference install this work started
+from) is already running on 10300, stop it first, or point the test at it
+directly. `./e2e-test.sh` runs its own server on 20300/20400 and restores this
+install's config afterward.
+
 ## Update
 
 ```bash
