@@ -188,6 +188,15 @@ for attempt in $(seq 1 10); do
     fi
     sleep 2
   done
+  # Deadline expiry without a "died": the client may have hung (no signature,
+  # no login). Preserve this attempt's log and a process snapshot — the
+  # truncation below would otherwise destroy the hang's only record.
+  if [[ -z $LOGIN_OK && ${CLIENT_SEEN:-0} -eq 1 ]]; then
+    cp "$WINE_LOG" "$EVIDENCE_DIR/wine-attempt-$attempt.log" 2>/dev/null || true
+    { date '+%H:%M:%S'; pgrep -fl "$CLIENT_PAT" 2>/dev/null; } \
+      > "$EVIDENCE_DIR/pgrep-at-attempt-$attempt.txt" 2>/dev/null || true
+    echo "attempt $attempt: 180 s window expired with the client alive but no login — hang"
+  fi
   [[ -n $LOGIN_OK ]] && break
 done
 cp "$SERVER_LOG" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
