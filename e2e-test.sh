@@ -93,18 +93,16 @@ cp "$SERVER_DIR/logs/console.out" "$EVIDENCE_DIR/server-boot.log" 2>/dev/null ||
 
 # --- 3. Account -------------------------------------------------------------
 step "account creation"
-if (cd "$SERVER_DIR" && ./daoc-admin accounts create "$ACCOUNT" "$PASSWORD" 2>&1 | tee "$EVIDENCE_DIR/account.txt") | grep -q "created\|player,"; then
-  echo "account '$ACCOUNT' ready"
+CREATE_OUT=$( (cd "$SERVER_DIR" && ./daoc-admin accounts create "$ACCOUNT" "$PASSWORD" 2>&1) )
+echo "$CREATE_OUT" > "$EVIDENCE_DIR/account.txt"
+if echo "$CREATE_OUT" | grep -q "player,"; then
+  echo "account '$ACCOUNT' created"
+elif echo "$CREATE_OUT" | grep -q "already exists"; then
+  echo "account '$ACCOUNT' already exists — reusing it"
 else
-  # Account may already exist from a previous run — verify it can log in.
-  if (cd "$SERVER_DIR" && ./daoc-admin accounts list 2>&1) | grep -q "^$ACCOUNT"; then
-    echo "account '$ACCOUNT' already exists — reusing it"
-  else
-    fail "account creation failed and no existing account found"
-    exit 1
-  fi
+  fail "account creation failed: $CREATE_OUT"
+  exit 1
 fi
-
 # --- 4. Client installed? ---------------------------------------------------
 step "client install"
 if [[ ! -d $CLIENT_ROOT ]]; then
@@ -138,14 +136,25 @@ for attempt in 1 2 3 4 5; do
   open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    # Strict, offset-windowed check: only bytes the server logged AFTER the
-    # launches, only the real login event for THIS account.
-    if tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" 2>/dev/null \
-       | grep -q "LoginRequestHandler.*User $ACCOUNT logging on!"; then
-      LOGIN_OK=1
+    # Strict, offset-windowed check on new bytes only:
+    #  - pass = the server accepted the login for THIS account ("logging on!")
+    #    and no rejection followed in the same window — the bare "logging on!"
+    #    line is also written right before a "Wrong password!" rejection, so it
+    #    alone is not proof;
+    #  - fail = any "Wrong password" in the window.
+    # World entry ("WorldInitRequestHandler … entering Region") can't be the
+    # gate: a brand-new account has no character, and the automated launch
+    # stops at character select.
+    NEWBYTES=$(tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" 2>/dev/null)
+    if echo "$NEWBYTES" | grep -q "Wrong password"; then
+      fail "server rejected the login (Wrong password) — account/password mismatch"
       break 2
     fi
-    # Crash detection: retry only after the client was actually seen running.
+    if echo "$NEWBYTES" | grep -q "LoginRequestHandler.*User $ACCOUNT logging on!"; then
+      # Authentication succeeded; confirm via the account record.
+      SHOW_OUT=$( (cd "$SERVER_DIR" && ./daoc-admin accounts show "$ACCOUNT" 2>&1) )
+      echo "$SHOW_OUT" | grep -q "last login never" || { LOGIN_OK=1; break 2; }
+    fi
     # Wait for it to appear first: 'open' returns before wine starts, so an
     # immediate check would read "not running" during the spawn window. The
     # seen-flag makes "died" reproducible: only a client that was observed
