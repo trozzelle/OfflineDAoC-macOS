@@ -49,20 +49,26 @@ case "$cmd" in
     if [[ $new_ref == "$cur_ref" ]]; then
       echo "server pin already at ${new_ref:0:12}"; exit 0
     fi
-    # Fetch the new archive once to record its hash before switching the pin.
-    url="https://codeload.github.com/catastrophic-impact/daoc-offline-linux-server-bots/tar.gz/$new_ref"
-    archive="downloads/daoc-offline-linux-server-bots-${new_ref:0:7}.tar.gz"
-    mkdir -p downloads
-    curl -fsSL --retry 3 "$url" -o "$archive"
-    sha=$(shasum -a 256 "$archive" | cut -d' ' -f1)
+    # Clone the new HEAD shallowly and prove the port patches still apply to it
+    # BEFORE switching the pin — an upstream change that breaks a patch fails
+    # here, loudly, and the pin stays put.
+    tmp=$(mktemp -d)
+    git clone --quiet --filter=blob:none "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots" "$tmp/upstream" \
+      || { echo "update.sh: upstream clone failed" >&2; rm -rf "$tmp"; exit 1; }
+    git -C "$tmp/upstream" checkout --quiet --detach "$new_ref"
+    if ! git -C "$tmp/upstream" apply --check "$PWD"/server/patches/*.patch; then
+      echo "update.sh: port patches no longer apply to ${new_ref:0:12} — re-derive them against the new source" >&2
+      echo "  (pin NOT changed: manifest.json still points at ${cur_ref:0:12})" >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
+    echo "== patches apply cleanly to ${new_ref:0:12}"
+    rm -rf "$tmp"
     set_pin manifest.json server ref "$new_ref"
-    set_pin manifest.json server archive_url "$url"
-    set_pin manifest.json server archive_sha256 "$sha"
     # The old extracted tree no longer matches the pin — clear it.
     rm -rf upstream/server
-    echo "== server pin -> ${new_ref:0:12} (archive sha256 $sha)"
-    echo "   re-run ./install-server.sh to rebuild; if a patch no longer applies,"
-    echo "   the build fails loudly — re-derive the patch against the new source."
+    echo "== server pin -> ${new_ref:0:12}"
+    echo "   re-run ./install-server.sh to rebuild against the new source."
     ;;
   client)
     echo "== resolving latest OfflineDAoC release"
