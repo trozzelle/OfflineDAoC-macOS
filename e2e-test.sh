@@ -131,7 +131,7 @@ for attempt in $(seq 1 10); do
   # wineserver to actually exit (a fixed sleep can't tell a slow Rosetta
   # teardown from a fast one).
   WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
-  "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
   : > "$WINE_LOG"
   open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
   deadline=$((SECONDS + 180))
