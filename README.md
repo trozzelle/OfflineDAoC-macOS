@@ -31,6 +31,56 @@ Two independent installs from one checkout:
 A manifest pins exact upstream versions and hashes, so installs are reproducible.
 An `update` command bumps the pins when upstream moves.
 
-## Status
+## Install the server
 
-Work in progress. Docs land in `docs/`.
+```bash
+./install-server.sh
+```
+
+Clones the pinned upstream, pre-checks the macOS patches, builds
+`server/dist/daoc-server/`. Needs Xcode CLT, cmake, and the .NET 10 SDK
+(installed automatically). Then:
+
+```bash
+cd server/dist/daoc-server
+./daoc-server.sh start
+```
+
+## Install the client
+
+```bash
+./install-client.sh
+```
+
+Fetches the pinned OfflineDAoC release (≈5 GB, verified per-part and as a whole
+against the release's own manifest), installs Wine Staging 11.18, patches
+`game.dll` (byte-verified against the pinned pristine hash), and initializes a
+win10-mode prefix.
+
+## Play
+
+With the server running:
+
+```bash
+open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <account> <password>
+```
+
+Create the account first (`daoc-admin accounts create <name> <pass>` in
+`server/dist/daoc-server/`) — the login packet carries the credentials in plain
+text, so the stored hash must match what you type. The client's wined3d GL init
+under Rosetta is flaky (~half of launches crash before the splash); kill it and
+relaunch. Login takes 1–2 minutes. Exit with `/quit` in chat.
+
+## Update
+
+```bash
+./update.sh check    # report what moved upstream
+./update.sh server   # bump the server pin (patches are re-checked first)
+./update.sh client   # bump the client pin (game.dll hash re-derivation is manual)
+```
+
+## Docs
+
+- `docs/DESIGN.md` — repo layout, manifest schema, install flows
+- `docs/REVIEW.md` — review of the ported code and scripts
+- `docs/SERVER-NOTES.md` — upstream server issues documented, not patched
