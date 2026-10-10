@@ -33,12 +33,17 @@ if [ "$MODE" = "wine" ]; then
     # slice without a signature is a real session (/quit or play) — never
     # relaunched. Bounded at 10 tries; traces every exit to
     # /tmp/daoc-launcher.log (stderr from an `open`-launched app is invisible).
+    # DAOC_LAUNCHER_RETRIES caps the launch attempts (1 = launch once, never
+    # relaunch): e2e-test.sh sets it to 1 because it runs its own relaunch
+    # loop and two competing relaunchers would double-start clients and
+    # desynchronize its attempt accounting.
     status=0
     log=/tmp/daoc-wine.log
     trace=/tmp/daoc-launcher.log
     trace_msg() { echo "$(date '+%H:%M:%S') DAoCLauncher: $*" | tee -a "$trace" >&2; }
+    max="${DAOC_LAUNCHER_RETRIES:-10}"
     gave_up=0
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    for ((attempt = 1; attempt <= max; attempt++)); do
         status=0
         offset=$(wc -c < "$log" 2>/dev/null | tr -d ' '); offset=${offset:-0}
         start_ts=$(date +%s)
@@ -50,9 +55,9 @@ if [ "$MODE" = "wine" ]; then
         else
             crashed=0
         fi
-        trace_msg "wine exit: status=$status elapsed=${elapsed}s crashed=$crashed (attempt $attempt/10)"
+        trace_msg "wine exit: status=$status elapsed=${elapsed}s crashed=$crashed (attempt $attempt/$max)"
         if [ "$crashed" -eq 1 ] && [ "$elapsed" -lt 60 ]; then
-            if [ "$attempt" -lt 10 ]; then
+            if [ "$attempt" -lt "$max" ]; then
                 trace_msg "client crashed — relaunching"
                 sleep 3
             else
@@ -65,7 +70,7 @@ if [ "$MODE" = "wine" ]; then
     # Giving up must be visible: a nonzero status, and a trace line (stderr
     # from an `open`-launched app is invisible).
     if [ "$gave_up" -eq 1 ]; then
-        trace_msg "client crashed 10 launches in a row — giving up"
+        trace_msg "client crashed $max launches in a row — giving up"
         exit 1
     fi
     exit "$status"

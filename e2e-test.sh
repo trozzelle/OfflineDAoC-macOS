@@ -139,7 +139,7 @@ for attempt in $(seq 1 10); do
   WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
   WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
   : > "$WINE_LOG"
-  open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
+  open -n "$PWD/dist/DAoCLauncher.app" --env DAOC_LAUNCHER_RETRIES=1 --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
     # Strict, offset-windowed check on new bytes only:
