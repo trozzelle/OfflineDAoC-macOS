@@ -6,6 +6,9 @@ marked **fixed** were corrected during the build; **noted** items are deliberate
 and documented here.
 
 ## client/apply_game_patch.py — client byte-patcher
+- **Fixed** — runs under the stock Xcode CLT Python 3.9 (`from __future__ import
+  annotations`; the `Path | None` unions otherwise raise TypeError at import on
+  a stock Mac with no pyenv/Homebrew Python).
 - **Fixed** — original version hardcoded an absolute home path; now takes the
   DLL path as an argument and the expected pristine hash from the repo's
   `manifest.json` (`client.game_dll_sha256`), passed explicitly by the install
