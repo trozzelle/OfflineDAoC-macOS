@@ -19,3 +19,8 @@ evidence/
 # server build/cache artifacts
 server/build/
 server/.cache/
+
+# vendored build outputs (rebuilt by setup-dotnet/build pipeline)
+server/vendor/bin/
+server/build/
+server/.cache/
