@@ -122,6 +122,7 @@ LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OF
 # a failed attempt dies before ever opening a network connection (verified: no
 # "Incoming connection" line for any attempt that reported "died").
 ATTEMPT=""
+LOGIN_OK=""
 for attempt in $(seq 1 10); do
   ATTEMPT=$attempt
   CLIENT_SEEN=0
