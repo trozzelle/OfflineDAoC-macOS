@@ -25,3 +25,6 @@ server/vendor/bin/
 server/build/
 server/.cache/
 .e2e.lock
+
+# per-run evidence snapshots (regenerable via e2e-test.sh)
+evidence/final/
