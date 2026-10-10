@@ -56,7 +56,12 @@ if [ "$MODE" = "wine" ]; then
             crashed=0
         fi
         trace_msg "wine exit: status=$status elapsed=${elapsed}s crashed=$crashed (attempt $attempt/$max)"
-        if [ "$crashed" -eq 1 ] && [ "$elapsed" -lt 60 ]; then
+        # Relaunch gate: ANY exit within 20 s of launch is a pre-login crash —
+        # the signature sometimes never reaches the log (unflushed stderr; 2
+        # of 7 crashes in run 10), and a genuine session never ends that fast
+        # (login alone takes 1–2 min). The signature is a tiebreaker only for
+        # exits between 20 s and 60 s.
+        if [ "$elapsed" -lt 20 ] || { [ "$crashed" -eq 1 ] && [ "$elapsed" -lt 60 ]; }; then
             if [ "$attempt" -lt "$max" ]; then
                 trace_msg "client crashed — relaunching"
                 sleep 3
