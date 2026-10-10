@@ -37,12 +37,23 @@ if [ "$MODE" = "wine" ]; then
     for attempt in 1 2 3 4 5 6 7 8 9 10; do
         status=0
         offset=$(wc -c < "$log" 2>/dev/null | tr -d ' '); offset=${offset:-0}
+        start_ts=$(date +%s)
         "$WINE_APP/Contents/Resources/wine/bin/wine" "$@" >> "$log" 2>&1 || status=$?
-        [ "$status" -eq 0 ] || break
-        # Crash check on THIS launch's bytes only.
+        elapsed=$(( $(date +%s) - start_ts ))
         tail=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null)
         if printf '%s' "$tail" | grep -qE "NtRaiseException|caps_gl_ctx_create.*Failed to create a window"; then
-            trace_msg "client crashed (attempt $attempt/10) — relaunching"
+            crashed=1
+        else
+            crashed=0
+        fi
+        # Unconditional trace: every wine exit is recorded with its status,
+        # duration and crash-signature flag — stderr from an `open`-launched
+        # app is invisible, and a silent break would hide kills by an external
+        # wineserver -k (e.g. e2e-test.sh tearing down an attempt).
+        trace_msg "wine exit: status=$status elapsed=${elapsed}s crashed=$crashed (attempt $attempt/10)"
+        [ "$status" -eq 0 ] || break
+        if [ "$crashed" -eq 1 ]; then
+            trace_msg "client crashed — relaunching"
             if [ "$attempt" -lt 10 ]; then
                 sleep 3
             else

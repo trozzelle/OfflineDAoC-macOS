@@ -26,6 +26,9 @@ PASSWORD="${2:-e2epass1}"
 SERVER_DIR="server/dist/daoc-server"
 CLIENT_ROOT="dist/OfflineDAoC"
 EVIDENCE_DIR="evidence"
+# Stale files from a previous run would be mistaken for this run's evidence
+# (the per-attempt wine logs in particular); start clean.
+rm -rf "$EVIDENCE_DIR"
 mkdir -p "$EVIDENCE_DIR"
 FAILED=0
 STEP=""
