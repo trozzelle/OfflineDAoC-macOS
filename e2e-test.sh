@@ -106,7 +106,7 @@ fi
 
 # --- 5. Launch the client (up to 3 attempts) --------------------------------
 step "client launch"
-# Snapshot log positions BEFORE any launch so verification only sees new bytes.
+CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
 WINE_LOG=/tmp/daoc-wine.log
 SERVER_LOG="$SERVER_DIR/logs/server.log"
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
@@ -137,9 +137,9 @@ for attempt in 1 2 3 4 5; do
     # If the client process died (crash before splash), retry immediately.
     # Wait for it to appear first: 'open' returns before wine starts, so an
     # immediate check would read "not running" during the spawn window.
-    if ! pgrep -f "daoc-macos.dist.OfflineDAoC.*game\.dll" >/dev/null 2>&1; then
+    if ! pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
       sleep 5
-      if ! pgrep -f "daoc-macos.dist.OfflineDAoC.*game\.dll" >/dev/null 2>&1; then
+      if ! pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
         echo "client process died before login — relaunching"
         break
       fi
@@ -158,7 +158,7 @@ else
   echo "login observed (attempt $ATTEMPT); holding the client for the 120 s window"
   # Liveness is judged by the exact pid of THIS launch only — no fallback to
   # "any game.dll process" (another install's client could satisfy that).
-  CLIENT_PID=$(pgrep -f "daoc-macos.dist.OfflineDAoC.*game\.dll" | head -1)
+  CLIENT_PID=$(pgrep -f "$CLIENT_PAT" | head -1)
   if [[ -z $CLIENT_PID ]]; then
     fail "could not find the client process from this launch"
   else
