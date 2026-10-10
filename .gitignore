@@ -15,3 +15,7 @@ proxy.log
 # macOS noise
 .DS_Store
 evidence/
+
+# server build/cache artifacts
+server/build/
+server/.cache/

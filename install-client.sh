@@ -12,7 +12,7 @@
 #   3. Fetch + verify the pinned OfflineDAoC release parts (per-part + whole-archive
 #      SHA-256, same scheme as upstream's Get-OfflineDAoC.ps1), join, extract.
 #   4. Apply the client encryption-bypass patch to game.dll (byte-verified).
-#   5. Initialize the wine prefix (win10 mode) and install the launcher wrapper.
+#   5. Initialize the wine prefix (win10 version setting) and install the launcher wrapper.
 #
 # Everything is cached in downloads/ (gitignored); re-runs skip finished steps.
 set -euo pipefail
@@ -101,11 +101,11 @@ fi
 
 # --- 5. Wine prefix + launcher --------------------------------------------
 if [[ ! -f $PREFIX/system.reg ]]; then
-  echo "== initializing wine prefix (win10)"
+  echo "== initializing wine prefix (win10 version)"
   WINE="$WINE_APP/Contents/Resources/wine/bin/wine"
   export WINEPREFIX="$PWD/$PREFIX"   # absolute: wine rejects relative WINEPREFIX
   "$WINE" wineboot -i >/dev/null 2>&1
-  "$WINE" winecfg -v win10 >/dev/null 2>&1
+  "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win10 /f >/dev/null 2>&1 || true
   # Wait for wineserver to flush the registry hives before checking them.
   "$WINE_APP/Contents/Resources/wine/bin/wineserver" -w
   [[ -f $PREFIX/system.reg ]] || { echo "install-client: prefix init failed" >&2; exit 1; }

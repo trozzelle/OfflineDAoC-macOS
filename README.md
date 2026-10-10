@@ -8,7 +8,7 @@ their property.
 
 Nothing here would exist without the upstream projects — go support them:
 
-- [OpenDAoC](https://github.com/OpenDAoC/OpenDAoC-Core) — the open DAoC client core
+- [OpenDAoC](https://github.com/OpenDAoC/OpenDAoC-Core) — the open DAoC server emulator
 - [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) — the playable offline
   bundle built on OpenDAoC; it ships the original 1.127 Windows client, which the
   client install downloads
