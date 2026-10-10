@@ -20,7 +20,45 @@ if [ "$MODE" = "wine" ]; then
     export WINEDLLOVERRIDES='d3d9,dxgi=b'
     export WINEPREFIX="$INSTALL_DIR/dist/prefix"
     cd "$CLIENT_ROOT/runtime/client-opendaoc/app"
-    exec "$WINE_APP/Contents/Resources/wine/bin/wine" "$@" >> /tmp/daoc-wine.log 2>&1
+    # The GL init under Rosetta crashes probabilistically at two distinct
+    # points (measured 2026-10-09): wined3d adapter selection
+    # (err:seh:NtRaiseException) and window creation
+    # (err:d3d:wined3d_caps_gl_ctx_create "Failed to create a window"). Wine's
+    # start.exe swallows the child crash and returns 0 either way, so the exit
+    # status CANNOT distinguish a crash from a deliberate /quit. Instead, the
+    # launcher checks the wine log for either crash signature since this
+    # launch began and relaunches — the same loop e2e-test.sh runs, bounded at
+    # 10 tries. A clean quit prints neither signature and is never relaunched.
+    status=0
+    log=/tmp/daoc-wine.log
+    trace=/tmp/daoc-launcher.log
+    trace_msg() { echo "$(date '+%H:%M:%S') DAoCLauncher: $*" | tee -a "$trace" >&2; }
+    gave_up=0
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        status=0
+        offset=$(wc -c < "$log" 2>/dev/null | tr -d ' '); offset=${offset:-0}
+        "$WINE_APP/Contents/Resources/wine/bin/wine" "$@" >> "$log" 2>&1 || status=$?
+        [ "$status" -eq 0 ] || break
+        # Crash check on THIS launch's bytes only.
+        tail=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null)
+        if printf '%s' "$tail" | grep -qE "NtRaiseException|caps_gl_ctx_create.*Failed to create a window"; then
+            trace_msg "client crashed (attempt $attempt/10) — relaunching"
+            if [ "$attempt" -lt 10 ]; then
+                sleep 3
+            else
+                gave_up=1
+            fi
+        else
+            break   # clean exit (/quit) — do not relaunch
+        fi
+    done
+    # Giving up must be visible: a nonzero status, and a trace line (stderr
+    # from an `open`-launched app is invisible).
+    if [ "$gave_up" -eq 1 ]; then
+        trace_msg "client crashed 10 launches in a row — giving up"
+        exit 1
+    fi
+    exit "$status"
 fi
 
 echo "DAoCLauncher: unknown mode '$MODE' (supported: wine)" >&2
