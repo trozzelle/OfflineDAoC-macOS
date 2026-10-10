@@ -52,10 +52,17 @@ if [[ $FAILED -ne 0 ]]; then exit 1; fi
 # --- 2. Boot on alternate ports --------------------------------------------
 step "server boot (alternate ports 20300/20400)"
 (cd "$SERVER_DIR" && ./daoc-server.sh stop >/dev/null 2>&1) || true
+# A fresh install has no config/ until first start; seed it from defaults/ so
+# the port move below edits the file the server will actually read. The data/
+# world DB is likewise created here so the boot log is clean.
+mkdir -p "$SERVER_DIR/config" "$SERVER_DIR/data"
+[[ -f $SERVER_DIR/config/serverconfig.xml ]] || cp "$SERVER_DIR/defaults/serverconfig.xml" "$SERVER_DIR/config/"
+[[ -f $SERVER_DIR/data/opendaoc.sqlite3.db ]] || cp "$SERVER_DIR/defaults/world.sqlite" "$SERVER_DIR/data/opendaoc.sqlite3.db"
 if grep -q "<Port>10300</Port>" "$SERVER_DIR/config/serverconfig.xml" 2>/dev/null; then
   sed -i.bak 's|<Port>10300</Port>|<Port>20300</Port>|; s|<RegionPort>10400</RegionPort>|<RegionPort>20400</RegionPort>|; s|<UdpPort>10400</UdpPort>|<UdpPort>20400</UdpPort>|' \
     "$SERVER_DIR/config/serverconfig.xml" && rm -f "$SERVER_DIR/config/serverconfig.xml.bak"
   echo "ports moved to 20300/20400"
+  grep -q "<Port>20300</Port>" "$SERVER_DIR/config/serverconfig.xml" || { fail "port move failed"; exit 1; }
 fi
 # Boot detached: without a TTY the launcher script execs the console in the
 # foreground, so a plain `... | start --console &` dies when our pipe closes.
