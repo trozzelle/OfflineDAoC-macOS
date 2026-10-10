@@ -37,6 +37,10 @@ cleanup() {
   if [[ -d $SERVER_DIR && -f $SERVER_DIR/daoc-server.sh ]]; then
     (cd "$SERVER_DIR" && ./daoc-server.sh stop >/dev/null 2>&1) || true
   fi
+  # Restore the standard config so the install works as documented afterwards.
+  if [[ -f $SERVER_DIR/config/serverconfig.xml.bak ]]; then
+    mv -f "$SERVER_DIR/config/serverconfig.xml.bak" "$SERVER_DIR/config/serverconfig.xml"
+  fi
   rmdir "$PWD/.e2e.lock" 2>/dev/null || true
 }
 # One run at a time: two concurrent runs would fight over the same wine
@@ -66,7 +70,7 @@ mkdir -p "$SERVER_DIR/config" "$SERVER_DIR/data"
 [[ -f $SERVER_DIR/data/opendaoc.sqlite3.db ]] || cp "$SERVER_DIR/defaults/world.sqlite" "$SERVER_DIR/data/opendaoc.sqlite3.db"
 if grep -q "<Port>10300</Port>" "$SERVER_DIR/config/serverconfig.xml" 2>/dev/null; then
   sed -i.bak 's|<Port>10300</Port>|<Port>20300</Port>|; s|<RegionPort>10400</RegionPort>|<RegionPort>20400</RegionPort>|; s|<UdpPort>10400</UdpPort>|<UdpPort>20400</UdpPort>|' \
-    "$SERVER_DIR/config/serverconfig.xml" && rm -f "$SERVER_DIR/config/serverconfig.xml.bak"
+    "$SERVER_DIR/config/serverconfig.xml"
   echo "ports moved to 20300/20400"
   grep -q "<Port>20300</Port>" "$SERVER_DIR/config/serverconfig.xml" || { fail "port move failed"; exit 1; }
 fi

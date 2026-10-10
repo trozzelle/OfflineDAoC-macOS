@@ -1,6 +1,8 @@
 # daoc-macos
 
-Dark Age of Camelot, offline, on a Mac.
+Dark Age of Camelot, offline, on a Mac. Apple Silicon (arm64) with Rosetta 2;
+needs Xcode Command Line Tools and cmake (`brew install cmake`) — everything
+else is fetched.
 
 DAoC is © Mythic Entertainment / Broadsword Online Games (Electronic Arts).
 This is unaffiliated fan tooling; the original client and game data remain
@@ -27,8 +29,7 @@ Server-side patches are GPL v3, like the upstream they modify.
 ```
 
 Clones the pinned upstream, checks the macOS patches apply, builds
-`server/dist/daoc-server/`. Needs Xcode CLT, cmake, and the .NET 10 SDK
-(installed automatically). Then:
+`server/dist/daoc-server/`. Then:
 
 ```bash
 cd server/dist/daoc-server
@@ -46,11 +47,13 @@ Downloads the OfflineDAoC release (≈5 GB), installs Wine Staging 11.18, patche
 
 ## Play
 
-Create an account (`./daoc-admin accounts create <name> <pass>` inside
-`server/dist/daoc-server/`), then, with the server running:
+Start the server as above (it holds the terminal with the admin screen). In a
+**second terminal**, create an account and launch the client:
 
 ```bash
-open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <account> <password>
+cd server/dist/daoc-server
+./daoc-admin accounts create <name> <pass>
+open -n ../../dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pass>
 ```
 
 The client's GL init under Rosetta is flaky — if it crashes before the splash,
