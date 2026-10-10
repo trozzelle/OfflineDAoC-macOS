@@ -100,12 +100,13 @@ else
 fi
 
 # --- 5. Wine prefix + launcher --------------------------------------------
-if [[ ! -d $PREFIX ]]; then
+if [[ ! -f $PREFIX/system.reg ]]; then
   echo "== initializing wine prefix (win10)"
   WINE="$WINE_APP/Contents/Resources/wine/bin/wine"
-  export WINEPREFIX="$PREFIX"
-  "$WINE" wineboot -i >/dev/null 2>&1 || true
-  "$WINE" cmd /c setwinver win10 >/dev/null 2>&1 || true
+  export WINEPREFIX="$PWD/$PREFIX"   # absolute: wine rejects relative WINEPREFIX
+  "$WINE" wineboot -i >/dev/null 2>&1
+  "$WINE" winecfg -v win10 >/dev/null 2>&1
+  [[ -f $PREFIX/system.reg ]] || { echo "install-client: prefix init failed" >&2; exit 1; }
 else
   echo "== wine prefix already initialized"
 fi
