@@ -13,4 +13,4 @@ proxy.log
 *.log
 
 # macOS noise
-.DS_Store
+.DS_Storeevidence/
