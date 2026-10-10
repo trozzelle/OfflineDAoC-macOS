@@ -60,6 +60,7 @@ fi
 # Boot detached: without a TTY the launcher script execs the console in the
 # foreground, so a plain `... | start --console &` dies when our pipe closes.
 # nohup with output into logs/console.out keeps it independent of this script.
+mkdir -p "$SERVER_DIR/logs" "$SERVER_DIR/run"
 (cd "$SERVER_DIR" && nohup ./daoc-server.sh start --console </dev/null >logs/console.out 2>&1 &)
 for i in $(seq 1 120); do
   if grep -q "Server is now listening" "$SERVER_DIR/logs/console.out" 2>/dev/null \
