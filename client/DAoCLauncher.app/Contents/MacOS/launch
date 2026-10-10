@@ -23,12 +23,16 @@ if [ "$MODE" = "wine" ]; then
     # The GL init under Rosetta crashes probabilistically at two distinct
     # points (measured 2026-10-09): wined3d adapter selection
     # (err:seh:NtRaiseException) and window creation
-    # (err:d3d:wined3d_caps_gl_ctx_create "Failed to create a window"). Wine's
-    # start.exe swallows the child crash and returns 0 either way, so the exit
-    # status CANNOT distinguish a crash from a deliberate /quit. Instead, the
-    # launcher checks the wine log for either crash signature since this
-    # launch began and relaunches — the same loop e2e-test.sh runs, bounded at
-    # 10 tries. A clean quit prints neither signature and is never relaunched.
+    # (err:d3d:wined3d_caps_gl_ctx_create "Failed to create a window").
+    # Wine's exit status is unreliable for detecting these: the
+    # NtRaiseException mode surfaced as status=5, the caps_gl_ctx_create mode
+    # as status=0 — the code path through start.exe varies. So the crash
+    # decision is made from the LOG SLICE of this launch alone: if it contains
+    # either signature and the client died quickly (elapsed < 60 s — a crash
+    # never reaches login, which takes 1-2 min), relaunch. A slow exit or a
+    # slice without a signature is a real session (/quit or play) — never
+    # relaunched. Bounded at 10 tries; traces every exit to
+    # /tmp/daoc-launcher.log (stderr from an `open`-launched app is invisible).
     status=0
     log=/tmp/daoc-wine.log
     trace=/tmp/daoc-launcher.log
@@ -46,21 +50,16 @@ if [ "$MODE" = "wine" ]; then
         else
             crashed=0
         fi
-        # Unconditional trace: every wine exit is recorded with its status,
-        # duration and crash-signature flag — stderr from an `open`-launched
-        # app is invisible, and a silent break would hide kills by an external
-        # wineserver -k (e.g. e2e-test.sh tearing down an attempt).
         trace_msg "wine exit: status=$status elapsed=${elapsed}s crashed=$crashed (attempt $attempt/10)"
-        [ "$status" -eq 0 ] || break
-        if [ "$crashed" -eq 1 ]; then
-            trace_msg "client crashed — relaunching"
+        if [ "$crashed" -eq 1 ] && [ "$elapsed" -lt 60 ]; then
             if [ "$attempt" -lt 10 ]; then
+                trace_msg "client crashed — relaunching"
                 sleep 3
             else
                 gave_up=1
             fi
         else
-            break   # clean exit (/quit) — do not relaunch
+            break   # real session (clean quit, long play, or external kill) — do not relaunch
         fi
     done
     # Giving up must be visible: a nonzero status, and a trace line (stderr
