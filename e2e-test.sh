@@ -118,6 +118,7 @@ LOGIN_OK=""
 ATTEMPT=""
 for attempt in 1 2 3 4 5; do
   ATTEMPT=$attempt
+  CLIENT_SEEN=0
   echo "--- launch attempt $attempt/5"
   # Kill any orphaned wine client from a previous attempt.
   WINE_BIN="$PWD/dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wine"
@@ -134,15 +135,17 @@ for attempt in 1 2 3 4 5; do
       LOGIN_OK=1
       break 2
     fi
-    # If the client process died (crash before splash), retry immediately.
+    # Crash detection: retry only after the client was actually seen running.
     # Wait for it to appear first: 'open' returns before wine starts, so an
-    # immediate check would read "not running" during the spawn window.
-    if ! pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
-      sleep 5
-      if ! pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
-        echo "client process died before login — relaunching"
-        break
-      fi
+    # immediate check would read "not running" during the spawn window. The
+    # seen-flag makes "died" reproducible: only a client that was observed
+    # running and then vanished counts as a crash.
+    if pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
+      CLIENT_SEEN=1
+    elif [[ ${CLIENT_SEEN:-0} -eq 1 ]]; then
+      echo "client process died before login — relaunching"
+      CLIENT_SEEN=0
+      break
     fi
     sleep 2
   done
