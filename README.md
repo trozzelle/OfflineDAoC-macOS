@@ -62,8 +62,10 @@ client:
 open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pass>
 ```
 
-The client's GL init under Rosetta is flaky — if it crashes before the splash,
-relaunch. Login takes 1–2 minutes. Exit with `/quit` in chat.
+The client's GL init under Rosetta is flaky — if it crashes before the
+splash, the launcher relaunches it on its own (up to 10 tries; each attempt
+is traced to `/tmp/daoc-launcher.log`). Login takes 1–2 minutes. Exit with
+`/quit` in chat.
 
 If another DAoC server is already using port 10300, stop it first.
 `./e2e-test.sh` runs its own server on 20300/20400 and puts the config back
