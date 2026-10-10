@@ -115,23 +115,24 @@ fi
 # --- 5. Launch the client (up to 3 attempts) --------------------------------
 step "client launch"
 CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
-WINE_LOG=/tmp/daoc-wine.log
-SERVER_LOG="$SERVER_DIR/logs/server.log"
+# --- 5. Launch the client (up to 10 attempts) -------------------------------
+step "client launch"
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
 
-# The client's wined3d GL init under Rosetta is flaky (~50% of launches stall or
-# crash before the splash); a kill-and-relaunch retry succeeds (PORTING-LOG).
-# Login itself takes 1-2 minutes to reach the server (RUNBOOK).
-LOGIN_OK=""
+# Observed across fresh-clone runs: successful logins landed on attempts 1, 2,
+# 4 and 5 of 5 — consistent with the documented ~50% GL-init crash rate, where
+# a failed attempt dies before ever opening a network connection (verified: no
+# "Incoming connection" line for any attempt that reported "died").
 ATTEMPT=""
-for attempt in 1 2 3 4 5; do
+for attempt in $(seq 1 10); do
   ATTEMPT=$attempt
   CLIENT_SEEN=0
-  echo "--- launch attempt $attempt/5"
-  # Kill any orphaned wine client from a previous attempt.
-  WINE_BIN="$PWD/dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wine"
+  echo "--- launch attempt $attempt/10"
+  # Kill any orphaned wine client from a previous attempt, then wait for the
+  # wineserver to actually exit (a fixed sleep can't tell a slow Rosetta
+  # teardown from a fast one).
   WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
-  sleep 3
+  "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
   : > "$WINE_LOG"
   open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
   deadline=$((SECONDS + 180))
@@ -177,7 +178,7 @@ cp "$WINE_LOG" "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
 echo "$ATTEMPT" > "$EVIDENCE_DIR/launch-attempts.txt"
 
 if [[ -z $LOGIN_OK ]]; then
-  fail "no 'User $ACCOUNT logging on!' appeared in the server log after 5 launch attempts"
+  fail "no 'User $ACCOUNT logging on!' appeared in the server log after 10 launch attempts"
 else
   echo "login observed (attempt $ATTEMPT); holding the client for the 120 s window"
   # Liveness is judged by the exact pid of THIS launch only — no fallback to
