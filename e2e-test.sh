@@ -111,14 +111,12 @@ else
   echo "client already installed"
 fi
 [[ -f $CLIENT_ROOT/runtime/client-opendaoc/app/game.dll ]] || { fail "game.dll missing after client install"; exit 1; }
-
-# --- 5. Launch the client (up to 3 attempts) --------------------------------
-step "client launch"
-CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
 # --- 5. Launch the client (up to 10 attempts) -------------------------------
 step "client launch"
+WINE_LOG=/tmp/daoc-wine.log
+SERVER_LOG="$SERVER_DIR/logs/server.log"
+CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
-
 # Observed across fresh-clone runs: successful logins landed on attempts 1, 2,
 # 4 and 5 of 5 — consistent with the documented ~50% GL-init crash rate, where
 # a failed attempt dies before ever opening a network connection (verified: no
