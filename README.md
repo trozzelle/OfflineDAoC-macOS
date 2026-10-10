@@ -51,9 +51,8 @@ Start the server as above (it holds the terminal with the admin screen). In a
 **second terminal**, create an account and launch the client:
 
 ```bash
-cd server/dist/daoc-server
-./daoc-admin accounts create <name> <pass>
-open -n ../../dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pass>
+(cd server/dist/daoc-server && ./daoc-admin accounts create <name> <pass>)
+open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pass>
 ```
 
 The client's GL init under Rosetta is flaky — if it crashes before the splash,
