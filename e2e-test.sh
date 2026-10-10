@@ -117,10 +117,13 @@ WINE_LOG=/tmp/daoc-wine.log
 SERVER_LOG="$SERVER_DIR/logs/server.log"
 CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
-# Observed across fresh-clone runs: successful logins landed on attempts 1, 2,
-# 4 and 5 of 5 — consistent with the documented ~50% GL-init crash rate, where
-# a failed attempt dies before ever opening a network connection (verified: no
-# "Incoming connection" line for any attempt that reported "died").
+# Observed: every "died" attempt crashed at the same GL-init point
+# (wined3d select_card_handler → err:seh:NtRaiseException, verified via the
+# per-attempt wine logs in evidence/). The crash is probabilistic at that
+# point — earlier runs succeeded on attempts 1, 2, 4 and 5 of 5; runs 9-10
+# burned 10 consecutive crashes before a success. A failed attempt never
+# opens a network connection (no "Incoming connection" for any "died"),
+# so relaunching is the only remedy; 10 attempts bounds the worst case.
 ATTEMPT=""
 LOGIN_OK=""
 for attempt in $(seq 1 10); do
