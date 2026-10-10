@@ -19,7 +19,7 @@
 # this install is alive — shutdown needs the socket to wake a pending accept
 # (patch 010). Check lsof before touching run/.
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" && cd "$(pwd -P)"
 
 ACCOUNT="${1:-e2e$(date +%s)}"
 PASSWORD="${2:-e2epass1}"

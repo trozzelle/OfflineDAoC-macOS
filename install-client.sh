@@ -16,7 +16,7 @@
 #
 # Everything is cached in downloads/ (gitignored); re-runs skip finished steps.
 set -euo pipefail
-cd "$(dirname "$0")"   # repo root (client/ lives here)
+cd "$(dirname "$0")" && cd "$(pwd -P)"   # repo root (client/ lives here); resolve symlinks
 
 manifest_pin() { python3 -c "import json; print(json.load(open('manifest.json'))['$1']['$2'])"; }
 

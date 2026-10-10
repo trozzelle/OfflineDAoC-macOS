@@ -18,7 +18,7 @@ BUNDLED_SHA256="eb87141ffc756514226be05a9d752599c31e2f6d892d284e8983aba9bfb1914f
 
 # The Linux source repo this port reads its bundled data from (read-only reference).
 SOURCE_REPO="${DAOC_SOURCE_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/daoc-offline-linux-server-bots}"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CACHE="$HERE/.cache/opendaoc-db-$DB_COMMIT"
 DUMP="$CACHE/opendaoc-db-core"
 

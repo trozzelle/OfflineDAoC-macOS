@@ -19,7 +19,7 @@
 #     time so Gatekeeper quarantine and hardened-runtime checks do not block execution.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"                           # this repo (macOS port)
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"                           # this repo (macOS port)
 # The Linux source repo this port is built from (read-only reference; see vendor/README.md).
 REPO="${DAOC_SOURCE_REPO:-$(cd "$HERE/.." && pwd)/daoc-offline-linux-server-bots}"
 # Where the vendored System.Data.SQLite source lives (see vendor/README.md).

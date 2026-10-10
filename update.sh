@@ -9,7 +9,7 @@
 # if upstream changed in a way the patches no longer cover, the install fails
 # loudly rather than silently producing a broken build.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" && cd "$(pwd -P)"
 
 cmd="${1:-check}"
 

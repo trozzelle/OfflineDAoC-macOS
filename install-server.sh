@@ -13,13 +13,12 @@
 # Prerequisites: Xcode Command Line Tools, cmake (brew install cmake), curl, python3.
 # Everything else is fetched automatically. Free tooling only.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" && cd "$(pwd -P)"   # resolve symlinks: MSBuild must see one path
 
 manifest_pin() { python3 -c "import json,sys; print(json.load(open('manifest.json'))['$1']['$2'])"; }
 
 UPSTREAM_URL=$(manifest_pin server archive_url)
 UPSTREAM_SHA=$(manifest_pin server archive_sha256)
-UPSTREAM_REF=$(manifest_pin server ref)
 ARCHIVE="downloads/daoc-offline-linux-server-bots-${UPSTREAM_REF:0:7}.tar.gz"
 SRC_DIR="upstream/server"
 
