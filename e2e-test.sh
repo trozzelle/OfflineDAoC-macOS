@@ -37,6 +37,11 @@ step() { STEP="$1"; echo; echo "=== $STEP ==="; }
 fail() { echo "E2E FAILED at: $STEP — $1" >&2; FAILED=1; }
 
 cleanup() {
+  # Tear down any client this run launched: the wrapper (bash launch …) and
+  # the wine tree under this install's prefix. Scoped to $PWD so the
+  # reference install's processes are never signalled.
+  pkill -f "$PWD/dist/DAoCLauncher.app" 2>/dev/null || true
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
   if [[ -d $SERVER_DIR && -f $SERVER_DIR/daoc-server.sh ]]; then
     (cd "$SERVER_DIR" && ./daoc-server.sh stop >/dev/null 2>&1) || true
   fi
