@@ -6,18 +6,19 @@ marked **fixed** were corrected during the build; **noted** items are deliberate
 and documented here.
 
 ## client/apply_game_patch.py — client byte-patcher
+
 - **Fixed** — runs under the stock Xcode CLT Python 3.9 (`from __future__ import
   annotations`; the `Path | None` unions otherwise raise TypeError at import on
   a stock Mac with no pyenv/Homebrew Python).
 - **Fixed** — original version hardcoded an absolute home path; now takes the
   DLL path as an argument and the expected pristine hash from the repo's
   `manifest.json` (`client.game_dll_sha256`), passed explicitly by the install
-  script. The `client.game_dll_sha256` pin is the single source of truth —
-  `update.sh client` clearing it genuinely forces re-derivation.
-- **Fixed** — a `.orig` that already exists is trusted as the pristine base
-  (it was hash-verified when created); an unpatched DLL with no `.orig` and no
-  pin is refused; an already-patched DLL with no `.orig` is reported as
-  "nothing to do" rather than an error.
+  script. The pin is the single source of truth — `update.sh client` clearing it
+  genuinely forces re-derivation.
+- **Fixed** — a `.orig` that already exists is trusted as the pristine base (it
+  was hash-verified when created); an unpatched DLL with no `.orig` and no pin is
+  refused; an already-patched DLL with no `.orig` is reported as "nothing to do"
+  rather than an error.
 - Verified: output is byte-identical to the client variant that was played and
   confirmed working end-to-end (login → world → combat → quit).
 
@@ -48,23 +49,28 @@ and documented here.
 - **Fixed** — originally fetched a codeload tarball and verified a recorded
   archive hash; now clones the upstream, checks out the pinned ref, verifies
   `git rev-parse HEAD` against it, and pre-checks every patch with
-- **Fixed** — requirements checks (macOS, Rosetta 2, python3) are explicit and
-  fail with actionable messages. Rosetta is probed functionally
-  (`arch -x86_64 /usr/bin/true`) rather than by daemon name, which varies
-  across macOS versions.
+  `git apply --check` before spending any build time.
+- **Fixed** — calls `tools/setup-dotnet.sh` unconditionally (it is idempotent);
+  the earlier conditional missed a partial SDK install.
+- **Fixed** — a tarball-era `upstream/server` (from the old hash-pinned scheme)
+  is detected by the missing `.git` and replaced with a proper clone, so the
+  upgrade path from the first layout works.
+
 ## install-client.sh
 
+- **Fixed** — requirements checks (macOS, Rosetta 2, python3) are explicit and
+  fail with actionable messages. Rosetta is probed functionally
+  (`arch -x86_64 /usr/bin/true`) rather than by daemon name, which varies across
+  macOS versions.
 - **Fixed** — `WINEPREFIX` must be absolute (wine rejects a relative path);
   the prefix step now exports `$PWD/$PREFIX`.
 - **Fixed** — prefix completion is now verified (`system.reg` exists) after
   `wineserver -w` waits for the hives to flush; the old `|| true` chain could
   silently half-initialize.
-- **Noted** — GStreamer framework is optional (warned, not enforced): the
-  verified working configuration ran without it.
 - **Fixed** — `winecfg -v win10` removed; it only edits a live prefix and hung
   headless. The `Version` registry key is set via `wine reg add` instead.
-- **Fixed** — requirements checks (macOS, Rosetta 2 via `oahd`, python3) are
-  explicit and fail with actionable messages.
+- **Noted** — GStreamer framework is optional (warned, not enforced): the
+  verified working configuration ran without it.
 
 ## client/fetch_release.py — release fetcher
 
@@ -87,6 +93,9 @@ and documented here.
 - **Fixed** — the client-process pattern is derived from the install path
   (`$(basename "$PWD").dist.OfflineDAoC…`); a hardcoded repo name matched
   nothing in a differently named clone and misread every launch as a crash.
+- **Fixed** — crash detection uses a seen-flag: only a client that was observed
+  running and then vanished counts as a crash, so the spawn window after `open`
+  can't produce a false "died".
 - **Noted** — 5 launch attempts per run: the client's wined3d GL init under
   Rosetta crashes roughly half the time before the splash (documented in the
   porting log); a relaunch succeeds. The login-wait window is 180 s per attempt
