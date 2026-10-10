@@ -106,6 +106,8 @@ if [[ ! -f $PREFIX/system.reg ]]; then
   export WINEPREFIX="$PWD/$PREFIX"   # absolute: wine rejects relative WINEPREFIX
   "$WINE" wineboot -i >/dev/null 2>&1
   "$WINE" winecfg -v win10 >/dev/null 2>&1
+  # Wait for wineserver to flush the registry hives before checking them.
+  "$WINE_APP/Contents/Resources/wine/bin/wineserver" -w
   [[ -f $PREFIX/system.reg ]] || { echo "install-client: prefix init failed" >&2; exit 1; }
 else
   echo "== wine prefix already initialized"
