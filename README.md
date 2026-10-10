@@ -1,12 +1,11 @@
 # daoc-macos
 
-Dark Age of Camelot, offline, on a Mac. Apple Silicon (arm64) with Rosetta 2;
+OfflineDAoC server and game client running on macOS, Apple Silicon (arm64) with Rosetta 2 under Wine;
 needs Xcode Command Line Tools and cmake (`brew install cmake`) — everything
 else is fetched.
 
-DAoC is © Mythic Entertainment / Broadsword Online Games (Electronic Arts).
-This is unaffiliated fan tooling; the original client and game data remain
-their property.
+DAoC is a property of Mythic Entertainment / Broadsword Online Games (Electronic Arts).
+This is unaffiliated fan tooling; the original client and game data remain their property.
 
 Nothing here would exist without the upstream projects — go support them:
 

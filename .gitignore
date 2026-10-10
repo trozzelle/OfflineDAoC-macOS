@@ -29,3 +29,6 @@ server/.cache/
 # per-run evidence snapshots (regenerable via e2e-test.sh)
 evidence/final/
 HANDOFF.md
+
+# IDE noise
+.idea/
