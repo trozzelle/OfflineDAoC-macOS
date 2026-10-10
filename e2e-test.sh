@@ -153,8 +153,10 @@ for attempt in 1 2 3 4 5; do
     if echo "$NEWBYTES" | grep -q "LoginRequestHandler.*User $ACCOUNT logging on!"; then
       # Authentication succeeded; confirm via the account record.
       SHOW_OUT=$( (cd "$SERVER_DIR" && ./daoc-admin accounts show "$ACCOUNT" 2>&1) )
-      echo "$SHOW_OUT" | grep -q "last login never" || { LOGIN_OK=1; break 2; }
+      echo "$SHOW_OUT" > "$EVIDENCE_DIR/account-show.txt"
+      echo "$SHOW_OUT" | grep -q "last login [0-9]" && { LOGIN_OK=1; break 2; }
     fi
+    # Crash detection: retry only after the client was actually seen running.
     # Wait for it to appear first: 'open' returns before wine starts, so an
     # immediate check would read "not running" during the spawn window. The
     # seen-flag makes "died" reproducible: only a client that was observed
