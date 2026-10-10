@@ -24,3 +24,4 @@ server/.cache/
 server/vendor/bin/
 server/build/
 server/.cache/
+.e2e.lock

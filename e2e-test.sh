@@ -37,9 +37,15 @@ cleanup() {
   if [[ -d $SERVER_DIR && -f $SERVER_DIR/daoc-server.sh ]]; then
     (cd "$SERVER_DIR" && ./daoc-server.sh stop >/dev/null 2>&1) || true
   fi
+  rmdir "$PWD/.e2e.lock" 2>/dev/null || true
 }
+# One run at a time: two concurrent runs would fight over the same wine
+# prefix, server ports, and logs.
+if ! mkdir "$PWD/.e2e.lock" 2>/dev/null; then
+  echo "another e2e run is active (remove $PWD/.e2e.lock if that is stale)" >&2
+  exit 1
+fi
 trap cleanup EXIT
-
 # --- 1. Server installed? ---------------------------------------------------
 step "server install"
 if [[ ! -x $SERVER_DIR/bin/CoreServer ]]; then
