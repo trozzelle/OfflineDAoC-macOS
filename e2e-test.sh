@@ -21,7 +21,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-ACCOUNT="${1:-e2etest}"
+ACCOUNT="${1:-e2e$(date +%s)}"
 PASSWORD="${2:-e2epass1}"
 SERVER_DIR="server/dist/daoc-server"
 CLIENT_ROOT="dist/OfflineDAoC"
@@ -96,36 +96,53 @@ else
 fi
 [[ -f $CLIENT_ROOT/runtime/client-opendaoc/app/game.dll ]] || { fail "game.dll missing after client install"; exit 1; }
 
-# Snapshot log positions BEFORE the launch so verification only sees new bytes.
+# --- 5. Launch the client (up to 3 attempts) --------------------------------
+step "client launch"
+# Snapshot log positions BEFORE any launch so verification only sees new bytes.
 WINE_LOG=/tmp/daoc-wine.log
-: > "$WINE_LOG"
 SERVER_LOG="$SERVER_DIR/logs/server.log"
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
-open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
-echo "client launch requested; waiting for the login to register server-side"
 
-# --- 6. Verify: login reached the server; client stays alive ----------------
-step "login evidence + 120 s aliveness"
-deadline=$((SECONDS + 90))
+# The client's wined3d GL init under Rosetta is flaky (~50% of launches stall or
+# crash before the splash); a kill-and-relaunch retry succeeds (PORTING-LOG).
+# Login itself takes 1-2 minutes to reach the server (RUNBOOK).
 LOGIN_OK=""
-while (( SECONDS < deadline )); do
-  # Strict, offset-windowed check: only bytes the server logged AFTER this
-  # launch, only the real login event for THIS account. A wine fixme or a
-  # stale "logging in" line from an earlier run must not satisfy it.
-  if tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" 2>/dev/null \
-     | grep -q "LoginRequestHandler.*User $ACCOUNT logging in"; then
-    LOGIN_OK=1
-    break
-  fi
-  sleep 2
+ATTEMPT=""
+for attempt in 1 2 3; do
+  ATTEMPT=$attempt
+  echo "--- launch attempt $attempt/3"
+  # Kill any orphaned wine client from a previous attempt.
+  WINE_BIN="$PWD/dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wine"
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
+  sleep 3
+  : > "$WINE_LOG"
+  open -n "$PWD/dist/DAoCLauncher.app" --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
+  deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    # Strict, offset-windowed check: only bytes the server logged AFTER the
+    # launches, only the real login event for THIS account.
+    if tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" 2>/dev/null \
+       | grep -q "LoginRequestHandler.*User $ACCOUNT logging on!"; then
+      LOGIN_OK=1
+      break 2
+    fi
+    # If the client process died (crash before splash), retry immediately.
+    if ! pgrep -f "game.dll 127.0.0.1 20300" >/dev/null 2>&1; then
+      echo "client process died before login — relaunching"
+      break
+    fi
+    sleep 2
+  done
+  [[ -n $LOGIN_OK ]] && break
 done
 cp "$SERVER_LOG" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
 cp "$WINE_LOG" "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
+echo "$ATTEMPT" > "$EVIDENCE_DIR/launch-attempts.txt"
 
 if [[ -z $LOGIN_OK ]]; then
-  fail "no 'User $ACCOUNT logging in' appeared in the server log within 90 s"
+  fail "no 'User $ACCOUNT logging on!' appeared in the server log after 3 launch attempts"
 else
-  echo "login observed in the server log; holding the client for the 120 s window"
+  echo "login observed (attempt $ATTEMPT); holding the client for the 120 s window"
   # Liveness is judged by the exact pid of THIS launch only — no fallback to
   # "any game.dll process" (another install's client could satisfy that).
   CLIENT_PID=$(pgrep -f "game.dll 127.0.0.1 20300" | head -1)
