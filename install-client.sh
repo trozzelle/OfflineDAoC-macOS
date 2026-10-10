@@ -37,6 +37,17 @@ LAUNCHER_SRC="client/DAoCLauncher.app"
 LAUNCHER_DST="$DIST/DAoCLauncher.app"
 
 echo "== install-client: OfflineDAoC v$REL_VER + Wine Staging"
+
+# --- 1. Requirements -------------------------------------------------------
+[[ $(uname -s) == "Darwin" ]] || { echo "install-client: macOS required" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "install-client: python3 required" >&2; exit 1; }
+if [[ $(uname -m) == "arm64" ]]; then
+  # The Wine build is x86_64; Apple Silicon needs Rosetta 2 (oahd is its daemon).
+  /usr/bin/pgrep -q oahd 2>/dev/null || {
+    echo "install-client: Rosetta 2 not installed (softwareupdate --install-rosetta --agree-to-license)" >&2
+    exit 1
+  }
+fi
 # Wine runs without the GStreamer framework, but audio/video in games typically
 # needs it. The prior verification used this machine without GStreamer installed,
 # so treat it as optional with a warning rather than a hard requirement.
