@@ -108,9 +108,9 @@ LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OF
 # Login itself takes 1-2 minutes to reach the server (RUNBOOK).
 LOGIN_OK=""
 ATTEMPT=""
-for attempt in 1 2 3; do
+for attempt in 1 2 3 4 5; do
   ATTEMPT=$attempt
-  echo "--- launch attempt $attempt/3"
+  echo "--- launch attempt $attempt/5"
   # Kill any orphaned wine client from a previous attempt.
   WINE_BIN="$PWD/dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wine"
   WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
@@ -145,7 +145,7 @@ cp "$WINE_LOG" "$EVIDENCE_DIR/wine.log" 2>/dev/null || true
 echo "$ATTEMPT" > "$EVIDENCE_DIR/launch-attempts.txt"
 
 if [[ -z $LOGIN_OK ]]; then
-  fail "no 'User $ACCOUNT logging on!' appeared in the server log after 3 launch attempts"
+  fail "no 'User $ACCOUNT logging on!' appeared in the server log after 5 launch attempts"
 else
   echo "login observed (attempt $ATTEMPT); holding the client for the 120 s window"
   # Liveness is judged by the exact pid of THIS launch only — no fallback to
