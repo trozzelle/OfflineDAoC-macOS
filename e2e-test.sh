@@ -165,6 +165,13 @@ for attempt in $(seq 1 10); do
       CLIENT_SEEN=1
     elif [[ ${CLIENT_SEEN:-0} -eq 1 ]]; then
       echo "client process died before login — relaunching"
+      # Keep this attempt's output: the truncation below would otherwise
+      # destroy the only crash signature. A timestamped snapshot of what
+      # pgrep matched right before the death disambiguates a real client
+      # crash from a short-lived process matching the pattern.
+      cp "$WINE_LOG" "$EVIDENCE_DIR/wine-attempt-$attempt.log" 2>/dev/null || true
+      { date '+%H:%M:%S'; pgrep -fl "$CLIENT_PAT" 2>/dev/null; } \
+        > "$EVIDENCE_DIR/pgrep-at-attempt-$attempt.txt" 2>/dev/null || true
       CLIENT_SEEN=0
       break
     fi
