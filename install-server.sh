@@ -26,6 +26,11 @@ SRC_DIR="upstream/server"
 
 echo "== install-server: pinned upstream ${UPSTREAM_REF:0:12}"
 mkdir -p downloads upstream
+if [[ -d $SRC_DIR && ! -d $SRC_DIR/.git ]]; then
+  # Tarball-era extract (pre-git pinning) — replace it with a proper clone.
+  echo "== replacing tarball-era upstream extract with a git clone"
+  rm -rf "$SRC_DIR"
+fi
 if [[ ! -d $SRC_DIR/.git ]]; then
   echo "== cloning upstream (this downloads ~400 MB)"
   git clone --quiet "$UPSTREAM_URL" "$SRC_DIR"

@@ -42,11 +42,13 @@ echo "== install-client: OfflineDAoC v$REL_VER + Wine Staging"
 [[ $(uname -s) == "Darwin" ]] || { echo "install-client: macOS required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "install-client: python3 required" >&2; exit 1; }
 if [[ $(uname -m) == "arm64" ]]; then
-  # The Wine build is x86_64; Apple Silicon needs Rosetta 2 (oahd is its daemon).
-  /usr/bin/pgrep -q oahd 2>/dev/null || {
+  # The Wine build is x86_64; Apple Silicon needs Rosetta 2. A functional probe
+  # (can we execute an x86_64 binary?) beats checking for the oahd daemon, whose
+  # process name varies across macOS versions.
+  if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
     echo "install-client: Rosetta 2 not installed (softwareupdate --install-rosetta --agree-to-license)" >&2
     exit 1
-  }
+  fi
 fi
 # Wine runs without the GStreamer framework, but audio/video in games typically
 # needs it. The prior verification used this machine without GStreamer installed,
@@ -95,8 +97,7 @@ fi
 if [[ -f "$APP_DIR/game.dll.orig" ]]; then
   echo "== client already patched"
 else
-  echo "== applying the client encryption-bypass patch"
-  python3 client/apply_game_patch.py "$APP_DIR/game.dll"
+  python3 client/apply_game_patch.py "$APP_DIR/game.dll" "$PWD/manifest.json"
 fi
 
 # --- 5. Wine prefix + launcher --------------------------------------------
