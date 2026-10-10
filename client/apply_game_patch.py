@@ -14,6 +14,8 @@ already-patched base is refused instead of silently corrupted. If the pin is
 absent (a post-update re-derivation gap), a game.dll whose bytes match the
 patched output is accepted as already patched; anything else is refused.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import shutil

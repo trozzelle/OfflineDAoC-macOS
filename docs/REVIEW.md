@@ -6,12 +6,15 @@ marked **fixed** were corrected during the build; **noted** items are deliberate
 and documented here.
 
 ## client/apply_game_patch.py — client byte-patcher
-
 - **Fixed** — original version hardcoded an absolute home path; now takes the
-  DLL path as an argument.
-- **Fixed** — now verifies the input against the pinned pristine SHA-256 before
-  patching (the earlier script only checked for already-patched bytes), so an
-  unknown base is refused instead of silently corrupted.
+  DLL path as an argument and the expected pristine hash from the repo's
+  `manifest.json` (`client.game_dll_sha256`), passed explicitly by the install
+  script. The `client.game_dll_sha256` pin is the single source of truth —
+  `update.sh client` clearing it genuinely forces re-derivation.
+- **Fixed** — a `.orig` that already exists is trusted as the pristine base
+  (it was hash-verified when created); an unpatched DLL with no `.orig` and no
+  pin is refused; an already-patched DLL with no `.orig` is reported as
+  "nothing to do" rather than an error.
 - Verified: output is byte-identical to the client variant that was played and
   confirmed working end-to-end (login → world → combat → quit).
 
@@ -42,10 +45,10 @@ and documented here.
 - **Fixed** — originally fetched a codeload tarball and verified a recorded
   archive hash; now clones the upstream, checks out the pinned ref, verifies
   `git rev-parse HEAD` against it, and pre-checks every patch with
-  `git apply --check` before spending any build time.
-- **Fixed** — calls `tools/setup-dotnet.sh` unconditionally (it is idempotent);
-  the earlier conditional missed a partial SDK install.
-
+- **Fixed** — requirements checks (macOS, Rosetta 2, python3) are explicit and
+  fail with actionable messages. Rosetta is probed functionally
+  (`arch -x86_64 /usr/bin/true`) rather than by daemon name, which varies
+  across macOS versions.
 ## install-client.sh
 
 - **Fixed** — `WINEPREFIX` must be absolute (wine rejects a relative path);
