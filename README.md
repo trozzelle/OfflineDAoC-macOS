@@ -179,9 +179,36 @@ recorded and undone.
 ./update.sh graphics # bump the graphics pin (its tests are run first)
 ```
 
+After `update.sh server`, stop the server and rerun `./install-server.sh`. The
+rebuild replaces only the program files, so your `config/`, `data/` (accounts,
+characters, bots), `logs/` and `navmesh/` stay in place. The build refuses to run
+while the server is running.
+
+An existing save keeps the world it was created with. If the update ships new
+world data (such as the 0.35 sync), move your progress into it with the server
+stopped:
+
+```bash
+cd server/dist/daoc-server
+./daoc-progress upgrade
+```
+
+This carries over accounts (with their roles), characters, items, money, houses,
+guilds, bots and this install's settings. World state such as keep and relic
+ownership starts fresh. The previous save is backed up to
+`data/progress-backups/<time>/` first.
+
+To bring progress from elsewhere (an older server folder, or a Windows Offline
+DAoC folder containing `runtime/`), use
+`./daoc-progress import <folder> --replace-progress`. It replaces this server's
+progress and only reads the source. `./daoc-progress inspect <folder>` shows what
+a save holds without changing anything. Undo steps and details are in
+`server/README.md` (Maintenance).
+
 ## Docs
 
-- `docs/DESIGN.md` — repo layout, manifest schema, install flows
+- `docs/DESIGN.md` — repo layout, manifest schema, install flows, server updates
+  and saved progress
 - `docs/REVIEW.md` — review of the ported code and scripts
 - `docs/CLIENT-NOTES.md` — client findings under Wine on Apple silicon (x87
   performance, privacy prompt, prefix user, linkdead wait)

@@ -12,8 +12,10 @@ daoc-macos/
 ├── server/                  # macOS server port overlay, vendored from the port work
 │   ├── patches/             #   source patches applied to the upstream snapshot
 │   ├── vendor/              #   arm64-safe System.Data.SQLite (SQLITE_STANDARD build)
-│   ├── tools/               #   macOS build scripts (osx-arm64, libDetour.dylib, codesign)
-│   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin
+│   ├── tools/               #   macOS build scripts (osx-arm64, libDetour.dylib, codesign),
+│   │                        #   ProgressImport/ (daoc-progress source)
+│   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin /
+│                            #   daoc-progress
 ├── client/
 │   ├── apply_game_patch.py  # game.dll encryption-bypass patch (byte-verified)
 │   ├── fetch_release.py     # OfflineDAoC release fetcher (per-part + archive SHA-256)
@@ -100,6 +102,38 @@ The macOS server port is a source-patch port, not a fork:
    build script or `fetch-upstream-db.sh` runs on its own.
 
 Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
+
+## Server updates and saved progress
+
+`dist/daoc-server/` is both the build output and the user's install, so a rebuild
+must never touch user state:
+
+- `build-release.sh` refuses while the server runs, then deletes only what the build
+  owns (`bin/`, `defaults/` and the top-level files in its `EXTRAS` array).
+  `config/`, `data/`, `logs/` and `run/` survive; `navmesh/` is refreshed in place.
+- The release zip leaves those folders out and stores `bin/config`, `bin/logs` and
+  `bin/navmesh` as symlinks (`zip -y`). Following them would pack the builder's
+  config and logs, plus a second copy of the navmeshes.
+
+A save keeps the world it was created from, so new world data in
+`defaults/world.sqlite` needs an explicit migration. `daoc-progress` is upstream
+Offline DAoC's Windows-only IMPORT PROGRESS engine, ported (`server/tools/ProgressImport`).
+It is published into `bin/` and links the vendored System.Data.SQLite:
+
+- **upgrade**: the result starts as `defaults/world.sqlite`. It receives this
+  server's progress tables and keeps the install's settings (edition, population,
+  options, XP rates).
+- **import**: the result starts as this server's own save. Its progress tables are
+  replaced from another save, which is copied first so the source is never written.
+- `progress-policy.json` lists the progress tables (copied, then verified by row count
+  and content) and the tables to clear. Every old item template the world lacks is
+  kept, because `Inventory`, `househookpointitem` and `CharacterXOneTimeDrop` all
+  reference templates. An owned house whose lot the world lacks aborts the run.
+- The result is built in `data/progress-backups/<time>/` next to a backup of the
+  current save, integrity-checked, and swapped in only after stale
+  `-wal`/`-shm`/`-journal` files are removed. It is rolled back if the check after the
+  swap fails. Both commands refuse while this server, or the source save's server,
+  is running.
 
 ## Client install
 
