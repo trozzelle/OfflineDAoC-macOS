@@ -3,6 +3,7 @@
 #
 #   ./update.sh server          -> point the server pin at upstream's current HEAD
 #   ./update.sh client          -> point the client pin at the latest OfflineDAoC release
+#   ./update.sh graphics        -> point the graphics pin at OfflineDAoC-macOS-graphics' main
 #   ./update.sh check           -> report what moved without changing anything
 #
 # Pins are deliberately manual: an update re-fetches and re-applies the overlay;
@@ -23,6 +24,11 @@ latest_client_version() {
     python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'].lstrip('v'))"
 }
 
+latest_graphics_ref() {
+  curl -fsSL "https://api.github.com/repos/trozzelle/OfflineDAoC-macOS-graphics/commits/main" |
+    python3 -c "import json,sys; print(json.load(sys.stdin)['sha'])"
+}
+
 set_pin() {
   python3 - "$@" << 'EOF'
 import json, sys
@@ -41,6 +47,9 @@ case "$cmd" in
     new_ver=$(latest_client_version)
     echo "server : pinned ${cur_ref:0:12}   latest ${new_ref:0:12}   $([[ $cur_ref == $new_ref ]] && echo up-to-date || echo UPDATE AVAILABLE)"
     echo "client : pinned v$cur_ver        latest v$new_ver        $([[ $cur_ver == $new_ver ]] && echo up-to-date || echo UPDATE AVAILABLE)"
+    cur_gfx=$(python3 -c "import json; print(json.load(open('manifest.json'))['graphics']['ref'])")
+    new_gfx=$(latest_graphics_ref)
+    echo "graphics: pinned ${cur_gfx:0:12}   latest ${new_gfx:0:12}   $([[ $cur_gfx == $new_gfx ]] && echo up-to-date || echo UPDATE AVAILABLE)"
     ;;
   server)
     echo "== resolving upstream HEAD"
@@ -113,8 +122,32 @@ EOF
     echo "   NOTE: verify the new release's game.dll hash and set client.game_dll_sha256,"
     echo "   then re-run ./install-client.sh."
     ;;
+  graphics)
+    echo "== resolving OfflineDAoC-macOS-graphics main"
+    new_ref=$(latest_graphics_ref)
+    cur_ref=$(python3 -c "import json; print(json.load(open('manifest.json'))['graphics']['ref'])")
+    if [[ $new_ref == "$cur_ref" ]]; then
+      echo "graphics pin already at ${new_ref:0:12}"; exit 0
+    fi
+    # Run the new commit's own tests before switching the pin; a failing
+    # commit leaves the pin where it was.
+    repo=$(python3 -c "import json; print(json.load(open('manifest.json'))['graphics']['repo'])")
+    tmp=$(mktemp -d)
+    git clone --quiet "$repo" "$tmp/graphics" \
+      || { echo "update.sh: graphics clone failed" >&2; rm -rf "$tmp"; exit 1; }
+    git -C "$tmp/graphics" checkout --quiet --detach "$new_ref"
+    if ! (cd "$tmp/graphics" && python3 -m unittest discover -s tests >/dev/null 2>&1); then
+      echo "update.sh: graphics tests fail at ${new_ref:0:12}; pin unchanged" >&2
+      rm -rf "$tmp"; exit 1
+    fi
+    echo "== graphics tests pass at ${new_ref:0:12}"
+    rm -rf "$tmp"
+    set_pin manifest.json graphics ref "$new_ref"
+    echo "== graphics pin -> ${new_ref:0:12}"
+    echo "   the next ./graphics.sh call checks it out."
+    ;;
   *)
-    echo "usage: update.sh server|client|check" >&2
+    echo "usage: update.sh server|client|graphics|check" >&2
     exit 2
     ;;
 esac

@@ -133,12 +133,44 @@ the client connects to the `<Port>` in the server's `config/serverconfig.xml`
 (10300 by default; set `DAOC_PORT` to override). It needs `brew install mingw-w64`
 for its input helper.
 
+## Graphics (optional)
+
+`./graphics.sh` applies optional graphical patches from
+[OfflineDAoC-macOS-graphics](https://github.com/trozzelle/OfflineDAoC-macOS-graphics)
+to this install's client. Nothing is fetched until you run it: the first call
+clones the commit pinned in `manifest.json` into `upstream/graphics/`. Quit the
+client first; changes take effect at the next launch.
+
+```bash
+./graphics.sh status                       # what is applied
+./graphics.sh display list                 # display presets
+./graphics.sh display apply retina-srgb    # native resolution + sRGB colour
+./graphics.sh display revert
+./graphics.sh textures install ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+./graphics.sh textures use original        # or: use pack
+./graphics.sh textures uninstall
+```
+
+- **Display presets** set Wine's Retina mode in the prefix, so the client renders
+  at the panel's physical resolution (3840x2160 on a 4K panel instead of 1920x1080
+  upscaled by macOS), and write `mtld3d.conf` settings such as
+  `color.space = accurate`. `display revert` restores the settings from before
+  the first preset.
+- **Texture packs** are archives you download yourself (for example
+  [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2), whose
+  installer is Windows-only). The originals are kept as APFS clones and can be
+  switched back at any time.
+
+The graphics project's README lists every command, the presets, and how each
+change is recorded and undone.
+
 ## Update
 
 ```bash
 ./update.sh check    # report what moved upstream
 ./update.sh server   # bump the server pin (patches are re-checked first)
 ./update.sh client   # bump the client pin
+./update.sh graphics # bump the graphics pin (its tests are run first)
 ```
 
 ## Docs
