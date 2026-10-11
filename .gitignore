@@ -19,6 +19,9 @@ evidence-fresh/
 HANDOFF.md
 client/SESSION-STATE.md
 
+# Internal development material (planning, research, agent notes) — never shipped to users
+dev/
+
 # Locally built client tools
 client/x87sidecar/
 
@@ -31,6 +34,7 @@ client/x87sidecar/
 
 # .NET
 obj/
+server/tools/ProgressImport/bin/
 *.user
 *.suo
 .vs/
