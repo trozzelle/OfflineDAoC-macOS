@@ -20,8 +20,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"                           # this repo (macOS port)
-# The Linux source repo this port is built from (read-only reference; see vendor/README.md).
-REPO="${DAOC_SOURCE_REPO:-$(cd "$HERE/.." && pwd)/daoc-offline-linux-server-bots}"
+# The Linux source repo this port is built from: the pinned upstream clone install-server.sh
+# makes in upstream/server (read-only reference; see vendor/README.md).
+REPO="${DAOC_SOURCE_REPO:-$(cd "$HERE/.." && pwd)/upstream/server}"
 # Where the vendored System.Data.SQLite source lives (see vendor/README.md).
 SDS_SRC="${SDS_SRC:-$HERE/vendor/System.Data.SQLite}"
 SDS_PROJ="$SDS_SRC/System.Data.SQLite.NetStandard21.csproj"

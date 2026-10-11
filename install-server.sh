@@ -53,8 +53,8 @@ echo "== patches apply cleanly"
 server/tools/setup-dotnet.sh
 command -v cmake >/dev/null 2>&1 || { echo "install-server: cmake missing (brew install cmake)" >&2; exit 1; }
 
-# 4. Build. DAOC_SOURCE_REPO points the build script (and the DB fetcher it calls)
-#    at the unpacked upstream instead of the default ../daoc-offline-linux-server-bots.
+# 4. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
+#    fetcher it calls) can't pick up a different tree from an inherited environment.
 export DAOC_SOURCE_REPO="$PWD/$SRC_DIR"
 server/tools/build-release.sh
 

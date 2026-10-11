@@ -1,12 +1,13 @@
 # OfflineDAoC server — macOS port
 
-A macOS (Apple Silicon) build of the [daoc-offline-linux-server-bots](../daoc-offline-linux-server-bots)
+A macOS (Apple Silicon) build of the [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots)
 DAoC server: one portable folder, no .NET install needed, with the Classic + Shrouded Isles
 world, autonomous gamebots, and the admin TUI/CLI.
 
-The Linux repo in the parent directory is the **read-only parity baseline**. This repo contains
-only the macOS-specific build pipeline, launcher scripts and documentation; the server source
-itself is compiled from a snapshot of the Linux repo's source with macOS patches from `patches/`.
+The Linux repo is the **read-only parity baseline**. This repo contains only the macOS-specific
+build pipeline, launcher scripts and documentation; the server source itself is compiled from a
+snapshot of the pinned Linux repo clone (`upstream/server`, made by `install-server.sh`) with
+macOS patches from `patches/`.
 
 ## Requirements
 
@@ -92,7 +93,8 @@ dist/                        build output (gitignored)
 - **Upgrade**: rerun `tools/build-release.sh`; it replaces `bin/`, `defaults/` and the scripts
   and keeps `config/`, `data/` and `navmesh/`.
 - **Clean rebuild**: delete `build/` and `dist/`; the build re-syncs the snapshot from the
-  reference repo (`DAOC_SOURCE_REPO` overrides the reference path, default `../daoc-offline-linux-server-bots`).
+  reference repo (`DAOC_SOURCE_REPO` overrides the reference path, default `upstream/server` in the
+  repo root).
 
 ## Known limitations
 
