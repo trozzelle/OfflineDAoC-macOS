@@ -14,7 +14,7 @@ Nothing here would exist without the upstream projects — go support them:
   bundle built on OpenDAoC; it ships the original 1.127 Windows client, which the
   client install downloads
 - [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots) —
-  a pinned OpenDAoC fork (Offline DAoC 0.33) that the server install builds on
+  a pinned OpenDAoC fork (Offline DAoC 0.35) that the server install builds on
 - [athei/wine-build](https://github.com/athei/wine-build) — the CrossOver-based
   macOS Wine the client runs under, with
   [x87sidecar](https://github.com/athei/x87sidecar) (native ARM64 for the

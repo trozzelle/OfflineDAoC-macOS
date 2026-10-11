@@ -2,8 +2,8 @@
   "schema": 1,
   "server": {
     "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
-    "ref": "3e3ffd0b3a1dddf596b1999440399498efcb9b13",
-    "note": "Pinned OpenDAoC fork (Offline DAoC 0.33 lineage); macOS port overlay in server/ is applied on top. The ref is verified by git, and the port patches are pre-checked with git apply --check before building."
+    "ref": "a19a926fe4433f361acb08d82da4610e048c6b03",
+    "note": "Pinned OpenDAoC fork (Offline DAoC 0.35 lineage: server synced to upstream v0.35 d337d18, 0.35 world and navmeshes); macOS port overlay in server/ is applied on top. The ref is verified by git, and the port patches are pre-checked with git apply --check before building."
   },
   "client": {
     "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
