@@ -123,7 +123,21 @@ fi
 step "client launch"
 WINE_LOG=/tmp/daoc-wine.log
 SERVER_LOG="$SERVER_DIR/logs/server.log"
-CLIENT_PAT="$(basename "$PWD").dist.OfflineDAoC.runtime.client-opendaoc.app.game\\.dll"
+# This install's client: a game.dll process that has files mapped from this
+# install's own dist/wine (its ntdll.so etc.). The CrossOver wine shows only
+# "game.dll <args>" as argv, so the install path is not in the command line,
+# and macOS does not expose other processes' environments. The launcher shell
+# and start.exe are excluded. Absolute tool paths: some shells shadow pgrep/ps.
+client_pids() {
+  local pid
+  for pid in $(/usr/bin/pgrep -f 'game\.dll' 2>/dev/null); do
+    /bin/ps -o args= -p "$pid" 2>/dev/null | grep -q -- "MacOS/launch\|start\.exe" && continue
+    /usr/sbin/lsof -a -p "$pid" -Fn 2>/dev/null | grep -qF "n$PWD/dist/wine/" && echo "$pid"
+  done
+}
+# Process snapshot for the evidence bundle: pid + executable only (the command
+# line carries the account password).
+client_snapshot() { date '+%H:%M:%S'; for p in $(client_pids); do /bin/ps -o pid=,comm= -p "$p"; done; }
 LOG_OFFSET=$(wc -c < "$SERVER_LOG" 2>/dev/null | tr -d ' '); LOG_OFFSET=${LOG_OFFSET:-0}
 # Observed: every "died" attempt crashed at the same GL-init point
 # (wined3d select_card_handler → err:seh:NtRaiseException, verified via the
@@ -172,7 +186,7 @@ for attempt in $(seq 1 10); do
     # immediate check would read "not running" during the spawn window. The
     # seen-flag makes "died" reproducible: only a client that was observed
     # running and then vanished counts as a crash.
-    if pgrep -f "$CLIENT_PAT" >/dev/null 2>&1; then
+    if [[ -n $(client_pids) ]]; then
       CLIENT_SEEN=1
     elif [[ ${CLIENT_SEEN:-0} -eq 1 ]]; then
       echo "client process died before login — relaunching"
@@ -181,7 +195,7 @@ for attempt in $(seq 1 10); do
       # pgrep matched right before the death disambiguates a real client
       # crash from a short-lived process matching the pattern.
       cp "$WINE_LOG" "$EVIDENCE_DIR/wine-attempt-$attempt.log" 2>/dev/null || true
-      { date '+%H:%M:%S'; pgrep -fl "$CLIENT_PAT" 2>/dev/null; } \
+      client_snapshot \
         > "$EVIDENCE_DIR/pgrep-at-attempt-$attempt.txt" 2>/dev/null || true
       CLIENT_SEEN=0
       break
@@ -193,7 +207,7 @@ for attempt in $(seq 1 10); do
   # truncation below would otherwise destroy the hang's only record.
   if [[ -z $LOGIN_OK && ${CLIENT_SEEN:-0} -eq 1 ]]; then
     cp "$WINE_LOG" "$EVIDENCE_DIR/wine-attempt-$attempt.log" 2>/dev/null || true
-    { date '+%H:%M:%S'; pgrep -fl "$CLIENT_PAT" 2>/dev/null; } \
+    client_snapshot \
       > "$EVIDENCE_DIR/pgrep-at-attempt-$attempt.txt" 2>/dev/null || true
     echo "attempt $attempt: 180 s window expired with the client alive but no login — hang"
   fi
@@ -209,7 +223,7 @@ else
   echo "login observed (attempt $ATTEMPT); holding the client for the 120 s window"
   # Liveness is judged by the exact pid of THIS launch only — no fallback to
   # "any game.dll process" (another install's client could satisfy that).
-  CLIENT_PID=$(pgrep -f "$CLIENT_PAT" | head -1)
+  CLIENT_PID=$(client_pids | head -1)
   if [[ -z $CLIENT_PID ]]; then
     fail "could not find the client process from this launch"
   else
