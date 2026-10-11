@@ -22,6 +22,10 @@ client/SESSION-STATE.md
 # Internal development material (planning, research, agent notes) — never shipped to users
 dev/
 
+# Local agent context files
+/AGENTS.md
+/CLAUDE.md
+
 # Locally built client tools
 client/x87sidecar/
 
