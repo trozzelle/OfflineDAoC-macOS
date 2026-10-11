@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # install-server.sh - build the macOS DAoC server from the pinned upstream + port overlay.
 #
-#   ./install-server.sh              -> server/dist/daoc-server/  (runnable server folder)
+#   ./install-server.sh [--verbose]  -> server/dist/daoc-server/  (runnable server folder)
+#
+#   --verbose   show git progress and the build's warnings and tool output (default: errors only)
 #
 # Steps:
 #   1. Fetch (or reuse) the pinned upstream archive and verify its SHA-256.
@@ -14,6 +16,17 @@
 # Everything else is fetched automatically. Free tooling only.
 set -euo pipefail
 cd "$(dirname "$0")" && cd "$(pwd -P)"   # resolve symlinks: MSBuild must see one path
+
+VERBOSE=
+for arg in "$@"; do
+  case $arg in
+    -v|--verbose) VERBOSE=1 ;;
+    -h|--help) echo "usage: install-server.sh [--verbose]"; exit 0 ;;
+    *) echo "install-server: unknown argument: $arg (usage: install-server.sh [--verbose])" >&2; exit 2 ;;
+  esac
+done
+GIT_PROGRESS=--quiet
+[[ -z $VERBOSE ]] || GIT_PROGRESS=--progress
 
 manifest_pin() { python3 -c "import json,sys; print(json.load(open('manifest.json'))['$1']['$2'])"; }
 
@@ -33,13 +46,13 @@ if [[ -d $SRC_DIR && ! -d $SRC_DIR/.git ]]; then
 fi
 if [[ ! -d $SRC_DIR/.git ]]; then
   echo "== cloning upstream (this downloads ~400 MB)"
-  git clone --quiet "$UPSTREAM_URL" "$SRC_DIR"
+  git clone "$GIT_PROGRESS" "$UPSTREAM_URL" "$SRC_DIR"
 fi
 checked=$(git -C "$SRC_DIR" rev-parse HEAD)
 if [[ $checked != "$UPSTREAM_REF" ]]; then
   echo "== checking out pinned ${UPSTREAM_REF:0:12} (have ${checked:0:12})"
-  git -C "$SRC_DIR" fetch --quiet origin "$UPSTREAM_REF" 2>/dev/null || git -C "$SRC_DIR" fetch --quiet origin
-  git -C "$SRC_DIR" checkout --quiet --detach "$UPSTREAM_REF"
+  git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin "$UPSTREAM_REF" 2>/dev/null || git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin
+  git -C "$SRC_DIR" checkout "$GIT_PROGRESS" --detach "$UPSTREAM_REF"
 fi
 actual=$(git -C "$SRC_DIR" rev-parse HEAD)
 [[ $actual == "$UPSTREAM_REF" ]] || { echo "install-server: upstream HEAD ${actual:0:12} != pinned ${UPSTREAM_REF:0:12}" >&2; exit 1; }
@@ -56,7 +69,7 @@ command -v cmake >/dev/null 2>&1 || { echo "install-server: cmake missing (brew 
 # 4. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
 #    fetcher it calls) can't pick up a different tree from an inherited environment.
 export DAOC_SOURCE_REPO="$PWD/$SRC_DIR"
-server/tools/build-release.sh
+server/tools/build-release.sh ${VERBOSE:+--verbose}
 
 echo "== install-server: done — server/dist/daoc-server"
 echo "   start it:  cd server/dist/daoc-server && ./daoc-server.sh start"

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # install-client.sh - set up the OfflineDAoC client under Wine on macOS.
 #
-#   ./install-client.sh              -> dist/OfflineDAoC/  (patched client)
+#   ./install-client.sh [--verbose]  -> dist/OfflineDAoC/  (patched client)
 #                                       dist/wine/           (CrossOver Wine + x87sidecar)
 #                                       dist/prefix/         (wine prefix)
 #                                       client/DAoCLauncher.app (session wrapper)
+#
+#   --verbose   show download progress and wine's prefix setup logging (default: errors only)
 #
 # Steps:
 #   1. Verify requirements (macOS, Rosetta 2, python3).
@@ -19,6 +21,27 @@
 # Everything is cached in downloads/ (gitignored); re-runs skip finished steps.
 set -euo pipefail
 cd "$(dirname "$0")" && cd "$(pwd -P)"   # repo root (client/ lives here); resolve symlinks
+
+VERBOSE=
+for arg in "$@"; do
+  case $arg in
+    -v|--verbose) VERBOSE=1 ;;
+    -h|--help) echo "usage: install-client.sh [--verbose]"; exit 0 ;;
+    *) echo "install-client: unknown argument: $arg (usage: install-client.sh [--verbose])" >&2; exit 2 ;;
+  esac
+done
+CURL_PROGRESS=-s                       # errors still show (-S)
+[[ -z $VERBOSE ]] || CURL_PROGRESS=-#   # progress bar
+# Run a noisy tool (wine) silently; on failure, replay its full output. --verbose: always show it.
+# Captured to a file, not $(...): wineboot leaves wineserver running with the pipe inherited.
+quiet() {
+  [[ -z $VERBOSE ]] || { "$@"; return; }
+  local log rc=0; log=$(mktemp)
+  "$@" >"$log" 2>&1 || rc=$?
+  ((rc == 0)) || cat "$log" >&2
+  rm -f "$log"
+  return $rc
+}
 
 manifest_pin() { python3 -c "import json; print(json.load(open('manifest.json'))['$1']['$2'])"; }
 
@@ -62,7 +85,7 @@ mkdir -p downloads "$DIST"
 if [[ ! -x $WINE_HOME/bin/wine ]]; then
   if [[ ! -f "downloads/$WINE_TARBALL" ]]; then
     echo "== downloading Wine ($WINE_TARBALL)"
-    curl -fsSL --retry 3 "$WINE_URL" -o "downloads/$WINE_TARBALL"
+    curl -fSL "$CURL_PROGRESS" --retry 3 "$WINE_URL" -o "downloads/$WINE_TARBALL"
   fi
   actual=$(shasum -a 256 "downloads/$WINE_TARBALL" | cut -d' ' -f1)
   [[ $actual == "$WINE_SHA" ]] || {
@@ -100,8 +123,8 @@ if [[ ! -f $PREFIX/system.reg ]]; then
   echo "== initializing wine prefix (win10 version)"
   WINE="$WINE_HOME/bin/wine"
   export WINEPREFIX="$PWD/$PREFIX"   # absolute: wine rejects relative WINEPREFIX
-  "$WINE" wineboot -i >/dev/null 2>&1
-  "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win10 /f >/dev/null 2>&1 || true
+  quiet "$WINE" wineboot -i
+  quiet "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win10 /f || true
   # Wait for wineserver to flush the registry hives before checking them.
   "$WINE_HOME/bin/wineserver" -w
   [[ -f $PREFIX/system.reg ]] || { echo "install-client: prefix init failed" >&2; exit 1; }
@@ -110,7 +133,7 @@ else
 fi
 # Bring an existing prefix (e.g. one made by an older wine) up to this wine's
 # version now, so its first game launch does not do it.
-WINEPREFIX="$PWD/$PREFIX" "$WINE_HOME/bin/wine" wineboot -u >/dev/null 2>&1
+WINEPREFIX="$PWD/$PREFIX" quiet "$WINE_HOME/bin/wine" wineboot -u
 WINEPREFIX="$PWD/$PREFIX" "$WINE_HOME/bin/wineserver" -w
 # Wine links the Windows profile folders (Documents, Desktop, ...) of every
 # prefix user (this wine's is "crossover") to the macOS home folders. The first

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # build-release.sh - build the portable macOS server folder and zip.
 #
-#   tools/build-release.sh            -> dist/daoc-server/ and dist/daoc-server-<version>-macos-arm64.zip
+#   tools/build-release.sh [--verbose] -> dist/daoc-server/ and dist/daoc-server-<version>-macos-arm64.zip
+#
+#   --verbose   show compiler/MSBuild warnings, cmake, patch and WorldBuilder output
 #
 # Needs the .NET 10 SDK, cmake, clang (Xcode Command Line Tools) and curl. The result needs none
 # of them: it bundles the .NET runtime and contains a fresh Classic + SI world built from the
@@ -19,6 +21,15 @@
 #     time so Gatekeeper quarantine and hardened-runtime checks do not block execution.
 set -euo pipefail
 
+VERBOSE=
+for arg in "$@"; do
+  case $arg in
+    -v|--verbose) VERBOSE=1 ;;
+    -h|--help) echo "usage: build-release.sh [--verbose]"; exit 0 ;;
+    *) echo "build-release: unknown argument: $arg (usage: build-release.sh [--verbose])" >&2; exit 2 ;;
+  esac
+done
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"                           # this repo (macOS port)
 # The Linux source repo this port is built from: the pinned upstream clone install-server.sh
 # makes in upstream/server (read-only reference; see vendor/README.md).
@@ -31,6 +42,26 @@ DOTNET="${DOTNET:-${DOTNET_ROOT:-$HOME/.dotnet}/dotnet}"
 VERSION="${VERSION:-$(git -C "$HERE" describe --tags --always 2>/dev/null || echo dev)}"
 OUT="$HERE/dist/daoc-server"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+
+# Build steps print errors only, unless --verbose. `dotnet build` appends its own
+# -consoleloggerparameters:Summary (a "N Warning(s)" block on every run) that overrides ours, so
+# builds go through `dotnet msbuild -restore` (what `dotnet build` wraps) instead. Tools without an
+# errors-only mode run via quiet(): silent on success, full output on failure.
+MSB_LOG=(-v:quiet -clp:ErrorsOnly)
+# Only the WorldBuilder's result lines, unless --verbose (empty pattern: every line).
+WORLD_LINES='^(Schema|World)'
+if [[ -n $VERBOSE ]]; then
+  MSB_LOG=(-v:minimal -clp:Summary)   # every warning as it happens, recapped at the end
+  WORLD_LINES=''
+fi
+quiet() {
+  [[ -z $VERBOSE ]] || { "$@"; return; }
+  local log rc=0; log=$(mktemp)
+  "$@" >"$log" 2>&1 || rc=$?
+  ((rc == 0)) || cat "$log" >&2
+  rm -f "$log"
+  return $rc
+}
 
 missing=()
 "$DOTNET" --list-sdks 2>/dev/null | grep -q '^10\.' || missing+=(".NET 10 SDK (install: curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0)")
@@ -59,7 +90,7 @@ rsync -a --delete \
 for p in "$HERE"/patches/*.patch; do
   [[ -e $p ]] || break
   echo "== Applying $(basename "$p")"
-  patch -p1 -d "$SNAPSHOT/.." -i "$p" --forward >/dev/null || { echo "build-release: patch failed: $p" >&2; exit 1; }
+  quiet patch -p1 -d "$SNAPSHOT/.." -i "$p" --forward || { echo "build-release: patch failed: $p" >&2; exit 1; }
 done
 
 # Never replace bin/ under a live server.
@@ -74,23 +105,23 @@ EXTRAS=(daoc-server.sh daoc-admin daoc-progress navmesh-install.sh release.conf 
 rm -rf "$OUT/bin" "$OUT/defaults" "${EXTRAS[@]/#/$OUT/}"
 echo "== Publishing server (self-contained osx-arm64)"
 "$DOTNET" publish "$SNAPSHOT/CoreServer/CoreServer.csproj" -c Release -r osx-arm64 --self-contained true \
-  -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
+  -o "$OUT/bin" -nologo "${MSB_LOG[@]}"
 
 # daoc-admin shares bin/ (and its bundled runtime) with the server.
 echo "== Publishing daoc-admin (TUI + CLI)"
 "$DOTNET" publish "$SNAPSHOT/DaocAdmin/DaocAdmin.csproj" -c Release -r osx-arm64 --self-contained true \
-  -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
+  -o "$OUT/bin" -nologo "${MSB_LOG[@]}"
 
 # daoc-progress (port addition: upstream's progress importer for world upgrades) shares bin/ too.
 # It references the vendored System.Data.SQLite project directly, so it never binds SQLite.Interop.
 echo "== Publishing daoc-progress (world upgrade / progress import)"
 "$DOTNET" publish "$HERE/tools/ProgressImport/ProgressImport.csproj" -c Release -r osx-arm64 --self-contained true \
-  -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
+  -o "$OUT/bin" -nologo "${MSB_LOG[@]}"
 
 echo "== Building native pathing library"
-cmake -S "$SNAPSHOT/Pathing/Detour" -B "$HERE/build/detour" -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 >/dev/null
-cmake --build "$HERE/build/detour" >/dev/null
+quiet cmake -S "$SNAPSHOT/Pathing/Detour" -B "$HERE/build/detour" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES=arm64
+quiet cmake --build "$HERE/build/detour"
 mkdir -p "$OUT/bin/lib"
 # LibraryImport("lib/Detour") probes lib/Detour.dylib on macOS (lib/Detour.so on Linux).
 cp -L "$HERE/build/detour/libDetour.dylib" "$OUT/bin/lib/Detour.dylib"
@@ -114,8 +145,8 @@ if [[ ! -f $SDS_PROJ ]]; then
   echo "build-release: missing $SDS_PROJ — see vendor/README.md for how to vendor it" >&2
   exit 1
 fi
-"$DOTNET" build "$SDS_PROJ" -c Release -p:UseInteropDll=false -p:UseSqliteStandard=true \
-  -p:SignAssembly=false -p:PublicSign=false -p:DelaySign=false -nologo -v quiet -clp:ErrorsOnly
+"$DOTNET" msbuild "$SDS_PROJ" -restore -p:Configuration=Release -p:UseInteropDll=false -p:UseSqliteStandard=true \
+  -p:SignAssembly=false -p:PublicSign=false -p:DelaySign=false -nologo "${MSB_LOG[@]}"
 sds_dll="$SDS_SRC/obj/Release/netstandard2.1/System.Data.SQLite.dll"
 [[ -f $sds_dll ]] || { echo "build-release: System.Data.SQLite build produced no output" >&2; exit 1; }
 # Overlay it onto every output that carries the NuGet stub's interop-variant dll: the server
@@ -123,7 +154,7 @@ sds_dll="$SDS_SRC/obj/Release/netstandard2.1/System.Data.SQLite.dll"
 # it must bind the system libsqlite3 the same way when it builds the world database).
 echo "== Building the world (upstream OpenDAoC-Database + world/patches)"
 dump=$("$HERE/tools/fetch-upstream-db.sh")
-"$DOTNET" build "$SNAPSHOT/WorldBuilder/WorldBuilder.csproj" -c Release -nologo -v quiet -clp:ErrorsOnly
+"$DOTNET" msbuild "$SNAPSHOT/WorldBuilder/WorldBuilder.csproj" -restore -p:Configuration=Release -nologo "${MSB_LOG[@]}"
 # Overlay it onto every output that carries the NuGet stub's interop-variant dll: the server
 # publish output and the WorldBuilder build output (WorldBuilder links CoreDatabase too and
 # must bind the system libsqlite3 the same way). This runs AFTER the WorldBuilder build so
@@ -137,7 +168,7 @@ for out_dir in "$OUT/bin" "$SNAPSHOT/WorldBuilder/bin/Release/net10.0"; do
 done
 mkdir -p "$OUT/defaults"
 "$DOTNET" "$SNAPSHOT/WorldBuilder/bin/Release/net10.0/DaocWorldBuilder.dll" \
-  --source "$dump" --out "$OUT/defaults/world.sqlite" --patches "$REPO/world/patches" | grep -E "^(Schema|World)"
+  --source "$dump" --out "$OUT/defaults/world.sqlite" --patches "$REPO/world/patches" | grep -E "$WORLD_LINES"
 
 # The server reads config/ next to its program and navmesh/ from its working directory (bin/).
 rm -rf "$OUT/bin/config"

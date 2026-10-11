@@ -31,7 +31,9 @@ Server-side patches are GPL v3, like the upstream they modify.
 ```
 
 Clones the pinned upstream, checks the macOS patches apply, builds
-`server/dist/daoc-server/`. Then:
+`server/dist/daoc-server/`. Output is limited to progress steps and errors; add
+`--verbose` to also see git progress, compiler/MSBuild warnings and the build
+tools' own output. Then:
 
 ```bash
 cd server/dist/daoc-server
@@ -47,7 +49,8 @@ cd server/dist/daoc-server
 Downloads the OfflineDAoC release (≈5 GB) and athei's CrossOver Wine build,
 patches `game.dll`, and sets up a wine prefix. The prefix keeps its Windows
 profile folders (Documents, Desktop, ...) inside the prefix, so the client never
-triggers a macOS privacy prompt for your home folders.
+triggers a macOS privacy prompt for your home folders. Add `--verbose` to see
+download progress and wine's prefix setup logging.
 
 ## Play
 
