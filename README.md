@@ -100,8 +100,9 @@ change), plays for
 5 minutes (NPC interaction plus movement through the Connacht town), and reports
 average FPS, p95/p99 frame time and 1%-low FPS from a per-present probe. It passes
 at an average of at least 60 FPS with p95 at or under 16.7 ms. Run it from a GUI
-Terminal with the server up (`./daoc-server.sh start`, game port 20300, as
-`e2e-test.sh` configures); it needs `brew install mingw-w64` for its input helper.
+Terminal with the server up (`./daoc-server.sh start`); the client connects to the
+`<Port>` in the server's `config/serverconfig.xml` (10300 by default; set
+`DAOC_PORT` to override). It needs `brew install mingw-w64` for its input helper.
 
 ## Update
 

@@ -13,7 +13,6 @@
 
 static IMP g_orig;
 static FILE *g_out;
-static unsigned g_count;
 static mach_timebase_info_data_t g_tb;
 static os_unfair_lock g_lock = OS_UNFAIR_LOCK_INIT;
 
@@ -24,11 +23,11 @@ static id ftlog_next_drawable(id self, SEL cmd) {
         char path[1024];
         snprintf(path, sizeof path, "%s/ftlog-%d.txt", getenv("FTLOG_DIR"), getpid());
         g_out = fopen(path, "a");
+        // Line-buffered: each frame is on disk as soon as it is logged, so the
+        // bench's growth check and window slicing see current data at any FPS.
+        if (g_out) setvbuf(g_out, NULL, _IOLBF, 0);
     }
-    if (g_out) {
-        fprintf(g_out, "%llu\n", (unsigned long long)now);
-        if (++g_count % 120 == 0) fflush(g_out);
-    }
+    if (g_out) fprintf(g_out, "%llu\n", (unsigned long long)now);
     os_unfair_lock_unlock(&g_lock);
     return ((id (*)(id, SEL))g_orig)(self, cmd);
 }

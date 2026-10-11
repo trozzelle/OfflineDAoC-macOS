@@ -22,7 +22,8 @@ daoc-macos/
 │   ├── bench-drive.sh       #   scripted NPC interaction + movement for the gate
 │   ├── input-helper/        #   SendInput helper run inside the prefix (mingw-w64)
 │   └── tools/               # launch-client.sh (Keychain + hang watchdog),
-│                            # stop-client.sh, frametime/ (per-present probe dylib)
+│                            # stop-client.sh, kill-client.sh (install-scoped
+│                            # teardown), frametime/ (per-present probe dylib)
 ├── install-server.sh        # pull pinned upstream → overlay → build → dist/
 ├── update.sh                # bump pins in manifest.json
 ├── e2e-test.sh              # scripted end-to-end acceptance
