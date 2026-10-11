@@ -12,7 +12,9 @@ SLOG="$ROOT/server/dist/daoc-server/logs/server.log"
 # Success = a new world entry. A LoginRequestHandler line alone is not enough:
 # the server logs it even when it refuses the login ("still being logged out
 # from linkdeath").
-WORLD_ENTRIES_BEFORE=$(grep -c "WorldInitRequestHandler" "$SLOG" 2>/dev/null || echo 0)
+# grep -c prints 0 *and* exits 1 when nothing matches: never chain `|| echo 0`.
+world_entries () { local n; n=$(grep -c "WorldInitRequestHandler" "$SLOG" 2>/dev/null); echo "${n:-0}"; }
+WORLD_ENTRIES_BEFORE=$(world_entries)
 
 launch_once () {
   ACCT=$(/usr/bin/security find-generic-password -s daoc-offline -a login_account -w 2>/dev/null)
@@ -72,7 +74,7 @@ while [ "$try" -lt "$RETRIES" ]; do
   waited=0; last_size=$(wc -c < "$LOG" 2>/dev/null || echo 0); stall=0; last_cs=$(game_cputime_cs)
   while [ "$waited" -lt 240 ]; do
     sleep 10; waited=$((waited+10))
-    entries=$(grep -c "WorldInitRequestHandler" "$SLOG" 2>/dev/null || echo 0)
+    entries=$(world_entries)
     [ "$entries" -gt "$WORLD_ENTRIES_BEFORE" ] && { echo "IN_WORLD after ${waited}s"; exit 0; }
     size=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     if [ "$size" -eq "$last_size" ]; then stall=$((stall+10)); else stall=0; last_size=$size; fi
