@@ -69,3 +69,10 @@
 - GOTCHAS: (1) cx wine binary triggers a TCC "wine would like to access Documents" prompt → game blocks at 0% CPU pre-window (looked like a hang). Fix: replace prefix `drive_c/users/*/{Documents,Desktop,...}` symlinks with real dirs. (2) cx wine's Windows user is `crossover`, not `ada`: game settings live in `users/crossover/AppData/Roaming/Electronic Arts/...` (copied from ada). (3) cx defaults d3d9 to mtld3d (D3D9→Metal); `WINE_COMPATDB=$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` forces wined3d.
 - HARNESS: launch-client.sh now forwards WINE_COMPATDB/ROSETTA_X87_PATH/X87_* when set, DAOC_WINEPREFIX passthrough fixed, hang = log static 60s AND game cpu <1%, timeout path now kills the tree, kill_tree kills the .app relaunch loop first (cause of duplicate wine instances).
 - Server now run by the agent: `cd server/dist/daoc-server/bin && nohup ./CoreServer --start -config=.../config/serverconfig.xml` (pid in run/server.pid, log logs/console.out + logs/server.log).
+
+## GATE RESULTS + PRODUCTIZED (2026-10-10 ~22:15) — branch perf/x87sidecar
+- 5-min gates (probe = per-present CAMetalLayer timestamps, client/tools/frametime): wined3d+x87 71.7 FPS, p95 21.5 ms (FAIL); **mtld3d+x87 (cx default) 119.6 FPS, p95 10.1 ms (PASS, movement only)**; final `client/bench-run.sh` with NPC interaction (/jump + /target + right-click merchant → trade window) + movement in Ardee: **90.6 FPS, p95 14.57, p99 17.7, 1%-low 39.5, vsync off maxFps 0, PASS**.
+- Metal HUD system-log logging produced no lines (MTL_HUD_LOGGING_ENABLED); HUD overlay itself works over mtld3d (DAOC_FPS_OVERLAY=1). HUD over wined3d-GL broke presentation (0 frames). HUD runs raised a Documents TCC prompt even with the prefix sandboxed.
+- Dev tree now uses the shipped layout: dist/wine = cx build (flat), dist/prefix = cx prefix. Old Staging wine+prefix moved to dist/staging-backup/ (not deleted).
+- macadmin role reverted to `player`; bench-run.sh raises to gm for the run and restores.
+- Patch: /Users/ada/development/games/daoc-macos-x87-perf.patch = `git diff cbd3301..HEAD`. Fresh-clone verification in /Users/ada/development/games/daoc-verify.
