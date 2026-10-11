@@ -2,7 +2,8 @@
 // Loaded into wine via DYLD_INSERT_LIBRARIES. Inert unless FTLOG_DIR is set;
 // then every -[CAMetalLayer nextDrawable] (one per presented frame) appends a
 // monotonic nanosecond timestamp to $FTLOG_DIR/ftlog-<pid>.txt. Frame times
-// are the deltas. Build: see Makefile (x86_64: wine runs under Rosetta).
+// are the deltas. Build: see Makefile (universal: x86_64 wine under Rosetta,
+// arm64 x87sidecar).
 #import <QuartzCore/CAMetalLayer.h>
 #import <objc/runtime.h>
 #include <mach/mach_time.h>

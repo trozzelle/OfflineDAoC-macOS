@@ -28,9 +28,17 @@ and documented here.
   (`client/`), but the installed bundle lives in `dist/`, so the deployed copy
   resolved `dist/dist/OfflineDAoC` and never started the client. The source now
   resolves four levels up, which is correct in both locations.
-- **Noted** — the wrapper only supports the proven GL mode; the Vulkan/DXVK
-  experiment modes from the porting phase were deliberately dropped (all failed;
-  see the porting notes in the working-history repo).
+- **Changed** — the wrapper runs the CrossOver wine from `dist/wine/bin`
+  (`DAOC_WINE_HOME` overrides) with mtld3d as D3D9 and x87sidecar attached by the
+  wine build's compatdb; wined3d's GL path stays reachable through
+  `WINE_COMPATDB`. The Vulkan/DXVK experiment modes from the porting phase
+  remain dropped (all failed; see the porting notes in the working-history repo).
+- **Fixed** — between relaunch attempts the wrapper runs `wineserver -k` then
+  `-w` instead of a fixed 3 s sleep: a lingering wineserver wedged the next
+  launch (status=255 or a hang after every crash or kill).
+- **Fixed** — `wc -c` on a missing `/tmp/daoc-wine.log` no longer aborts the
+  wrapper under `set -e` (`|| true`); `virtual_setup_exception` joins the crash
+  signatures.
 
 ## server/ — macOS port overlay (vendored from the macOS server port)
 
@@ -55,6 +63,10 @@ and documented here.
 - **Fixed** — a tarball-era `upstream/server` (from the old hash-pinned scheme)
   is detected by the missing `.git` and replaced with a proper clone, so the
   upgrade path from the first layout works.
+- **Fixed** — `DAOC_SOURCE_REPO` is exported as the clone verified above, so an
+  inherited value cannot point the build at another tree. `build-release.sh` and
+  `fetch-upstream-db.sh` default to that same `upstream/server` clone instead of a
+  sibling `../daoc-offline-linux-server-bots` checkout.
 
 ## install-client.sh
 
@@ -71,6 +83,11 @@ and documented here.
   headless. The `Version` registry key is set via `wine reg add` instead.
 - **Changed** — the GStreamer check is gone: the athei/wine-build bundle carries
   its own libraries and plays audio through winecoreaudio.
+- **Changed** — every run brings an existing prefix up to the installed wine
+  (`wineboot -u`), replaces the prefix users' profile-folder symlinks with real
+  directories (the `~/Documents` TCC prompt blocked the client), and copies the
+  client settings from a Wine Staging prefix user to `crossover` when `crossover`
+  has none (see `docs/CLIENT-NOTES.md`).
 
 ## client/fetch_release.py — release fetcher
 
@@ -90,16 +107,20 @@ and documented here.
   missed and the server tried the live server's port).
 - **Fixed** — creates `logs/` and `run/` before the detached boot (fresh
   installs lack them; the redirect failed and the boot died silently).
-- **Fixed** — the client-process pattern is derived from the install path
-  (`$(basename "$PWD").dist.OfflineDAoC…`); a hardcoded repo name matched
-  nothing in a differently named clone and misread every launch as a crash.
+- **Fixed** — this install's client is found by the files it maps from this
+  install's `dist/wine/` (`lsof`), not by its command line: the CrossOver wine
+  shows only `game.dll <args>` as argv. The launcher shell and `start.exe` are
+  excluded.
+- **Fixed** — the per-attempt process snapshot records pid and executable only;
+  the `pgrep -fl` command line it replaced carried the account password into the
+  evidence bundle.
 - **Fixed** — crash detection uses a seen-flag: only a client that was observed
   running and then vanished counts as a crash, so the spawn window after `open`
   can't produce a false "died".
-- **Noted** — 5 launch attempts per run: the client's wined3d GL init under
-  Rosetta crashes roughly half the time before the splash (documented in the
-  porting log); a relaunch succeeds. The login-wait window is 180 s per attempt
-  (login takes 1–2 minutes per the runbook).
+- **Noted** — 10 launch attempts per run: under the earlier wined3d GL path the
+  client crashed roughly half the time before the splash (documented in the
+  porting log) and a relaunch succeeded; the budget is kept for the mtld3d build.
+  The login-wait window is 180 s per attempt.
 - **Noted** — the login check matches `LoginRequestHandler.*User $ACCOUNT
   logging on!` in bytes logged after the launch snapshot only; the aliveness
   window is 120 s on the exact pid from this launch.
@@ -112,6 +133,28 @@ and documented here.
 - **Noted** — `update.sh client` clears `game_dll_sha256` on a version bump so
   the patcher cannot silently accept an unknown base; re-deriving the hash is a
   deliberate manual step.
+
+## client/tools and the benchmark
+
+- **Noted** — the game account lives only in the login Keychain (service
+  `daoc-offline`). On first use `launch-client.sh` reads the account name and lets
+  `security add-generic-password -w` prompt for the password itself, so it is
+  neither echoed nor on a command line; without a TTY it aborts instead of asking.
+- **Noted** — database lookups (character for the launch, character position and
+  NPC for the bench's movement check) open the server DB read-only with
+  parameterized queries.
+- **Noted** — teardown is scoped to this install: `kill-client.sh` signals only
+  this bundle's launcher and the `game.dll`/x87sidecar processes mapping files from
+  this install's wine, so another checkout's client is never touched. Scripts call
+  `/bin/ps`, `/usr/bin/pgrep` and `/usr/sbin/lsof` by absolute path (a shell
+  builtin `ps` misreported the translated client's CPU).
+- **Noted** — `launch-client.sh` counts a login only on a new
+  `WorldInitRequestHandler` line: the server logs `LoginRequestHandler` even for a
+  login refused because the character is still linkdead.
+- **Noted** — `bench-run.sh` writes its output to a `mktemp -d` directory
+  (`DAOC_BENCH_OUT` overrides) and restores the account role on exit and on
+  INT/TERM/HUP; a marker file in the server's `run/` carries an unfinished restore
+  to the next run.
 
 ## Known limitations
 

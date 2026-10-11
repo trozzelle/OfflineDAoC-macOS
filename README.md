@@ -69,13 +69,37 @@ open -n dist/DAoCLauncher.app --args wine game.dll 127.0.0.1 10300 42 <name> <pa
 If the client crashes before the splash, the launcher relaunches it on its own
 (up to 10 tries; each attempt is traced to `/tmp/daoc-launcher.log`). Exit with
 `/quit` in chat. If the client runs longer than ~3 minutes with no login
-screen, note what is on screen and check `tail -50 /tmp/daoc-wine.log` —
-a live client that never connects is a known open issue (see
-`HANDOFF.md`).
+screen, note what is on screen and check `tail -50 /tmp/daoc-wine.log`.
+Two known causes of a client that sits without logging in are described in
+`docs/CLIENT-NOTES.md`: an unanswered macOS privacy prompt, and a login within
+60 s of a killed client (the server still holds the character linkdead).
 
 If another DAoC server is already using port 10300, stop it first.
 `./e2e-test.sh` runs its own server on 20300/20400 and puts the config back
 when it's done.
+
+### Client scripts
+
+Run from the repo root; they act only on this install's client, never on
+another checkout's.
+
+- `client/tools/launch-client.sh [retries]` — the launch command above without
+  typing the account: the first run asks for it and saves it in the login
+  Keychain (service `daoc-offline`); `--credentials` does only that.
+  It logs in as `DAOC_CHARACTER`, else the account's most recently played
+  character (read from the server database; `--character` prints it), connects to
+  the `<Port>` in the server's `config/serverconfig.xml` (`DAOC_PORT` overrides),
+  and relaunches a client that hangs before entering the world (default 3 tries).
+- `client/tools/stop-client.sh` — stops the client, then waits until the server
+  has dropped the linkdead character so the next login is not refused.
+- `client/tools/kill-client.sh` — tears down the launcher loop, wine tree and
+  x87sidecar of this install and waits for its wineserver to exit.
+
+Launcher overrides (pass with `open --env`; `launch-client.sh` forwards them when
+set): `DAOC_WINE_HOME` (wine tree, default `dist/wine`), `DAOC_WINEPREFIX`
+(default `dist/prefix`), `DAOC_DLL_OVERRIDES` (replaces `d3d9,dxgi=b`),
+`WINE_COMPATDB` (renderer choice, e.g.
+`$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` for wined3d instead of mtld3d).
 
 ### Performance and the FPS overlay
 
@@ -100,10 +124,14 @@ in the login Keychain. The bench logs in as the account's most recently played
 character (`DAOC_CHARACTER` to pick another of its characters), plays for
 5 minutes (NPC interaction plus movement through the Connacht town), and reports
 average FPS, p95/p99 frame time and 1%-low FPS from a per-present probe. It passes
-at an average of at least 60 FPS with p95 at or under 16.7 ms. Run it from a GUI
-Terminal with the server up (`./daoc-server.sh start`); the client connects to the
-`<Port>` in the server's `config/serverconfig.xml` (10300 by default; set
-`DAOC_PORT` to override). It needs `brew install mingw-w64` for its input helper.
+(exit 0) at an average of at least 60 FPS with p95 at or under 16.7 ms; exit 1 is
+a fail, exit 2 an invalid run (no frames, server gone, character never moved).
+The bench needs `/jump` and `/target`, so it raises the account to GM for the run
+and puts it back to player afterwards; if that restore fails, the next run does it
+first. Run it from a GUI Terminal with the server up (`./daoc-server.sh start`);
+the client connects to the `<Port>` in the server's `config/serverconfig.xml`
+(10300 by default; set `DAOC_PORT` to override). It needs `brew install mingw-w64`
+for its input helper.
 
 ## Update
 
@@ -117,4 +145,6 @@ Terminal with the server up (`./daoc-server.sh start`); the client connects to t
 
 - `docs/DESIGN.md` — repo layout, manifest schema, install flows
 - `docs/REVIEW.md` — review of the ported code and scripts
+- `docs/CLIENT-NOTES.md` — client findings under Wine on Apple silicon (x87
+  performance, privacy prompt, prefix user, linkdead wait)
 - `docs/SERVER-NOTES.md` — upstream server issues documented, not patched

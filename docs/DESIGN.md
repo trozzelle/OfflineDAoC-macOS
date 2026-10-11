@@ -15,8 +15,8 @@ daoc-macos/
 │   ├── tools/               #   macOS build scripts (osx-arm64, libDetour.dylib, codesign)
 │   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin
 ├── client/
-│   ├── install-client.sh    # wine + OfflineDAoC release + client patch + launcher
 │   ├── apply_game_patch.py  # game.dll encryption-bypass patch (byte-verified)
+│   ├── fetch_release.py     # OfflineDAoC release fetcher (per-part + archive SHA-256)
 │   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (mtld3d + x87sidecar)
 │   ├── bench-run.sh         # performance gate (5-min scripted play, avg/p95/1%-low)
 │   ├── bench-drive.sh       #   scripted NPC interaction + movement for the gate
@@ -25,8 +25,10 @@ daoc-macos/
 │                            # stop-client.sh, kill-client.sh (install-scoped
 │                            # teardown), frametime/ (per-present probe dylib)
 ├── install-server.sh        # pull pinned upstream → overlay → build → dist/
+├── install-client.sh        # wine + OfflineDAoC release + client patch + launcher
 ├── update.sh                # bump pins in manifest.json
 ├── e2e-test.sh              # scripted end-to-end acceptance
+├── .github/CODEOWNERS       # @trozzelle owns the repository
 └── docs/
 ```
 
@@ -71,6 +73,9 @@ The macOS server port is a source-patch port, not a fork:
    `git apply`, vendor `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
 3. Run the port's `tools/build-release.sh` → `dist/daoc-server/` (self-contained
    osx-arm64 .NET publish, cmake-built `libDetour.dylib`, ad-hoc codesigning).
+   It snapshots the source from `DAOC_SOURCE_REPO`; `install-server.sh` pins that
+   to the verified `upstream/server/` clone, which is also the default when the
+   build script or `fetch-upstream-db.sh` runs on its own.
 
 Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
 
@@ -96,6 +101,33 @@ user, the linkdead wait after a kill), is in `docs/CLIENT-NOTES.md`.
 
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
+
+## Benchmark gate
+
+`client/bench-run.sh` measures the client the player gets, not a synthetic scene:
+
+- **Login** — `client/tools/launch-client.sh` with the game account from the login
+  Keychain and the character from the server database (`DAOC_CHARACTER`, else the
+  most recently played). The game port is the `<Port>` in the server's
+  `config/serverconfig.xml`.
+- **Play** — `bench-drive.sh` drives the character through `sendinput.exe`, a
+  mingw-built helper that runs inside the game's own prefix and wineserver, so no
+  macOS Accessibility permission is needed. Each cycle `/jump`s to a townsfolk NPC,
+  right-clicks it (interact), closes the window and walks a movement pattern.
+  `/jump` and `/target` need GM rights: the bench raises a player account to gm
+  for the run, records that in `run/bench-gm-raised`, and restores player on exit
+  or signal (or at the start of the next run, if the server was gone).
+- **Probe** — `client/tools/frametime/ftlog.dylib` (universal: x86_64 wine and
+  arm64 x87sidecar both load it) swizzles `-[CAMetalLayer nextDrawable]` and logs
+  one timestamp per presented frame. The launcher injects it with
+  `DYLD_INSERT_LIBRARIES` when `DAOC_FTLOG_DIR` is set; it cannot be set by the
+  caller because SIP strips `DYLD_*` when the `/bin/bash` launcher starts.
+- **Verdict** — over exactly the play window: PASS at average ≥ 60 FPS and p95
+  ≤ 16.7 ms (17.0 ms when mtld3d reports vsync on); 1%-low FPS is diagnostic.
+  The run is invalid (exit 2) if the probe wrote nothing, the renderer's vsync state
+  is missing from the mtld3d log, the server stopped during play, or the character
+  ended under 300 units from the last NPC it interacted with (read from the server
+  database after logout).
 
 ## E2E acceptance
 
