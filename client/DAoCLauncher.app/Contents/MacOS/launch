@@ -4,22 +4,40 @@
 #
 #   DAoCLauncher wine <wine-args...>
 #
-# The 'wine' mode is the proven working configuration: wined3d GL renderer with
-# the bundled d3d9/dxgi overrides. The install sets the WINEPREFIX and client
-# directory up; this wrapper only wires the environment and execs wine.
+# The 'wine' mode runs the client under the CrossOver wine from install-client.sh:
+# mtld3d renders D3D9 on Metal and x87sidecar runs the game's x87 math as native
+# ARM64 (both chosen per process by the wine build's compatdb). The install sets
+# the WINEPREFIX and client directory up; this wrapper only wires the
+# environment and execs wine.
 set -euo pipefail
 INSTALL_DIR="$(cd "$(dirname "$0")/../../../.." && pwd)"   # .../daoc-macos (bundle sits in dist/)
 CLIENT_ROOT="$INSTALL_DIR/dist/OfflineDAoC"
-WINE_APP="$INSTALL_DIR/dist/wine/Wine Staging.app"
+WINE_HOME="${DAOC_WINE_HOME:-$INSTALL_DIR/dist/wine}"   # CrossOver wine + x87sidecar (install-client.sh)
 
 MODE="${1:-}"
 [ -z "$MODE" ] && { echo "usage: DAoCLauncher wine <wine-args...>" >&2; exit 1; }
 shift
 
 if [ "$MODE" = "wine" ]; then
-    export WINEDLLOVERRIDES='d3d9,dxgi=b'
-    export WINEPREFIX="$INSTALL_DIR/dist/prefix"
+    # 'd3d9,dxgi=b': the wine build's own d3d9 (mtld3d, picked by its compatdb).
+    # DAOC_DLL_OVERRIDES replaces this; WINE_COMPATDB (passed through) can
+    # select another renderer, e.g. $'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'.
+    export WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"
+    export WINEPREFIX="${DAOC_WINEPREFIX:-$INSTALL_DIR/dist/prefix}"
     cd "$CLIENT_ROOT/runtime/client-opendaoc/app"
+    # Benchmark probe: DAOC_FTLOG_DIR=<dir> logs one timestamp per presented
+    # Metal frame to <dir>/ftlog-<pid>.txt (client/tools/frametime). It has to
+    # be injected here: SIP strips DYLD_* when this /bin/bash script starts.
+    if [ -n "${DAOC_FTLOG_DIR:-}" ]; then
+        export FTLOG_DIR="$DAOC_FTLOG_DIR"
+        export DYLD_INSERT_LIBRARIES="$INSTALL_DIR/client/tools/frametime/ftlog.dylib"
+    fi
+    # DAOC_FPS_OVERLAY=1 shows Apple's Metal Performance HUD (FPS, frame-time
+    # graph) in the game window's top-right corner. Needs a Metal renderer
+    # (mtld3d); it is not reliable over wined3d's GL path.
+    if [ "${DAOC_FPS_OVERLAY:-0}" = 1 ]; then
+        export MTL_HUD_ENABLED=1
+    fi
     # The GL init under Rosetta crashes probabilistically at two distinct
     # points (measured 2026-10-09): wined3d adapter selection
     # (err:seh:NtRaiseException) and window creation
@@ -45,12 +63,12 @@ if [ "$MODE" = "wine" ]; then
     gave_up=0
     for ((attempt = 1; attempt <= max; attempt++)); do
         status=0
-        offset=$(wc -c < "$log" 2>/dev/null | tr -d ' '); offset=${offset:-0}
+        offset=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || true); offset=${offset:-0}
         start_ts=$(date +%s)
-        "$WINE_APP/Contents/Resources/wine/bin/wine" "$@" >> "$log" 2>&1 || status=$?
+        "$WINE_HOME/bin/wine" "$@" >> "$log" 2>&1 || status=$?
         elapsed=$(( $(date +%s) - start_ts ))
         tail=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null)
-        if printf '%s' "$tail" | grep -qE "NtRaiseException|caps_gl_ctx_create.*Failed to create a window"; then
+        if printf '%s' "$tail" | grep -qE "NtRaiseException|caps_gl_ctx_create.*Failed to create a window|virtual_setup_exception"; then
             crashed=1
         else
             crashed=0
@@ -64,7 +82,11 @@ if [ "$MODE" = "wine" ]; then
         if [ "$elapsed" -lt 20 ] || { [ "$crashed" -eq 1 ] && [ "$elapsed" -lt 60 ]; }; then
             if [ "$attempt" -lt "$max" ]; then
                 trace_msg "client crashed — relaunching"
-                sleep 3
+                # Ensure the previous wineserver tree is fully gone before the
+                # next attempt: a lingering wineserver wedges the next launch
+                # (observed as status=255/hangs after every crash or kill).
+                "$WINE_HOME/bin/wineserver" -k 2>/dev/null || true
+                "$WINE_HOME/bin/wineserver" -w 2>/dev/null || true
             else
                 gave_up=1
             fi

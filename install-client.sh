@@ -2,17 +2,19 @@
 # install-client.sh - set up the OfflineDAoC client under Wine on macOS.
 #
 #   ./install-client.sh              -> dist/OfflineDAoC/  (patched client)
-#                                       dist/wine/Wine Staging.app
+#                                       dist/wine/           (CrossOver Wine + x87sidecar)
 #                                       dist/prefix/         (wine prefix)
 #                                       client/DAoCLauncher.app (session wrapper)
 #
 # Steps:
-#   1. Verify requirements (macOS, Rosetta 2, python3, GStreamer framework).
-#   2. Fetch + verify the Gcenx Wine Staging tarball (SHA-256 from manifest.json).
+#   1. Verify requirements (macOS, Rosetta 2, python3).
+#   2. Fetch + verify athei/wine-build (SHA-256 from manifest.json): CrossOver Wine
+#      with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
 #   3. Fetch + verify the pinned OfflineDAoC release parts (per-part + whole-archive
 #      SHA-256, same scheme as upstream's Get-OfflineDAoC.ps1), join, extract.
 #   4. Apply the client encryption-bypass patch to game.dll (byte-verified).
-#   5. Initialize the wine prefix (win10 version setting) and install the launcher wrapper.
+#   5. Initialize the wine prefix (win10 version setting, profile folders kept
+#      inside the prefix) and install the launcher wrapper.
 #
 # Everything is cached in downloads/ (gitignored); re-runs skip finished steps.
 set -euo pipefail
@@ -29,14 +31,14 @@ ROOT_FOLDER=$(manifest_pin client root_folder)
 ARCHIVE_SHA=$(manifest_pin client archive_sha256)
 
 DIST="dist"
-WINE_APP="$DIST/wine/Wine Staging.app"
+WINE_HOME="$DIST/wine"
 CLIENT_ROOT="$DIST/OfflineDAoC"
 APP_DIR="$CLIENT_ROOT/runtime/client-opendaoc/app"
 PREFIX="$DIST/prefix"
 LAUNCHER_SRC="client/DAoCLauncher.app"
 LAUNCHER_DST="$DIST/DAoCLauncher.app"
 
-echo "== install-client: OfflineDAoC v$REL_VER + Wine Staging"
+echo "== install-client: OfflineDAoC v$REL_VER + CrossOver Wine (x87sidecar)"
 
 # --- 1. Requirements -------------------------------------------------------
 [[ $(uname -s) == "Darwin" ]] || { echo "install-client: macOS required" >&2; exit 1; }
@@ -50,20 +52,14 @@ if [[ $(uname -m) == "arm64" ]]; then
     exit 1
   fi
 fi
-# Wine runs without the GStreamer framework, but audio/video in games typically
-# needs it. The prior verification used this machine without GStreamer installed,
-# so treat it as optional with a warning rather than a hard requirement.
-if [[ $(uname -m) == "arm64" ]] && [[ ! -d "/Library/Frameworks/GStreamer.framework" ]]; then
-  echo "install-client: NOTE — GStreamer.framework is not installed."
-  echo "  Wine works without it, but in-game audio may be silent."
-  echo "  Free install: https://gstreamer.freedesktop.org/download/ (macOS runtime installer)"
-fi
+# The wine bundle carries its own libraries (no GStreamer needed): audio goes
+# through winecoreaudio.
 command -v curl >/dev/null || { echo "install-client: curl required" >&2; exit 1; }
 
 mkdir -p downloads "$DIST"
 
 # --- 2. Wine ---------------------------------------------------------------
-if [[ ! -d $WINE_APP ]]; then
+if [[ ! -x $WINE_HOME/bin/wine ]]; then
   if [[ ! -f "downloads/$WINE_TARBALL" ]]; then
     echo "== downloading Wine ($WINE_TARBALL)"
     curl -fsSL --retry 3 "$WINE_URL" -o "downloads/$WINE_TARBALL"
@@ -74,11 +70,10 @@ if [[ ! -d $WINE_APP ]]; then
     echo "  expected $WINE_SHA" >&2; echo "  actual   $actual" >&2; exit 1;
   }
   echo "== extracting Wine"
-  mkdir -p "$DIST/wine"
-  tar -xJf "downloads/$WINE_TARBALL" -C "$DIST/wine"
-  # Ad-hoc sign everything: Gatekeeper quarantine must not block the bundle.
-  find "$WINE_APP" -type f -print0 | xargs -0 -I{} sh -c \
-    'file "$1" | grep -q Mach-O && xattr -d com.apple.quarantine "$1" 2>/dev/null || true' _ {} 2>/dev/null || true
+  rm -rf "$WINE_HOME"
+  tar -xJf "downloads/$WINE_TARBALL" -C "$DIST"   # the tarball's root is wine/
+  # Gatekeeper quarantine must not block the bundle's binaries.
+  xattr -dr com.apple.quarantine "$WINE_HOME" 2>/dev/null || true
 else
   echo "== wine already installed"
 fi
@@ -103,15 +98,36 @@ fi
 # --- 5. Wine prefix + launcher --------------------------------------------
 if [[ ! -f $PREFIX/system.reg ]]; then
   echo "== initializing wine prefix (win10 version)"
-  WINE="$WINE_APP/Contents/Resources/wine/bin/wine"
+  WINE="$WINE_HOME/bin/wine"
   export WINEPREFIX="$PWD/$PREFIX"   # absolute: wine rejects relative WINEPREFIX
   "$WINE" wineboot -i >/dev/null 2>&1
   "$WINE" reg add "HKCU\\Software\\Wine" /v Version /d win10 /f >/dev/null 2>&1 || true
   # Wait for wineserver to flush the registry hives before checking them.
-  "$WINE_APP/Contents/Resources/wine/bin/wineserver" -w
+  "$WINE_HOME/bin/wineserver" -w
   [[ -f $PREFIX/system.reg ]] || { echo "install-client: prefix init failed" >&2; exit 1; }
 else
   echo "== wine prefix already initialized"
+fi
+# Bring an existing prefix (e.g. one made by an older wine) up to this wine's
+# version now, so its first game launch does not do it.
+WINEPREFIX="$PWD/$PREFIX" "$WINE_HOME/bin/wine" wineboot -u >/dev/null 2>&1
+WINEPREFIX="$PWD/$PREFIX" "$WINE_HOME/bin/wineserver" -w
+# Wine links the Windows profile folders (Documents, Desktop, ...) of every
+# prefix user (this wine's is "crossover") to the macOS home folders. The first
+# touch of ~/Documents raises a TCC prompt for the wine binary and the client
+# blocks until it is answered, so keep those folders inside the prefix.
+find "$PREFIX/drive_c/users" -maxdepth 3 -type l | while IFS= read -r link; do
+  rm "$link" && mkdir -p "$link"
+done
+# Settings from a prefix made by another wine (e.g. Wine Staging), whose
+# Windows user is the macOS user name: carry them over to this wine's
+# "crossover" user unless it already has its own.
+EA_OLD="$PREFIX/drive_c/users/$USER/AppData/Roaming/Electronic Arts"
+EA_NEW="$PREFIX/drive_c/users/crossover/AppData/Roaming/Electronic Arts"
+if [[ $USER != crossover && -d $EA_OLD && ! -e $EA_NEW ]]; then
+  echo "== copying client settings from prefix user $USER to crossover"
+  mkdir -p "$(dirname "$EA_NEW")"
+  cp -Rp "$EA_OLD" "$EA_NEW"
 fi
 
 # The launcher wrapper resolves paths relative to its bundle location.

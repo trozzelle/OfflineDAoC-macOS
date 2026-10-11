@@ -3,6 +3,7 @@
 /build/
 /.cache/
 # Vendored source build outputs
+vendor/bin/
 vendor/System.Data.SQLite/obj/
 vendor/System.Data.SQLite/bin/
 # Runtime state (never commit player data, logs or credentials)
