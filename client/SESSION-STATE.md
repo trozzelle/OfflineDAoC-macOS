@@ -76,3 +76,8 @@
 - Dev tree now uses the shipped layout: dist/wine = cx build (flat), dist/prefix = cx prefix. Old Staging wine+prefix moved to dist/staging-backup/ (not deleted).
 - macadmin role reverted to `player`; bench-run.sh raises to gm for the run and restores.
 - Patch: /Users/ada/development/games/daoc-macos-x87-perf.patch = `git diff cbd3301..HEAD`. Fresh-clone verification in /Users/ada/development/games/daoc-verify.
+
+## END-STATE VERIFIED (2026-10-10 ~22:36)
+- Fresh `git clone` of trozzelle/OfflineDAoC-macOS at cbd3301 (/Users/ada/development/games/daoc-verify) → `git apply --check` + apply of the final patch → `install-server.sh` (0 errors; 599 C# + 1 C++ warnings, all upstream) + `install-client.sh` (downloads/ seeded by APFS clone, SHA-verified) → server started from that tree with a copy of the dev world DB → that tree's `client/bench-run.sh 300`: **104.8 FPS avg, p95 11.97 ms, p99 13.07, 1%-low 63.2, vsync off maxFps 0, 8 NPC interaction cycles, moved 849 units — PASS**.
+- DAOC_FPS_OVERLAY=1 verified from the fresh tree: HUD shows 86.86 FPS / 11.51 ms frame interval (agrees with the probe).
+- Bugs found only on the fresh tree, fixed: `grep -c … || echo 0` gave "0\n0" on a server log with no world entries (launch-client never saw world entry); a server started from the agent's tool shell died silently ~1 min later (start it from a Terminal/.command or launchd, never the agent shell). bench-run now fails INVALID if the server is down after the play window.

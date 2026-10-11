@@ -39,6 +39,8 @@ role=$(admin accounts show "$ACCOUNT" --json | python3 -c 'import json,sys; prin
 [ "$role" = player ] && admin accounts set-role "$ACCOUNT" gm >/dev/null
 restore() { [ "$role" = player ] && admin accounts set-role "$ACCOUNT" player >/dev/null; }
 trap restore EXIT
+# zsh skips the EXIT trap when a signal kills it: restore on those as well.
+trap 'restore; exit 130' INT TERM HUP
 
 export DAOC_FTLOG_DIR="$OUT/ftlog"
 "$ROOT/client/tools/launch-client.sh" 3 || invalid "client never entered the world"
