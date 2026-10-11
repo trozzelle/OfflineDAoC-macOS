@@ -16,13 +16,21 @@ SLOG="$ROOT/server/dist/daoc-server/logs/server.log"
 world_entries () { local n; n=$(grep -c "WorldInitRequestHandler" "$SLOG" 2>/dev/null); echo "${n:-0}"; }
 WORLD_ENTRIES_BEFORE=$(world_entries)
 
-launch_once () {
+# Game account from the login Keychain; on first run, ask once and store it.
+load_credentials () {
   ACCT=$(/usr/bin/security find-generic-password -s daoc-offline -a login_account -w 2>/dev/null)
   PW=$(/usr/bin/security find-generic-password -s daoc-offline -a login_password -w 2>/dev/null)
-  if [ -z "$ACCT" ] || [ -z "$PW" ]; then
-    echo "ABORT: keychain credentials unavailable (unlock the login keychain in a GUI session)" >&2
-    return 2
-  fi
+  [ -n "$ACCT" ] && [ -n "$PW" ] && return 0
+  [ -t 0 ] || { echo "ABORT: no saved game account; run client/tools/launch-client.sh in Terminal once" >&2; return 2; }
+  read -r "ACCT?Game account name: "
+  read -r "PW?Game account password: "
+  /usr/bin/security add-generic-password -U -s daoc-offline -a login_account -w "$ACCT"
+  /usr/bin/security add-generic-password -U -s daoc-offline -a login_password -w "$PW"
+}
+[ "${1:-}" = --credentials ] && { load_credentials; exit $?; }
+
+launch_once () {
+  load_credentials || return 2
   cd "$ROOT" || return 2
   # LaunchServices drops the caller's environment, so wine/x87sidecar/Metal
   # HUD knobs must ride on --env. Forward them only when set: an empty

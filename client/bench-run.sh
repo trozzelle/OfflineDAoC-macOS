@@ -22,6 +22,7 @@ DUR=${1:-300}; TAG=${2:-bench}
 ROOT="${0:A:h:h}"
 SRV="$ROOT/server/dist/daoc-server"
 DB="$SRV/data/opendaoc.sqlite3.db"
+"$ROOT/client/tools/launch-client.sh" --credentials || exit 2   # asks once if none are saved
 ACCOUNT="${DAOC_BENCH_ACCOUNT:-$(/usr/bin/security find-generic-password -s daoc-offline -a login_account -w 2>/dev/null)}"
 CHAR="${DAOC_CHARACTER:-Ada}"
 OUT="${DAOC_BENCH_OUT:-/tmp/daoc-bench-$TAG}"

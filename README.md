@@ -93,10 +93,10 @@ open -n dist/DAoCLauncher.app --env DAOC_FPS_OVERLAY=1 --args wine game.dll 127.
 
 ### Benchmark
 
-`client/bench-run.sh [seconds] [tag]` is the performance gate. Store your game
-account in the login Keychain once with `client/tools/set-credentials.sh` (it
-prompts for the password, so it never lands in shell history). The bench logs in
-as character `Ada` (`DAOC_CHARACTER` to change), plays for
+`client/bench-run.sh [seconds] [tag]` is the performance gate. The first run (and
+the first `client/tools/launch-client.sh`) asks for your game account and saves it
+in the login Keychain. The bench logs in as character `Ada` (`DAOC_CHARACTER` to
+change), plays for
 5 minutes (NPC interaction plus movement through the Connacht town), and reports
 average FPS, p95/p99 frame time and 1%-low FPS from a per-present probe. It passes
 at an average of at least 60 FPS with p95 at or under 16.7 ms. Run it from a GUI
