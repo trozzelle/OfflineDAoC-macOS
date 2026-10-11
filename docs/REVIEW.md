@@ -69,8 +69,8 @@ and documented here.
   silently half-initialize.
 - **Fixed** — `winecfg -v win10` removed; it only edits a live prefix and hung
   headless. The `Version` registry key is set via `wine reg add` instead.
-- **Noted** — GStreamer framework is optional (warned, not enforced): the
-  verified working configuration ran without it.
+- **Changed** — the GStreamer check is gone: the athei/wine-build bundle carries
+  its own libraries and plays audio through winecoreaudio.
 
 ## client/fetch_release.py — release fetcher
 

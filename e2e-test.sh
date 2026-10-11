@@ -41,7 +41,7 @@ cleanup() {
   # the wine tree under this install's prefix. Scoped to $PWD so the
   # reference install's processes are never signalled.
   pkill -f "$PWD/dist/DAoCLauncher.app" 2>/dev/null || true
-  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/bin/wineserver" -k >/dev/null 2>&1 || true
   if [[ -d $SERVER_DIR && -f $SERVER_DIR/daoc-server.sh ]]; then
     (cd "$SERVER_DIR" && ./daoc-server.sh stop >/dev/null 2>&1) || true
   fi
@@ -141,8 +141,8 @@ for attempt in $(seq 1 10); do
   # Kill any orphaned wine client from a previous attempt, then wait for the
   # wineserver to actually exit (a fixed sleep can't tell a slow Rosetta
   # teardown from a fast one).
-  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -k >/dev/null 2>&1 || true
-  WINEPREFIX="$PWD/dist/prefix" "dist/wine/Wine Staging.app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/bin/wineserver" -k >/dev/null 2>&1 || true
+  WINEPREFIX="$PWD/dist/prefix" "dist/wine/bin/wineserver" -w 2>/dev/null || true
   : > "$WINE_LOG"
   open -n "$PWD/dist/DAoCLauncher.app" --env DAOC_LAUNCHER_RETRIES=1 --args wine game.dll 127.0.0.1 20300 42 "$ACCOUNT" "$PASSWORD"
   deadline=$((SECONDS + 180))

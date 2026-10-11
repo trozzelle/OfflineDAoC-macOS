@@ -6,8 +6,9 @@
 # sits under 1% CPU (or 240 s pass without a login), the client is hung —
 # kill the whole tree and relaunch (up to $1 times, default 3).
 RETRIES="${1:-3}"
+ROOT="${0:A:h:h:h}"   # repo root (this file is client/tools/launch-client.sh)
 LOG=/tmp/daoc-wine.log
-SLOG=/Users/ada/development/games/daoc-macos/server/dist/daoc-server/logs/server.log
+SLOG="$ROOT/server/dist/daoc-server/logs/server.log"
 # Success = a new world entry. A LoginRequestHandler line alone is not enough:
 # the server logs it even when it refuses the login ("still being logged out
 # from linkdeath").
@@ -20,36 +21,35 @@ launch_once () {
     echo "ABORT: keychain credentials unavailable (unlock the login keychain in a GUI session)" >&2
     return 2
   fi
-  cd /Users/ada/development/games/daoc-macos || return 2
+  cd "$ROOT" || return 2
   # LaunchServices drops the caller's environment, so wine/x87sidecar/Metal
   # HUD knobs must ride on --env. Forward them only when set: an empty
   # ROSETTA_X87_PATH would disable the sidecar instead of selecting the
   # bundled one.
   local -a extra_env
   local v
-  for v in WINE_COMPATDB ROSETTA_X87_PATH DAOC_FTLOG_DIR ${(k)parameters[(I)X87_*]} ${(k)parameters[(I)MTL_*]}; do
+  for v in DAOC_WINE_HOME DAOC_WINEPREFIX WINE_COMPATDB ROSETTA_X87_PATH DAOC_FTLOG_DIR DAOC_FPS_OVERLAY \
+           ${(k)parameters[(I)X87_*]} ${(k)parameters[(I)MTL_*]}; do
     [ -n "${(P)v+set}" ] && extra_env+=(--env "$v=${(P)v}")
   done
   open -n dist/DAoCLauncher.app \
     --env "WINEDEBUG=${DAOC_WINEDEBUG:-trace+frametime}" \
     --env "DAOC_LAUNCHER_RETRIES=8" \
-    --env "DAOC_WINE_APP=${DAOC_WINE_APP:-}" \
-    --env "DAOC_WINEPREFIX=${DAOC_WINEPREFIX:-}" \
     "${extra_env[@]}" \
-    --args wine game.dll 127.0.0.1 20300 42 "$ACCT" "$PW" Ada 3
+    --args wine game.dll 127.0.0.1 20300 42 "$ACCT" "$PW" "${DAOC_CHARACTER:-Ada}" "${DAOC_REALM:-3}"
 }
 
 # Kill the app launcher's own relaunch loop first (or it respawns wine in the
 # gap), then every wine/game process for this prefix, and wait for wineserver
 # to exit, so a relaunch never overlaps a previous client.
 kill_tree () {
-  local prefix="${DAOC_WINEPREFIX:-/Users/ada/development/games/daoc-macos/dist/prefix}"
-  local wine_app="${DAOC_WINE_APP:-/Users/ada/development/games/daoc-macos/dist/wine/Wine Staging.app}"
+  local prefix="${DAOC_WINEPREFIX:-$ROOT/dist/prefix}"
+  local wine_home="${DAOC_WINE_HOME:-$ROOT/dist/wine}"
   pkill -f "DAoCLauncher.app/Contents/MacOS/launch" 2>/dev/null
-  WINEPREFIX="$prefix" "$wine_app/Contents/Resources/wine/bin/wineserver" -k 2>/dev/null || true
+  WINEPREFIX="$prefix" "$wine_home/bin/wineserver" -k 2>/dev/null || true
   pkill -9 -f "game.dll" 2>/dev/null
   pkill -9 -f x87sidecar 2>/dev/null
-  WINEPREFIX="$prefix" "$wine_app/Contents/Resources/wine/bin/wineserver" -w 2>/dev/null || true
+  WINEPREFIX="$prefix" "$wine_home/bin/wineserver" -w 2>/dev/null || true
 }
 
 # Cumulative CPU time (centiseconds) of the game process, from /usr/bin/top:

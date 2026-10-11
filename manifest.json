@@ -21,9 +21,9 @@
     "note": "Hashes pinned from the release's download-manifest.json; game.dll hash is the pristine v0.35b Sluaghbinder client."
   },
   "wine": {
-    "url": "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-staging-11.18-osx64.tar.xz",
-    "tarball": "wine-staging-11.18-osx64.tar.xz",
-    "sha256": "b63704b91af269bc026a87f12bd297c4a50caaf570c322e600b6621ef918f127",
-    "note": "Gcenx Wine Staging 11.18 (x86_64, Rosetta 2); requires GStreamer.framework."
+    "url": "https://github.com/athei/wine-build/releases/download/cx-26.3.0-8/wine-cx-26.3.0-8-macos-x86_64.tar.xz",
+    "tarball": "wine-cx-26.3.0-8-macos-x86_64.tar.xz",
+    "sha256": "1976c3310a1f8be2f8e9a46fcb524f77b4316df3d281d94af2c8542bef60456d",
+    "note": "athei/wine-build cx-26.3.0-8: CrossOver 26.3 Wine (x86_64, Rosetta 2) with i386 support, the bundled x87sidecar (Rosetta x87 JIT, cooperative attach) and mtld3d (D3D9 on Metal). x87sidecar is what lifts the client from ~7 to 60+ FPS: the game thread is otherwise CPU-bound in Rosetta's x87 emulation."
   }
 }
