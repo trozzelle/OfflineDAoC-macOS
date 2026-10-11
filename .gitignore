@@ -33,3 +33,6 @@ HANDOFF.md
 # IDE noise
 .idea/
 evidence-fresh/
+client/x87sidecar/
+client/tools/frametime/*.dylib
+*.sampler
