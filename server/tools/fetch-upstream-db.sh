@@ -54,7 +54,7 @@ if [[ ! -d $DUMP ]]; then
   mkdir -p "$CACHE"
   echo "Downloading OpenDAoC-Database $DB_COMMIT ..." >&2
   curl -fSL "$CURL_PROGRESS" --retry 3 "https://codeload.github.com/OpenDAoC/OpenDAoC-Database/tar.gz/$DB_COMMIT" \
-    | tar -xz -C "$CACHE" --strip-components=2 -s '/[^/]*/opendaoc-db-core/opendaoc-db-core/'
+    | tar -xz -C "$CACHE" --strip-components=1 '*/opendaoc-db-core/*'
 fi
 actual=$(content_hash "$DUMP")
 if [[ $actual != "$DB_CONTENT_SHA256" ]]; then
