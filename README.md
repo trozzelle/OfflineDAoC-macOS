@@ -82,7 +82,8 @@ when it's done.
 The 1.127 client does its 3D math with x87 floating point, which Rosetta 2
 emulates slowly: under plain Wine the game thread is CPU-bound at about 7 FPS.
 The bundled x87sidecar translates that code to native ARM64 and mtld3d renders
-on Metal; together they run the client at 100+ FPS (vsync off, uncapped).
+on Metal; together they run the client at 90–105 FPS average in the benchmark
+below (vsync off, uncapped).
 
 To show Apple's Metal Performance HUD (FPS and a frame-time graph, top right of
 the game window), launch with `DAOC_FPS_OVERLAY=1`:
@@ -95,8 +96,8 @@ open -n dist/DAoCLauncher.app --env DAOC_FPS_OVERLAY=1 --args wine game.dll 127.
 
 `client/bench-run.sh [seconds] [tag]` is the performance gate. The first run (and
 the first `client/tools/launch-client.sh`) asks for your game account and saves it
-in the login Keychain. The bench logs in as character `Ada` (`DAOC_CHARACTER` to
-change), plays for
+in the login Keychain. The bench logs in as the account's most recently played
+character (`DAOC_CHARACTER` to pick another of its characters), plays for
 5 minutes (NPC interaction plus movement through the Connacht town), and reports
 average FPS, p95/p99 frame time and 1%-low FPS from a per-present probe. It passes
 at an average of at least 60 FPS with p95 at or under 16.7 ms. Run it from a GUI

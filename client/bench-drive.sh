@@ -18,16 +18,17 @@ SI="$ROOT/client/input-helper/sendinput.exe"
 # DAOC_WINE_HOME / DAOC_WINEPREFIX overrides.
 WINE="${DAOC_WINE_HOME:-$ROOT/dist/wine}/bin/wine"
 export WINEPREFIX="${DAOC_WINEPREFIX:-$ROOT/dist/prefix}"
-read -r -a NPCS <<< "${DAOC_BENCH_NPCS:-Qunilan Blercyn Freagus Llyn Eleri}"
+read -r -a NPCS <<< "${DAOC_BENCH_NPCS:-Qunilan Aideen Freagus Llyn Eleri}"
 STATE="${DAOC_BENCH_STATE:-/dev/null}"   # last jump target, for bench-run.sh
 
 si() { "$WINE" "$SI" "$@" 2>/dev/null; }
 # Release every key the pattern holds, so an aborted run never leaves the
 # character running into a wall.
-release() { for sc in 0x11 0x1F 0x4B 0x4D 0x1E 0x20; do si sc "$sc" up; done; }
+release() { for sc in 0x11 0x1F 0xE04B 0xE04D; do si sc "$sc" up; done; }
 trap release EXIT
 
-# Scan codes: W=0x11 fwd, S=0x1F back, LEFT=0x4B, RIGHT=0x4D
+# Scan codes: W=0x11 fwd, S=0x1F back, LEFT=0xE04B, RIGHT=0xE04D (E0-extended:
+# a bare 0x4B/0x4D is NUMPAD4/NUMPAD6)
 END=$((SECONDS + DUR))
 n=0
 while (( SECONDS < END )); do
@@ -43,7 +44,7 @@ while (( SECONDS < END )); do
     sleep 3
     si sc 0x01 down 50                       # Esc: close the NPC window
     si sc 0x1F down 600
-    for step in "0x4B 900" "0x11 6000" "0x4D 1500" "0x11 5000" "0x4B 2400" "0x11 6000"; do
+    for step in "0xE04B 900" "0x11 6000" "0xE04D 1500" "0x11 5000" "0xE04B 2400" "0x11 6000"; do
         (( SECONDS < END )) || break
         si sc ${step% *} down ${step#* }
     done

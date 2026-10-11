@@ -44,9 +44,10 @@ raised a Documents prompt once with the prefix set up this way.
 
 The CrossOver wine names its Windows user `crossover`, not the macOS user name.
 The client's settings live in
-`dist/prefix/drive_c/users/crossover/AppData/Roaming/Electronic Arts/`. Settings
-from a prefix made by another wine (whose user is the macOS user name) are not
-picked up until they are copied there.
+`dist/prefix/drive_c/users/crossover/AppData/Roaming/Electronic Arts/`. When the
+prefix was made by another wine (e.g. Wine Staging, whose user is the macOS user
+name), `install-client.sh` copies that user's `Electronic Arts` folder there,
+unless `crossover` already has one.
 
 ## A killed client leaves the character linkdead for 60 s
 

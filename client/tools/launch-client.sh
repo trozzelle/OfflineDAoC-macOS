@@ -5,10 +5,16 @@
 # appeared and the wine log has been static for 60 s while the game process
 # sits under 1% CPU (or 240 s pass without a login), the client is hung —
 # kill the whole tree and relaunch (up to $1 times, default 3).
+# The client enters the world as $DAOC_CHARACTER, else the account's most
+# recently played character (read from the server's database), in that
+# character's realm.
+#   launch-client.sh --credentials   ask for and save the game account if none is saved
+#   launch-client.sh --character     print the character a launch would use
 RETRIES="${1:-3}"
 ROOT="${0:A:h:h:h}"   # repo root (this file is client/tools/launch-client.sh)
 LOG=/tmp/daoc-wine.log
 SLOG="$ROOT/server/dist/daoc-server/logs/server.log"
+DB="$ROOT/server/dist/daoc-server/data/opendaoc.sqlite3.db"
 # Game port: $DAOC_PORT, else <Port> from the server's config (as daoc-server.sh reads it), else 10300.
 SRVCONF="$ROOT/server/dist/daoc-server/config/serverconfig.xml"
 PORT="${DAOC_PORT:-$(sed -n 's:.*<Port>\([0-9]*\)</Port>.*:\1:p' "$SRVCONF" 2>/dev/null | head -1)}"
@@ -27,14 +33,42 @@ load_credentials () {
   [ -n "$ACCT" ] && [ -n "$PW" ] && return 0
   [ -t 0 ] || { echo "ABORT: no saved game account; run client/tools/launch-client.sh in Terminal once" >&2; return 2; }
   read -r "ACCT?Game account name: "
-  read -r "PW?Game account password: "
-  /usr/bin/security add-generic-password -U -s daoc-offline -a login_account -w "$ACCT"
-  /usr/bin/security add-generic-password -U -s daoc-offline -a login_password -w "$PW"
+  /usr/bin/security add-generic-password -U -s daoc-offline -a login_account -w "$ACCT" || return 2
+  # Bare -w last: security prompts for the password itself (no echo, not on argv).
+  echo "Game account password:" >&2
+  /usr/bin/security add-generic-password -U -s daoc-offline -a login_password -w || return 2
+  PW=$(/usr/bin/security find-generic-password -s daoc-offline -a login_password -w 2>/dev/null)
+  [ -n "$PW" ] || { echo "ABORT: game account password not saved" >&2; return 2; }
+}
+
+# Sets CHAR_NAME and CHAR_REALM (1 Albion, 2 Midgard, 3 Hibernia) for $ACCT.
+load_character () {
+  local row
+  row=$(python3 - "$DB" "$ACCT" "${DAOC_CHARACTER:-}" <<'EOF'
+import pathlib, sqlite3, sys
+db, acct, name = sys.argv[1:]
+try:
+    con = sqlite3.connect(pathlib.Path(db).as_uri() + "?mode=ro", uri=True)
+    q = "SELECT Name, Realm FROM DOLCharacters WHERE AccountName = ? COLLATE NOCASE"
+    if name:
+        row = con.execute(q + " AND Name = ?", (acct, name)).fetchone()
+    else:
+        row = con.execute(q + " ORDER BY LastPlayed DESC, AccountSlot LIMIT 1", (acct,)).fetchone()
+except sqlite3.Error as e:
+    sys.exit(f"ABORT: cannot read characters from {db}: {e}")
+if not row:
+    sys.exit(f"ABORT: account {acct} has no character {name}" if name else
+             f"ABORT: account {acct} has no character; create one in the client first")
+print(*row)
+EOF
+  ) || return 2
+  read -r CHAR_NAME CHAR_REALM <<< "$row"
 }
 [ "${1:-}" = --credentials ] && { load_credentials; exit $?; }
+[ "${1:-}" = --character ] && { load_credentials && load_character && print -r -- "$CHAR_NAME"; exit $?; }
 
 launch_once () {
-  load_credentials || return 2
+  load_credentials && load_character || return 2
   cd "$ROOT" || return 2
   # LaunchServices drops the caller's environment, so wine/x87sidecar/Metal
   # HUD knobs must ride on --env. Forward them only when set: an empty
@@ -42,7 +76,7 @@ launch_once () {
   # bundled one.
   local -a extra_env
   local v
-  for v in DAOC_WINE_HOME DAOC_WINEPREFIX WINE_COMPATDB ROSETTA_X87_PATH DAOC_FTLOG_DIR DAOC_FPS_OVERLAY \
+  for v in DAOC_WINE_HOME DAOC_WINEPREFIX DAOC_DLL_OVERRIDES WINE_COMPATDB ROSETTA_X87_PATH DAOC_FTLOG_DIR DAOC_FPS_OVERLAY \
            ${(k)parameters[(I)X87_*]} ${(k)parameters[(I)MTL_*]}; do
     [ -n "${(P)v+set}" ] && extra_env+=(--env "$v=${(P)v}")
   done
@@ -50,7 +84,7 @@ launch_once () {
     --env "WINEDEBUG=${DAOC_WINEDEBUG:-trace+frametime}" \
     --env "DAOC_LAUNCHER_RETRIES=8" \
     "${extra_env[@]}" \
-    --args wine game.dll 127.0.0.1 "$PORT" 42 "$ACCT" "$PW" "${DAOC_CHARACTER:-Ada}" "${DAOC_REALM:-3}"
+    --args wine game.dll 127.0.0.1 "$PORT" 42 "$ACCT" "$PW" "$CHAR_NAME" "$CHAR_REALM"
 }
 
 # Cumulative CPU time (centiseconds) of the game process. Absolute /bin/ps:

@@ -14,7 +14,9 @@
 # or the character did not move away from the last NPC it interacted with.
 #
 # The bench needs GM rights for /jump and /target on NPCs: it raises the account
-# to gm for the run and restores the previous role afterwards.
+# to gm for the run and restores the previous role afterwards. A marker file
+# records the raise until the restore succeeds; if the server was gone at the
+# end, the next run restores the account first (or run the printed command).
 # Requires: a running server (server/dist/daoc-server), mingw-w64 (input helper),
 # Xcode command line tools (probe), sqlite3.
 set -u
@@ -22,26 +24,43 @@ DUR=${1:-300}; TAG=${2:-bench}
 ROOT="${0:A:h:h}"
 SRV="$ROOT/server/dist/daoc-server"
 DB="$SRV/data/opendaoc.sqlite3.db"
-"$ROOT/client/tools/launch-client.sh" --credentials || exit 2   # asks once if none are saved
+# Asks for the game account once if none is saved; the bench character is the
+# one launch-client.sh logs in with (DAOC_CHARACTER, else the most recently played).
+CHAR=$("$ROOT/client/tools/launch-client.sh" --character) || exit 2
+export DAOC_CHARACTER="$CHAR"
 ACCOUNT="${DAOC_BENCH_ACCOUNT:-$(/usr/bin/security find-generic-password -s daoc-offline -a login_account -w 2>/dev/null)}"
-CHAR="${DAOC_CHARACTER:-Ada}"
-OUT="${DAOC_BENCH_OUT:-/tmp/daoc-bench-$TAG}"
+OUT="${DAOC_BENCH_OUT:-$(mktemp -d -t "daoc-bench-$TAG")}" || exit 2
 admin() { DAOC_ADMIN_SOCKET="$SRV/run/admin.sock" "$SRV/bin/DaocAdmin" "$@"; }
-pos() { sqlite3 "$DB" "SELECT Xpos, Ypos FROM DOLCharacters WHERE Name='$CHAR'"; }
 invalid() { echo "INVALID: $*"; exit 2; }
+MARK="$SRV/run/bench-gm-raised"   # account raised to gm and not yet restored
+setrole() { admin accounts set-role "$1" "$2" >/dev/null 2>&1; }
 
 make -s -C "$ROOT/client/input-helper" sendinput.exe || invalid "cannot build the input helper (brew install mingw-w64)"
 make -s -C "$ROOT/client/tools/frametime" || invalid "cannot build the frametime probe"
 admin status >/dev/null 2>&1 || invalid "server not running ($SRV)"
-rm -rf "$OUT"; mkdir -p "$OUT/ftlog"
+if [ -f "$MARK" ]; then
+    prev=$(<"$MARK")
+    setrole "$prev" player || invalid "cannot restore $prev to player (left at gm by an earlier run)"
+    rm -f "$MARK"; echo "restored $prev to player (left at gm by an earlier run)"
+fi
+rm -rf "$OUT/ftlog" "$OUT/last-npc" "$OUT/window.ns"; mkdir -p "$OUT/ftlog" || invalid "cannot create $OUT/ftlog"
+echo "[$TAG] character $CHAR; output in $OUT"
 
 "$ROOT/client/tools/stop-client.sh"
 role=$(admin accounts show "$ACCOUNT" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["role"])')
-[ "$role" = player ] && admin accounts set-role "$ACCOUNT" gm >/dev/null
-restore() { [ "$role" = player ] && admin accounts set-role "$ACCOUNT" player >/dev/null; }
+restore() {
+    [ -f "$MARK" ] || return 0
+    if setrole "$ACCOUNT" player; then rm -f "$MARK"; return 0; fi
+    echo "WARNING: $ACCOUNT is still gm; the next bench-run.sh restores it, or run:" >&2
+    echo "  DAOC_ADMIN_SOCKET='$SRV/run/admin.sock' '$SRV/bin/DaocAdmin' accounts set-role '$ACCOUNT' player" >&2
+}
 trap restore EXIT
 # zsh skips the EXIT trap when a signal kills it: restore on those as well.
 trap 'restore; exit 130' INT TERM HUP
+if [ "$role" = player ]; then
+    print -r -- "$ACCOUNT" > "$MARK"
+    setrole "$ACCOUNT" gm || invalid "cannot raise $ACCOUNT to gm"
+fi
 
 export DAOC_FTLOG_DIR="$OUT/ftlog"
 "$ROOT/client/tools/launch-client.sh" 3 || invalid "client never entered the world"
@@ -50,7 +69,7 @@ F=$(ls -S "$OUT"/ftlog/ftlog-*.txt 2>/dev/null | head -1)   # the game's present
 [ -n "$F" ] || invalid "frametime probe wrote nothing (was ftlog.dylib injected?)"
 l0=$(wc -l < "$F"); sleep 2; [ "$(wc -l < "$F")" -gt "$l0" ] || invalid "probe file is not growing: $F"
 gpid=${${F:t:r}#ftlog-}
-MLOG=$(ls -t "$ROOT"/dist/OfflineDAoC/runtime/client-opendaoc/app/mtld3d-logs/game-"$gpid".log 2>/dev/null | head -1)
+MLOG="$ROOT/dist/OfflineDAoC/runtime/client-opendaoc/app/mtld3d-logs/game-$gpid.log"
 VSYNC=$(grep -aoE "\(vsync (on|off), maxFps [0-9]+\)" "$MLOG" 2>/dev/null | tail -1)
 [ -n "$VSYNC" ] || invalid "renderer vsync/frame-cap state not found (mtld3d log for pid $gpid)"
 
@@ -62,11 +81,20 @@ sed -n "$((l0 + 1)),${l1}p" "$F" > "$OUT/window.ns"
 admin status >/dev/null 2>&1 || invalid "server stopped during the play window"
 
 "$ROOT/client/tools/stop-client.sh"    # logout saves the character's position
-read -r x y <<< "$(pos | tr '|' ' ')"
 npc=$(cat "$OUT/last-npc" 2>/dev/null)
-npos=$(sqlite3 "$DB" "SELECT X, Y FROM Mob WHERE Name='$npc' LIMIT 1" | tr '|' ' ')
-read -r nx ny <<< "$npos"
-moved=$(python3 -c "import math; print(int(math.hypot($x-${nx:-0}, $y-${ny:-0})))")
+[ -n "$npc" ] || invalid "bench-drive recorded no NPC interaction"
+moved=$(python3 - "$DB" "$CHAR" "$npc" 2>&1 <<'EOF'
+import math, pathlib, sqlite3, sys
+db, char, npc = sys.argv[1:]
+con = sqlite3.connect(pathlib.Path(db).as_uri() + "?mode=ro", uri=True)
+row = con.execute("SELECT Region, Xpos, Ypos FROM DOLCharacters WHERE Name = ?", (char,)).fetchone()
+if not row: sys.exit(f"character {char} not found in {db}")
+region, x, y = row
+mobs = con.execute("SELECT X, Y FROM Mob WHERE Name = ? AND Region = ?", (npc, region)).fetchall()
+if len(mobs) != 1: sys.exit(f"NPC '{npc}' has {len(mobs)} Mob rows in region {region} (need exactly 1)")
+print(int(math.hypot(x - mobs[0][0], y - mobs[0][1])))
+EOF
+) || invalid "$moved"
 
 python3 - "$OUT/window.ns" "$TAG" "$VSYNC" "$t0" "$t1" "$npc" "$moved" <<'EOF'
 import sys

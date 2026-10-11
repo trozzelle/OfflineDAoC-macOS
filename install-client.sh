@@ -119,6 +119,16 @@ WINEPREFIX="$PWD/$PREFIX" "$WINE_HOME/bin/wineserver" -w
 find "$PREFIX/drive_c/users" -maxdepth 3 -type l | while IFS= read -r link; do
   rm "$link" && mkdir -p "$link"
 done
+# Settings from a prefix made by another wine (e.g. Wine Staging), whose
+# Windows user is the macOS user name: carry them over to this wine's
+# "crossover" user unless it already has its own.
+EA_OLD="$PREFIX/drive_c/users/$USER/AppData/Roaming/Electronic Arts"
+EA_NEW="$PREFIX/drive_c/users/crossover/AppData/Roaming/Electronic Arts"
+if [[ $USER != crossover && -d $EA_OLD && ! -e $EA_NEW ]]; then
+  echo "== copying client settings from prefix user $USER to crossover"
+  mkdir -p "$(dirname "$EA_NEW")"
+  cp -Rp "$EA_OLD" "$EA_NEW"
+fi
 
 # The launcher wrapper resolves paths relative to its bundle location.
 rm -rf "$LAUNCHER_DST"
