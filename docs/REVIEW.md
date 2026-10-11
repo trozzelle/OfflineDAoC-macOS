@@ -134,6 +134,36 @@ and documented here.
   the patcher cannot silently accept an unknown base; re-deriving the hash is a
   deliberate manual step.
 
+## server/tools/build-release.sh — rebuilds and the release zip
+
+- **Fixed** — rebuilds no longer `rm -rf` the whole `dist/daoc-server/`. They
+  delete only `bin/`, `defaults/` and the top-level files listed in `EXTRAS`, and
+  refuse while the server runs, so `config/`, `data/`, `logs/` and `run/` survive.
+- **Fixed** — the release zip is made with `zip -y`. Without it, `zip` followed
+  `bin/config`, `bin/logs` and `bin/navmesh`. That packed the builder's
+  `serverconfig.xml` and console logs (account and character names) plus a second
+  copy of the navmeshes (709 MB → 89 MB). Users also got real directories in
+  place of the links, so their own `config/` edits were ignored.
+
+## server/tools/ProgressImport + deploy/daoc-progress — world upgrade / import
+
+- **Noted** — a port of upstream Offline DAoC's IMPORT PROGRESS engine, with the
+  same table policy, verification and rollback. It has no `account.txt` handling,
+  keeps account roles, and adds an in-place `upgrade` that keeps the install's settings.
+- **Fixed** — an owned house whose lot is missing from the target world used to
+  vanish silently while its `DBIndoorItem` rows were still copied. The run now
+  aborts before transferring anything and names the houses.
+- **Noted** — the `ItemTemplate` merge is deliberately unfiltered: every old
+  template the world lacks is kept, because `Inventory`, `househookpointitem` and
+  `CharacterXOneTimeDrop` all reference templates. The world's definition wins on
+  an ID collision.
+- **Fixed** — the undo steps (README and usage text) say to delete a leftover
+  `-wal`/`-shm` before copying a backup back. SQLite would otherwise replay
+  another database's WAL into the restored file.
+- **Fixed** — the wrapper's own running-server check is gone. It blocked the
+  read-only `inspect` and the usage text, and the engine already refuses
+  `upgrade` and `import` while this server or the source save's server runs.
+
 ## client/tools and the benchmark
 
 - **Noted** — the game account lives only in the login Keychain (service

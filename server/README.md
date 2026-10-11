@@ -31,8 +31,9 @@ cd dist/daoc-server
 - `./daoc-server.sh stop` stops the server (saves first).
 - `./daoc-admin` reopens the admin screen later; `./daoc-admin help` lists CLI commands.
 - The world and all saves live in `data/opendaoc.sqlite3.db`; config in `config/` — both are
-  yours and are kept on upgrade. The folder layout, commands and admin screens are identical to
-  the Linux repo's `docs/RUN.md`; that guide applies here verbatim.
+  yours and are kept on upgrade. A release with new world data needs `./daoc-progress upgrade`
+  to move your progress into it (see Maintenance). The folder layout, commands and admin screens
+  are identical to the Linux repo's `docs/RUN.md`; that guide applies here verbatim.
 
 ## What differs from the Linux repo
 
@@ -45,6 +46,7 @@ cd dist/daoc-server
 | Build box | distrobox (Ubuntu 22.04) | Native macOS toolchain |
 | Release archive | `.tar.gz` | `.zip` |
 | Install scripts | `tools/build-release.sh`, `deploy/*` | macOS equivalents in `tools/` and `deploy/` |
+| World upgrade / progress import | none | `daoc-progress`: Offline DAoC's IMPORT PROGRESS engine, ported (see Maintenance) |
 
 ### SQLite on arm64
 
