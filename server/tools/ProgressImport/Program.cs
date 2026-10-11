@@ -19,7 +19,8 @@ const string Usage = """
                                   bot and leave Sluaghbinder bots (and the items they carry) behind.
 
     Every run backs up the current save to data/progress-backups/<time>/ first (with
-    import-report.txt). To undo: stop the server, copy that folder's opendaoc.sqlite3.db back to data/.
+    import-report.txt). To undo: stop the server, delete data/opendaoc.sqlite3.db-wal and
+    data/opendaoc.sqlite3.db-shm if they exist, then copy that folder's opendaoc.sqlite3.db back to data/.
     """;
 
 string home = Environment.GetEnvironmentVariable("DAOC_HOME") is { Length: > 0 } configured
@@ -44,11 +45,11 @@ try
             return 0;
         }
         case ("upgrade", 1):
-            return Report(ImportEngine.Run(home, Path.Combine(home, "data", ImportEngine.SaveFile), upgrade: true, Console.WriteLine, leaveBots));
+            return Report(ImportEngine.Upgrade(home, Console.WriteLine, leaveBots));
         case ("import", 2):
             if (!flags.Contains("--replace-progress"))
                 return Fail(2, "import replaces this server's saved progress. Add --replace-progress to confirm (a backup is made first).");
-            return Report(ImportEngine.Run(home, ImportEngine.LocateSave(words[1]), upgrade: false, Console.WriteLine, leaveBots));
+            return Report(ImportEngine.Import(home, ImportEngine.LocateSave(words[1]), Console.WriteLine, leaveBots));
         default:
             return Fail(2, Usage);
     }

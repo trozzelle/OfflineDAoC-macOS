@@ -100,7 +100,10 @@ dist/                        build output (gitignored)
   characters, items, money, houses, guilds and bots, plus this install's settings (edition,
   population, `daoc-admin options`, XP rates). World state such as keep and relic ownership
   starts fresh. The previous save is backed up to `data/progress-backups/<time>/` with an
-  `import-report.txt`; to undo, stop the server and copy that `opendaoc.sqlite3.db` back to `data/`.
+  `import-report.txt`; to undo, stop the server, delete `data/opendaoc.sqlite3.db-wal` and
+  `data/opendaoc.sqlite3.db-shm` if they exist (SQLite would replay a leftover `-wal` into the
+  restored file), then copy that `opendaoc.sqlite3.db` back to `data/`. `upgrade` and `import`
+  refuse, changing nothing, when an owned house's lot is missing from the world they move into.
 - **Bring a save from elsewhere**: `./daoc-progress import <folder> --replace-progress` replaces
   this server's progress with another save's (an older server folder, or a Windows Offline DAoC
   folder containing `runtime/`); this server keeps its world and settings, and the source is only

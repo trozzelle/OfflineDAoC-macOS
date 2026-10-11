@@ -70,23 +70,46 @@ public static class ImportEngine
     }
 
     /// <summary>
-    /// Puts saved progress into a new database and installs it as this server's data/.
-    /// upgrade: the source is this server's own save; the result is the new world from
-    /// defaults/world.sqlite plus that progress and this install's settings.
-    /// import: the source is another save (an older server folder or a Windows Offline DAoC folder);
-    /// this server keeps its own world and settings and its progress is replaced.
+    /// Moves this server's own save into the world this build ships (defaults/world.sqlite), keeping
+    /// this install's settings, and installs the result as data/.
     /// </summary>
-    public static ImportResult Run(string home, string source, bool upgrade, Action<string> progress, bool leaveSluaghbinderBots)
+    public static ImportResult Upgrade(string home, Action<string> progress, bool leaveSluaghbinderBots)
+    {
+        home = ServerFolder(home);
+        string data = SavePath(home);
+        if (!File.Exists(data))
+            throw new InvalidOperationException($"There is no saved progress to upgrade: {data} does not exist. The server creates a fresh world on first start.");
+        return Transfer(home, data, upgrade: true, progress, leaveSluaghbinderBots);
+    }
+
+    /// <summary>
+    /// Replaces this server's progress with another save's (an older server folder or a Windows
+    /// Offline DAoC folder) and installs the result as data/. This server keeps its own world and settings.
+    /// </summary>
+    public static ImportResult Import(string home, string source, Action<string> progress, bool leaveSluaghbinderBots)
+    {
+        home = ServerFolder(home);
+        string data = SavePath(home);
+        if (File.Exists(data) && SameFile(source, data))
+            throw new InvalidOperationException("The source is this server's own save. Use 'upgrade' to move it into the new world.");
+        if (InstallOf(source) is { } sourceHome) RequireStopped(sourceHome);
+        return Transfer(home, source, upgrade: false, progress, leaveSluaghbinderBots);
+    }
+
+    static string ServerFolder(string home)
     {
         home = Path.GetFullPath(home);
-        string data = Path.Combine(home, "data", SaveFile), world = Path.Combine(home, "defaults", "world.sqlite");
-        if (!File.Exists(world)) throw new InvalidOperationException($"{home} is not a server folder (no defaults/world.sqlite).");
-        if (upgrade && !File.Exists(data))
-            throw new InvalidOperationException($"There is no saved progress to upgrade: {data} does not exist. The server creates a fresh world on first start.");
-        if (!upgrade && File.Exists(data) && SameFile(source, data))
-            throw new InvalidOperationException("The source is this server's own save. Use 'upgrade' to move it into the new world.");
+        if (!File.Exists(Path.Combine(home, "defaults", "world.sqlite")))
+            throw new InvalidOperationException($"{home} is not a server folder (no defaults/world.sqlite).");
+        return home;
+    }
+
+    static string SavePath(string home) => Path.Combine(home, "data", SaveFile);
+
+    static ImportResult Transfer(string home, string source, bool upgrade, Action<string> progress, bool leaveSluaghbinderBots)
+    {
+        string data = SavePath(home), world = Path.Combine(home, "defaults", "world.sqlite");
         RequireStopped(home);
-        if (!upgrade && InstallOf(source) is { } sourceHome) RequireStopped(sourceHome);
 
         Directory.CreateDirectory(Path.Combine(home, "data"));
         using var exclusive = new FileStream(Path.Combine(home, "data", "progress-import.lock"), FileMode.OpenOrCreate,
@@ -96,6 +119,9 @@ public static class ImportEngine
         string previous = Path.Combine(backup, SaveFile), staged = Path.Combine(backup, "prepared.db");
         string snapshot = upgrade ? previous : Path.Combine(backup, "source-snapshot.db");
         bool hadSave = File.Exists(data), swapped = false;
+        // The result starts as a copy of this database: the shipped world on upgrade or a first
+        // import, otherwise this server's own save (its world, settings and progress tables).
+        string target = upgrade || !hadSave ? world : data;
         var notes = new List<string>
         {
             upgrade ? $"Upgrade: this server's progress moved into the world from {world}."
@@ -109,7 +135,7 @@ public static class ImportEngine
             var summary = Inspect(snapshot);
             notes.Add($"Source: {summary.Accounts} account(s), {summary.Characters} character(s), {summary.Bots} bot(s), {summary.InventoryItems} inventory entries.");
             bool customClass;
-            using (var c = Open(upgrade ? previous : hadSave ? data : world, true)) customClass = SluaghbinderEnabled(c);
+            using (var c = Open(upgrade ? previous : target, true)) customClass = SluaghbinderEnabled(c);
             if (!customClass && summary.SluaghbinderCharacters > 0)
                 throw new InvalidDataException($"The save has {summary.SluaghbinderCharacters} Sluaghbinder character(s), but this server runs without the custom class " +
                     "(server property enable_sluaghbinder = False). Nothing was changed.");
@@ -117,7 +143,7 @@ public static class ImportEngine
             if (dropBots && !leaveSluaghbinderBots)
                 throw new InvalidDataException($"The save has {summary.SluaghbinderBots} autonomous Sluaghbinder bot(s), but this server runs without the custom class. " +
                     "Run again with --leave-sluaghbinder-bots to bring every other bot and leave those (and the items they carry) behind. Nothing was changed.");
-            Backup(upgrade || !hadSave ? world : data, staged);
+            Backup(target, staged);
             long existingMissing;
             using (var c = Open(staged, false))
             {
@@ -135,6 +161,10 @@ public static class ImportEngine
                              .Where(t => !t.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase) && !policyTables.Contains(t)))
                     if (Scalar(c, $"SELECT count(*) FROM old.{Q(unknown)}") is var rows and > 0)
                         notes.Add($"Not transferred: table {unknown} ({rows} rows) is not used by this server.");
+                // An owned house whose lot this world doesn't have would vanish along with its contents.
+                if (sourceTables.Contains("DBHouse") && targetTables.Contains("DBHouse") && Text(c,
+                        "SELECT group_concat(HouseNumber, ', ') FROM old.DBHouse WHERE COALESCE(OwnerID,'')<>'' AND HouseNumber NOT IN (SELECT HouseNumber FROM main.DBHouse)") is { } lost)
+                    throw new InvalidDataException($"The world has no lot for owned house(s) {lost}, so they and their contents would be lost. Nothing was changed.");
                 Exec(c, "BEGIN IMMEDIATE");
                 foreach (string table in Rules.ProgressTables)
                 {
@@ -148,10 +178,8 @@ public static class ImportEngine
                     }
                     Exec(c, $"DELETE FROM main.{Q(table)}");
                     if (!inSource) continue;
-                    var oldColumns = Columns(c, table, "old");
-                    var newColumns = Columns(c, table);
-                    var shared = oldColumns.Where(column => newColumns.Contains(column, StringComparer.OrdinalIgnoreCase)).ToList();
-                    var dropped = oldColumns.Except(shared, StringComparer.OrdinalIgnoreCase).ToList();
+                    var shared = SharedColumns(c, table);
+                    var dropped = Columns(c, table, "old").Except(shared, StringComparer.OrdinalIgnoreCase).ToList();
                     if (dropped.Count > 0) notes.Add($"{table}: old-only column(s) {string.Join(", ", dropped)} are not used by this server and were left behind.");
                     string fields = string.Join(",", shared.Select(Q));
                     progress($"Transferring {table}…");
@@ -174,15 +202,16 @@ public static class ImportEngine
                     Exec(c, $"DELETE FROM main.offline_world_bots WHERE ClassId={SluaghbinderClass}; DROP TABLE dropped_unique;");
                     notes.Add($"Left behind by choice: {bots} autonomous Sluaghbinder bot(s) and the {items} item(s) they carried.");
                 }
-                // Keep the new world's definitions on ID collisions; keep old custom templates that
-                // real owned items still use.
-                var templateColumns = Columns(c, "ItemTemplate", "old").Where(column => Columns(c, "ItemTemplate").Contains(column, StringComparer.OrdinalIgnoreCase)).ToList();
-                string templateFields = string.Join(",", templateColumns.Select(Q));
+                // Every old template the world doesn't define: custom items and templates the new world
+                // dropped. Owned items reference them from several progress tables (Inventory,
+                // househookpointitem, CharacterXOneTimeDrop), so none are filtered out. The
+                // world's own definition wins on an ID collision.
+                string templateFields = string.Join(",", SharedColumns(c, "ItemTemplate").Select(Q));
                 Exec(c, $"INSERT OR IGNORE INTO main.ItemTemplate ({templateFields}) SELECT {templateFields} FROM old.ItemTemplate");
                 if (sourceTables.Contains("DBHouse") && targetTables.Contains("DBHouse"))
                 {
                     Exec(c, "UPDATE main.DBHouse SET OwnerID='',GuildName='',GuildHouse=0,HasConsignment=0,KeptMoney=0,Model=0,Name='' WHERE COALESCE(OwnerID,'')<>''");
-                    var fields = Columns(c, "DBHouse").Intersect(Columns(c, "DBHouse", "old"), StringComparer.OrdinalIgnoreCase)
+                    var fields = SharedColumns(c, "DBHouse")
                         .Except(new[] { "HouseNumber", "X", "Y", "Z", "RegionID", "Heading", "DBHouse_ID" }, StringComparer.OrdinalIgnoreCase).ToArray();
                     Exec(c, "UPDATE main.DBHouse SET " + string.Join(",", fields.Select(f => $"{Q(f)}=(SELECT o.{Q(f)} FROM old.DBHouse o WHERE o.HouseNumber=main.DBHouse.HouseNumber)")) +
                         " WHERE HouseNumber IN (SELECT HouseNumber FROM old.DBHouse WHERE COALESCE(OwnerID,'')<>'')");
@@ -245,8 +274,7 @@ public static class ImportEngine
     static void KeepInstallSettings(SQLiteConnection c, List<string> notes)
     {
         if (!Tables(c, "old").Contains("ServerProperty") || !Tables(c).Contains("ServerProperty")) return;
-        string fields = string.Join(",", Columns(c, "ServerProperty", "old")
-            .Where(column => Columns(c, "ServerProperty").Contains(column, StringComparer.OrdinalIgnoreCase)).Select(Q));
+        string fields = string.Join(",", SharedColumns(c, "ServerProperty").Select(Q));
         foreach (string key in InstallSettings)
         {
             string? kept = Text(c, "SELECT Value FROM old.ServerProperty WHERE `Key`=@key", key);
@@ -350,11 +378,11 @@ public static class ImportEngine
         return Convert.ToInt64(q.ExecuteScalar());
     }
 
-    static string? Text(SQLiteConnection c, string sql, string key)
+    static string? Text(SQLiteConnection c, string sql, string? key = null)
     {
         using var q = c.CreateCommand();
         q.CommandText = sql;
-        q.Parameters.AddWithValue("@key", key);
+        if (key != null) q.Parameters.AddWithValue("@key", key);
         return q.ExecuteScalar() is { } value and not DBNull ? Convert.ToString(value) : null;
     }
 
@@ -383,6 +411,13 @@ public static class ImportEngine
         var result = new List<string>();
         while (r.Read()) result.Add(r.GetString(1));
         return result;
+    }
+
+    /// <summary>The source's (old.) columns of a table that this database also has, in the source's order.</summary>
+    static List<string> SharedColumns(SQLiteConnection c, string table)
+    {
+        var current = Columns(c, table);
+        return Columns(c, table, "old").Where(column => current.Contains(column, StringComparer.OrdinalIgnoreCase)).ToList();
     }
 
     static bool SluaghbinderEnabled(SQLiteConnection c)

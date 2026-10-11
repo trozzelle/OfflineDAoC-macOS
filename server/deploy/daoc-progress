@@ -4,8 +4,6 @@
 # macOS port addition (upstream Offline DAoC's IMPORT PROGRESS engine); see README-MACOS.md.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if DAOC_HOME="$HERE" "$HERE/daoc-server.sh" status | grep -q '^running'; then
-  echo "daoc-progress: the server is running. Stop it first: ./daoc-server.sh stop" >&2
-  exit 1
-fi
+# upgrade and import refuse by themselves while this server (or the source's server) is running;
+# inspect only reads a copy, so it works either way.
 DAOC_HOME="$HERE" exec "$HERE/bin/DaocProgress" "$@"
