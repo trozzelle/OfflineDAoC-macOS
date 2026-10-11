@@ -177,8 +177,9 @@ DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-archive "$nav"
 # The release zip leaves the navmeshes out (they are the separate archive above).
 zipfile="$HERE/dist/daoc-server-$VERSION-macos-arm64.zip"
 rm -f "$zipfile"
-# User state (config/, data/, logs/, run/) never goes into the release zip.
-(cd "$HERE/dist" && zip -rq "$zipfile" daoc-server -x "daoc-server/navmesh/*" \
+# User state (config/, data/, logs/, run/) never goes into the release zip. -y stores the bin/ links
+# as links; following them would pack navmesh/, config/ and logs/ under bin/.
+(cd "$HERE/dist" && zip -ryq "$zipfile" daoc-server -x "daoc-server/navmesh/*" \
   -x "daoc-server/config/*" -x "daoc-server/data/*" -x "daoc-server/logs/*" -x "daoc-server/run/*")
 echo "== Done: $OUT"
 echo "         $zipfile ($(du -h "$zipfile" | cut -f1))"
