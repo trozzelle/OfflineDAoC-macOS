@@ -135,34 +135,40 @@ for its input helper.
 
 ## Graphics (optional)
 
-`./graphics.sh` applies optional graphical patches from
+`./graphics.sh` lets you pick which optional graphical patches from
 [OfflineDAoC-macOS-graphics](https://github.com/trozzelle/OfflineDAoC-macOS-graphics)
-to this install's client. Nothing is fetched until you run it: the first call
-clones the commit pinned in `manifest.json` into `upstream/graphics/`. Quit the
-client first; changes take effect at the next launch.
+are on for this install's client. Nothing is fetched until you run it: the first
+call clones the commit pinned in `manifest.json` into `upstream/graphics/`. Quit
+the client first; changes take effect at the next launch.
 
-```bash
-./graphics.sh status                       # what is applied
-./graphics.sh display list                 # display presets
-./graphics.sh display apply retina-srgb    # native resolution + sRGB colour
-./graphics.sh display revert
-./graphics.sh textures install ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
-./graphics.sh textures use original        # or: use pack
-./graphics.sh textures uninstall
+Run it with no arguments for a checklist: toggle patches by number, press Enter
+to apply. Only the patches you toggled change.
+
+```
+  1. [x] Native resolution (Wine Retina mode)
+  2. [ ] Colour-managed output (sRGB)
+  3. [ ] Texture pack  (not installed)
+Toggle by number (e.g. 1 3), Enter to apply, q to quit:
 ```
 
-- **Display presets** set Wine's Retina mode in the prefix, so the client renders
-  at the panel's physical resolution (3840x2160 on a 4K panel instead of 1920x1080
-  upscaled by macOS), and write `mtld3d.conf` settings such as
-  `color.space = accurate`. `display revert` restores the settings from before
-  the first preset.
-- **Texture packs** are archives you download yourself (for example
-  [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2), whose
-  installer is Windows-only). The originals are kept as APFS clones and can be
-  switched back at any time.
+| Patch | On | Off |
+|---|---|---|
+| `retina` | Wine's Retina mode: the client renders at the panel's physical resolution (3840x2160 on a 4K panel instead of 1920x1080 upscaled by macOS); the interface looks half as large | The prefix's Retina setting from before |
+| `srgb` | `color.space = accurate` in `mtld3d.conf`: colour-managed sRGB output instead of the panel's native gamut | The setting removed |
+| `textures` | A texture pack you downloaded (for example [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2), whose installer is Windows-only) over the client's folders; the first time, it asks for the archives | Original files back, the pack kept aside (APFS clones) |
 
-The graphics project's README lists every command, the presets, and how each
-change is recorded and undone.
+Without the checklist, for scripts:
+
+```bash
+./graphics.sh status                       # each patch and whether it is on
+./graphics.sh enable retina srgb
+./graphics.sh enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+./graphics.sh disable textures
+./graphics.sh textures uninstall           # delete the pack files for good
+```
+
+The graphics project's README lists every command and how each change is
+recorded and undone.
 
 ## Update
 

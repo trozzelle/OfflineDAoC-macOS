@@ -2,17 +2,19 @@
 # graphics.sh - optional graphical patches for the installed client, from the
 # pinned OfflineDAoC-macOS-graphics project (manifest.json "graphics").
 #
-#   ./graphics.sh status
-#   ./graphics.sh display list | apply <preset> | revert | status
-#   ./graphics.sh textures inspect|install <archive...> | use pack|original | uninstall | recover | status
+#   ./graphics.sh                         -> checklist: pick the patches to turn on
+#   ./graphics.sh status | list
+#   ./graphics.sh enable <patch>... [--archives <part>...]   (patches: retina, srgb, textures)
+#   ./graphics.sh disable <patch>...
+#   ./graphics.sh textures inspect|install|use|uninstall|recover|status ...
 #
 # Nothing here runs unless you call it: install-client.sh never pulls the
 # graphics project. The first call clones the pinned commit into
 # upstream/graphics/ and verifies it; every call then runs that checkout's
 # daoc-gfx against this install's client (dist/OfflineDAoC), wine (dist/wine)
 # and prefix (dist/prefix). DAOC_WINE_HOME and DAOC_WINEPREFIX override the
-# last two, as they do for the launcher. Commands and the undo for each change
-# are in the graphics project's README.
+# last two, as they do for the launcher. Each patch, and what turning it off
+# restores, is in the graphics project's README.
 set -euo pipefail
 cd "$(dirname "$0")" && cd "$(pwd -P)"
 
@@ -40,4 +42,5 @@ fi
 actual=$(git -C "$SRC_DIR" rev-parse HEAD)
 [[ $actual == "$REF" ]] || { echo "graphics: $SRC_DIR is at ${actual:0:12}, pinned ${REF:0:12}" >&2; exit 1; }
 
+(( $# )) || set -- select
 exec python3 "$SRC_DIR/daoc-gfx" --app "$APP_DIR" --wine "$WINE_HOME" --prefix "$PREFIX" "$@"
