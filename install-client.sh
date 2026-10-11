@@ -6,7 +6,7 @@
 #                                       dist/prefix/         (wine prefix)
 #                                       client/DAoCLauncher.app (session wrapper)
 #
-#   --verbose   show download progress and wine's prefix setup logging (default: errors only)
+#   --verbose   show Wine download progress and wine's prefix setup logging (default: errors only)
 #
 # Steps:
 #   1. Verify requirements (macOS, Rosetta 2, python3).

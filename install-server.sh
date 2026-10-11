@@ -25,8 +25,17 @@ for arg in "$@"; do
     *) echo "install-server: unknown argument: $arg (usage: install-server.sh [--verbose])" >&2; exit 2 ;;
   esac
 done
-GIT_PROGRESS=--quiet
-[[ -z $VERBOSE ]] || GIT_PROGRESS=--progress
+GIT_PROGRESS=--quiet GIT_FETCH_ERR=/dev/null
+[[ -z $VERBOSE ]] || { GIT_PROGRESS=--progress; GIT_FETCH_ERR=/dev/stderr; }
+# Run a noisy tool silently; on failure, replay its full output. --verbose: always show it.
+quiet() {
+  [[ -z $VERBOSE ]] || { "$@"; return; }
+  local log rc=0; log=$(mktemp)
+  "$@" >"$log" 2>&1 || rc=$?
+  ((rc == 0)) || cat "$log" >&2
+  rm -f "$log"
+  return $rc
+}
 
 manifest_pin() { python3 -c "import json,sys; print(json.load(open('manifest.json'))['$1']['$2'])"; }
 
@@ -51,7 +60,7 @@ fi
 checked=$(git -C "$SRC_DIR" rev-parse HEAD)
 if [[ $checked != "$UPSTREAM_REF" ]]; then
   echo "== checking out pinned ${UPSTREAM_REF:0:12} (have ${checked:0:12})"
-  git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin "$UPSTREAM_REF" 2>/dev/null || git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin
+  git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin "$UPSTREAM_REF" 2>"$GIT_FETCH_ERR" || git -C "$SRC_DIR" fetch "$GIT_PROGRESS" origin
   git -C "$SRC_DIR" checkout "$GIT_PROGRESS" --detach "$UPSTREAM_REF"
 fi
 actual=$(git -C "$SRC_DIR" rev-parse HEAD)
@@ -63,7 +72,8 @@ git -C "$SRC_DIR" apply --check "$PWD"/server/patches/*.patch \
 echo "== patches apply cleanly"
 
 # 2. Toolchain: the port's own installer is idempotent and always safe to run.
-server/tools/setup-dotnet.sh
+echo "== .NET 10 SDK (installed into ~/.dotnet if missing)"
+quiet server/tools/setup-dotnet.sh
 command -v cmake >/dev/null 2>&1 || { echo "install-server: cmake missing (brew install cmake)" >&2; exit 1; }
 
 # 4. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB

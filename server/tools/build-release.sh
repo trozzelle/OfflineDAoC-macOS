@@ -3,7 +3,8 @@
 #
 #   tools/build-release.sh [--verbose] -> dist/daoc-server/ and dist/daoc-server-<version>-macos-arm64.zip
 #
-#   --verbose   show compiler/MSBuild warnings, cmake, patch and WorldBuilder output
+#   --verbose   show compiler/MSBuild warnings, cmake, patch and WorldBuilder output, and
+#               database download progress
 #
 # Needs the .NET 10 SDK, cmake, clang (Xcode Command Line Tools) and curl. The result needs none
 # of them: it bundles the .NET runtime and contains a fresh Classic + SI world built from the
@@ -44,9 +45,9 @@ OUT="$HERE/dist/daoc-server"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
 # Build steps print errors only, unless --verbose. `dotnet build` appends its own
-# -consoleloggerparameters:Summary (a "N Warning(s)" block on every run) that overrides ours, so
-# builds go through `dotnet msbuild -restore` (what `dotnet build` wraps) instead. Tools without an
-# errors-only mode run via quiet(): silent on success, full output on failure.
+# -consoleloggerparameters:Summary, which MSBuild merges with ours (a "N Warning(s)" block on
+# every run), so builds go through `dotnet msbuild -restore` (what `dotnet build` wraps) instead.
+# Tools without an errors-only mode run via quiet(): silent on success, full output on failure.
 MSB_LOG=(-v:quiet -clp:ErrorsOnly)
 # Only the WorldBuilder's result lines, unless --verbose (empty pattern: every line).
 WORLD_LINES='^(Schema|World)'
@@ -145,7 +146,7 @@ if [[ ! -f $SDS_PROJ ]]; then
   echo "build-release: missing $SDS_PROJ — see vendor/README.md for how to vendor it" >&2
   exit 1
 fi
-"$DOTNET" msbuild "$SDS_PROJ" -restore -p:Configuration=Release -p:UseInteropDll=false -p:UseSqliteStandard=true \
+"$DOTNET" msbuild "$SDS_PROJ" -restore -p:NuGetInteractive=false -p:Configuration=Release -p:UseInteropDll=false -p:UseSqliteStandard=true \
   -p:SignAssembly=false -p:PublicSign=false -p:DelaySign=false -nologo "${MSB_LOG[@]}"
 sds_dll="$SDS_SRC/obj/Release/netstandard2.1/System.Data.SQLite.dll"
 [[ -f $sds_dll ]] || { echo "build-release: System.Data.SQLite build produced no output" >&2; exit 1; }
@@ -153,8 +154,8 @@ sds_dll="$SDS_SRC/obj/Release/netstandard2.1/System.Data.SQLite.dll"
 # publish output and the WorldBuilder build output (WorldBuilder links CoreDatabase too, and
 # it must bind the system libsqlite3 the same way when it builds the world database).
 echo "== Building the world (upstream OpenDAoC-Database + world/patches)"
-dump=$("$HERE/tools/fetch-upstream-db.sh")
-"$DOTNET" msbuild "$SNAPSHOT/WorldBuilder/WorldBuilder.csproj" -restore -p:Configuration=Release -nologo "${MSB_LOG[@]}"
+dump=$("$HERE/tools/fetch-upstream-db.sh" ${VERBOSE:+--verbose})
+"$DOTNET" msbuild "$SNAPSHOT/WorldBuilder/WorldBuilder.csproj" -restore -p:NuGetInteractive=false -p:Configuration=Release -nologo "${MSB_LOG[@]}"
 # Overlay it onto every output that carries the NuGet stub's interop-variant dll: the server
 # publish output and the WorldBuilder build output (WorldBuilder links CoreDatabase too and
 # must bind the system libsqlite3 the same way). This runs AFTER the WorldBuilder build so

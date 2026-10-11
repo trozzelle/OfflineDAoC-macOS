@@ -50,7 +50,7 @@ Downloads the OfflineDAoC release (≈5 GB) and athei's CrossOver Wine build,
 patches `game.dll`, and sets up a wine prefix. The prefix keeps its Windows
 profile folders (Documents, Desktop, ...) inside the prefix, so the client never
 triggers a macOS privacy prompt for your home folders. Add `--verbose` to see
-download progress and wine's prefix setup logging.
+the Wine download's progress bar and wine's prefix setup logging.
 
 ## Play
 

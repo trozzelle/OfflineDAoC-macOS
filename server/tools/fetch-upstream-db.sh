@@ -2,8 +2,21 @@
 # fetch-upstream-db.sh - provide the pinned OpenDAoC-Database dump in .cache/ and verify it.
 # Uses the copy bundled in the Linux source repo (world/upstream-db/, no internet needed);
 # downloads only if that is missing. Prints the path of the verified opendaoc-db-core folder.
+#
+#   tools/fetch-upstream-db.sh [--verbose]
+#
+#   --verbose   show download progress
 # macOS port: uses shasum -a 256 (macOS has no sha256sum from coreutils).
 set -euo pipefail
+
+CURL_PROGRESS=-s
+for arg in "$@"; do
+  case $arg in
+    -v|--verbose) CURL_PROGRESS=-# ;;
+    -h|--help) echo "usage: fetch-upstream-db.sh [--verbose]"; exit 0 ;;
+    *) echo "fetch-upstream-db: unknown argument: $arg (usage: fetch-upstream-db.sh [--verbose])" >&2; exit 2 ;;
+  esac
+done
 
 # Pinned in the Linux repo's UPSTREAM.md. The commit ID pins the content (the codeload URL
 # serves exactly that commit; the bundled tarball is per-file identical to it — verified).
@@ -40,7 +53,7 @@ fi
 if [[ ! -d $DUMP ]]; then
   mkdir -p "$CACHE"
   echo "Downloading OpenDAoC-Database $DB_COMMIT ..." >&2
-  curl -fsSL --retry 3 "https://codeload.github.com/OpenDAoC/OpenDAoC-Database/tar.gz/$DB_COMMIT" \
+  curl -fSL "$CURL_PROGRESS" --retry 3 "https://codeload.github.com/OpenDAoC/OpenDAoC-Database/tar.gz/$DB_COMMIT" \
     | tar -xz -C "$CACHE" --strip-components=2 -s '/[^/]*/opendaoc-db-core/opendaoc-db-core/'
 fi
 actual=$(content_hash "$DUMP")
