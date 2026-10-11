@@ -4,7 +4,8 @@
 #
 #   ./graphics.sh                         -> checklist: pick the patches to turn on
 #   ./graphics.sh status | list
-#   ./graphics.sh enable <patch>... [--archives <part>...]   (patches: retina, srgb, textures)
+#   ./graphics.sh enable <patch>... [--archives <part>...]   (patches: retina, srgb, textures, anisotropy)
+#   ./graphics.sh enable anisotropy --level 2|4|8|16       (also changes the level while it is on)
 #   ./graphics.sh disable <patch>...
 #   ./graphics.sh textures inspect|install|use|uninstall|recover|status ...
 #
