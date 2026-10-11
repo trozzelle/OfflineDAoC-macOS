@@ -54,16 +54,12 @@ kill_tree () {
   WINEPREFIX="$prefix" "$wine_home/bin/wineserver" -w 2>/dev/null || true
 }
 
-# Cumulative CPU time (centiseconds) of the game process, from /usr/bin/top:
-# ps misreports both %cpu and cputime for Rosetta-translated wine processes
-# (~2% / a few seconds for a thread pegged at 100% for minutes).
+# Cumulative CPU time (centiseconds) of the game process. Absolute /bin/ps:
+# some shells shadow ps with a builtin that misreports translated processes.
 game_cputime_cs () {
-  local pid t cs=0
-  for pid in $(ps -Ao pid=,command= | awk '/game\.dll/ && !/awk|MacOS\/launch|start\.exe/ {print $1}'); do
-    t=$(/usr/bin/top -l 1 -pid "$pid" -stats time | tail -1)
-    cs=$((cs + $(echo "$t" | awk '{ n = split($1, a, ":"); s = a[n] + (n > 1 ? a[n-1] * 60 : 0) + (n > 2 ? a[n-2] * 3600 : 0); printf "%d", s * 100 }')))
-  done
-  echo "$cs"
+  /bin/ps -Ao time=,args= | awk '/game\.dll/ && !/awk|MacOS\/launch|start\.exe/ {
+      n = split($1, a, ":"); s = a[n] + (n > 1 ? a[n-1] * 60 : 0) + (n > 2 ? a[n-2] * 3600 : 0); cs += s * 100 }
+    END { printf "%d", cs + 0 }'
 }
 
 try=0

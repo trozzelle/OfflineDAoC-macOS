@@ -22,4 +22,4 @@ if tail -c +$((before + 1)) "$SLOG" 2>/dev/null | grep -q "Linkdead player"; the
   done
 fi
 # Anything wine-related still alive is a leak (e.g. another prefix's wineserver).
-ps -Ao pid=,comm= | awk '$2 ~ /wine|x87sidecar|preloader/ {print "leftover:", $1, $2}'
+/bin/ps -Ao pid=,comm= | awk '$2 ~ /wine|x87sidecar|preloader/ {print "leftover:", $1, $2}'
