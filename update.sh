@@ -68,7 +68,8 @@ case "$cmd" in
     # The old extracted tree no longer matches the pin — clear it.
     rm -rf upstream/server
     echo "== server pin -> ${new_ref:0:12}"
-    echo "   re-run ./install-server.sh to rebuild against the new source."
+    echo "   stop the server, then re-run ./install-server.sh to rebuild against the new source."
+    echo "   if the update ships new world data: cd server/dist/daoc-server && ./daoc-progress upgrade"
     ;;
   client)
     echo "== resolving latest OfflineDAoC release"
