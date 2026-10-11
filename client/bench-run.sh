@@ -55,6 +55,8 @@ l0=$(wc -l < "$F"); t0=$(date +%s)
 DAOC_BENCH_STATE="$OUT/last-npc" "$ROOT/client/bench-drive.sh" "$DUR"
 t1=$(date +%s); sleep 1; l1=$(wc -l < "$F")
 sed -n "$((l0 + 1)),${l1}p" "$F" > "$OUT/window.ns"
+# A server that died mid-run leaves the client rendering a disconnected world.
+admin status >/dev/null 2>&1 || invalid "server stopped during the play window"
 
 "$ROOT/client/tools/stop-client.sh"    # logout saves the character's position
 read -r x y <<< "$(pos | tr '|' ' ')"
