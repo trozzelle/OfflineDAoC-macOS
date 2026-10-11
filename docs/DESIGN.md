@@ -89,7 +89,9 @@ Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
 Why this wine: the 1.127 client's game thread spends ~70% of its time in Rosetta's
 x87 emulation (libRosettaRuntime) under stock Wine, which caps it at ~7 FPS.
 x87sidecar removes that cost; mtld3d replaces wined3d's GL path with Metal.
-The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal Performance HUD.
+The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal Performance HUD. The evidence
+behind this, and the other client pitfalls (TCC prompt, the `crossover` prefix
+user, the linkdead wait after a kill), is in `docs/CLIENT-NOTES.md`.
 
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
