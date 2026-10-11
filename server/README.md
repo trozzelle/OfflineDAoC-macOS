@@ -79,6 +79,8 @@ tools/setup-dotnet.sh        one-time .NET 10 SDK installer
 tools/fetch-upstream-db.sh   unpacks/verifies the pinned OpenDAoC-Database dump
 deploy/daoc-server.sh        start/stop/status (equivalent of the Linux launcher)
 deploy/daoc-admin            admin TUI/CLI wrapper
+deploy/daoc-progress         world upgrade / progress import wrapper (macOS port addition)
+tools/ProgressImport/        daoc-progress source: upstream Offline DAoC's progress importer, ported
 deploy/navmesh-install.sh    navmesh installer (macOS port)
 patches/*.patch              macOS patches applied to the source snapshot
 vendor/System.Data.SQLite    vendored System.Data.SQLite 1.0.119 source + arm64 patches
@@ -91,10 +93,27 @@ dist/                        build output (gitignored)
 - **Backup**: stop the server, copy `data/opendaoc.sqlite3.db` (or use
   `sqlite3 data/opendaoc.sqlite3.db ".backup backup.db"` while running — WAL-safe).
 - **Upgrade**: rerun `tools/build-release.sh`; it replaces `bin/`, `defaults/` and the scripts
-  and keeps `config/`, `data/` and `navmesh/`.
-- **Clean rebuild**: delete `build/` and `dist/`; the build re-syncs the snapshot from the
+  and keeps `config/`, `data/`, `logs/` and `navmesh/` (it refuses while the server is running).
+- **New world data** (a release whose world changed, e.g. the 0.35 sync): an existing `data/`
+  keeps the world it was created with. With the server stopped, `./daoc-progress upgrade` moves
+  your progress into the new world from `defaults/world.sqlite`: accounts (roles kept),
+  characters, items, money, houses, guilds and bots, plus this install's settings (edition,
+  population, `daoc-admin options`, XP rates). World state such as keep and relic ownership
+  starts fresh. The previous save is backed up to `data/progress-backups/<time>/` with an
+  `import-report.txt`; to undo, stop the server and copy that `opendaoc.sqlite3.db` back to `data/`.
+- **Bring a save from elsewhere**: `./daoc-progress import <folder> --replace-progress` replaces
+  this server's progress with another save's (an older server folder, or a Windows Offline DAoC
+  folder containing `runtime/`); this server keeps its world and settings, and the source is only
+  read (it is copied first, so its folder is never written to). `./daoc-progress inspect <folder>`
+  shows what a save holds. This is upstream's IMPORT
+  PROGRESS engine (same table policy and verification) without its `account.txt` handling and
+  without resetting account roles. Tested on this port's own saves; for Windows folders only the
+  `runtime/` lookup has been tested (with a release that had no progress yet), so keep the
+  Windows original until you've checked the imported characters in game.
+- **Clean rebuild**: delete `build/` and rerun the build; it re-syncs the snapshot from the
   reference repo (`DAOC_SOURCE_REPO` overrides the reference path, default `upstream/server` in the
-  repo root).
+  repo root). Don't delete `dist/daoc-server/`: it is your install (`data/` holds every save,
+  `config/` your settings), and rebuilding over it is safe.
 
 ## Known limitations
 

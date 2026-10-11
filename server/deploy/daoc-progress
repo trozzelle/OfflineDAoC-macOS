@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# daoc-progress - carry saved progress into a new world (after an upgrade that ships new world
+# data) or import progress from another save. ./daoc-progress with no arguments lists the commands.
+# macOS port addition (upstream Offline DAoC's IMPORT PROGRESS engine); see README-MACOS.md.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if DAOC_HOME="$HERE" "$HERE/daoc-server.sh" status | grep -q '^running'; then
+  echo "daoc-progress: the server is running. Stop it first: ./daoc-server.sh stop" >&2
+  exit 1
+fi
+DAOC_HOME="$HERE" exec "$HERE/bin/DaocProgress" "$@"

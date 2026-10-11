@@ -62,7 +62,16 @@ for p in "$HERE"/patches/*.patch; do
   patch -p1 -d "$SNAPSHOT/.." -i "$p" --forward >/dev/null || { echo "build-release: patch failed: $p" >&2; exit 1; }
 done
 
-rm -rf "$OUT"
+# Never replace bin/ under a live server.
+if [[ -x $OUT/daoc-server.sh ]] && DAOC_HOME="$OUT" "$OUT/daoc-server.sh" status | grep -q '^running'; then
+  echo "build-release: the server in $OUT is running; stop it first (./daoc-server.sh stop)" >&2
+  exit 1
+fi
+# The folder is also the user's install: replace only what the build owns. config/, data/
+# (accounts, characters, bots), logs/ and run/ are the user's and survive every rebuild;
+# navmesh/ is refreshed in place by the navmesh step below.
+rm -rf "$OUT/bin" "$OUT/defaults" "$OUT/daoc-server.sh" "$OUT/daoc-admin" "$OUT/daoc-progress" "$OUT/navmesh-install.sh" \
+  "$OUT/release.conf" "$OUT/README.md" "$OUT/README-MACOS.md" "$OUT/VERSION"
 echo "== Publishing server (self-contained osx-arm64)"
 "$DOTNET" publish "$SNAPSHOT/CoreServer/CoreServer.csproj" -c Release -r osx-arm64 --self-contained true \
   -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
@@ -70,6 +79,12 @@ echo "== Publishing server (self-contained osx-arm64)"
 # daoc-admin shares bin/ (and its bundled runtime) with the server.
 echo "== Publishing daoc-admin (TUI + CLI)"
 "$DOTNET" publish "$SNAPSHOT/DaocAdmin/DaocAdmin.csproj" -c Release -r osx-arm64 --self-contained true \
+  -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
+
+# daoc-progress (port addition: upstream's progress importer for world upgrades) shares bin/ too.
+# It references the vendored System.Data.SQLite project directly, so it never binds SQLite.Interop.
+echo "== Publishing daoc-progress (world upgrade / progress import)"
+"$DOTNET" publish "$HERE/tools/ProgressImport/ProgressImport.csproj" -c Release -r osx-arm64 --self-contained true \
   -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
 
 echo "== Building native pathing library"
@@ -132,7 +147,8 @@ ln -s ../logs "$OUT/bin/logs"
 
 cp "$REPO/deploy/serverconfig.template.xml" "$OUT/defaults/serverconfig.xml"
 cp "$SNAPSHOT/GameServer/config/logconfig.xml" "$SNAPSHOT/GameServer/config/invalidnames.txt" "$OUT/defaults/"
-cp "$HERE/deploy/daoc-server.sh" "$HERE/deploy/daoc-admin" "$HERE/deploy/navmesh-install.sh" "$REPO/deploy/release.conf" "$OUT/"
+cp "$HERE/deploy/daoc-server.sh" "$HERE/deploy/daoc-admin" "$HERE/deploy/daoc-progress" "$HERE/deploy/navmesh-install.sh" \
+  "$REPO/deploy/release.conf" "$OUT/"
 cp "$REPO/deploy/README-release.md" "$OUT/README.md"
 cp "$HERE/README.md" "$OUT/README-MACOS.md"
 echo "$VERSION" > "$OUT/VERSION"
@@ -147,7 +163,7 @@ done
 # Navmeshes ship in the source as ~90 MB parts (world/navmesh/; under GitHub's 100 MB file limit).
 # Join and verify them, and install them into the folder so dist/daoc-server is ready to start.
 echo "== Navmeshes (world/navmesh)"
-navset="daoc-navmeshes-classic-si-1.tar.xz"
+navset="daoc-navmeshes-classic-si-2.tar.xz"
 nav="$HERE/dist/$navset"
 want=$(<"$REPO/world/navmesh/$navset.sha256")
 if [[ ! -f $nav || $(shasum -a 256 "$nav" | cut -d' ' -f1) != "$want" ]]; then
@@ -161,6 +177,8 @@ DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-archive "$nav"
 # The release zip leaves the navmeshes out (they are the separate archive above).
 zipfile="$HERE/dist/daoc-server-$VERSION-macos-arm64.zip"
 rm -f "$zipfile"
-(cd "$HERE/dist" && zip -rq "$zipfile" daoc-server -x "daoc-server/navmesh/*")
+# User state (config/, data/, logs/, run/) never goes into the release zip.
+(cd "$HERE/dist" && zip -rq "$zipfile" daoc-server -x "daoc-server/navmesh/*" \
+  -x "daoc-server/config/*" -x "daoc-server/data/*" -x "daoc-server/logs/*" -x "daoc-server/run/*")
 echo "== Done: $OUT"
 echo "         $zipfile ($(du -h "$zipfile" | cut -f1))"
