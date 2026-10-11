@@ -67,11 +67,11 @@ if [[ -x $OUT/daoc-server.sh ]] && DAOC_HOME="$OUT" "$OUT/daoc-server.sh" status
   echo "build-release: the server in $OUT is running; stop it first (./daoc-server.sh stop)" >&2
   exit 1
 fi
-# The folder is also the user's install: replace only what the build owns. config/, data/
-# (accounts, characters, bots), logs/ and run/ are the user's and survive every rebuild;
-# navmesh/ is refreshed in place by the navmesh step below.
-rm -rf "$OUT/bin" "$OUT/defaults" "$OUT/daoc-server.sh" "$OUT/daoc-admin" "$OUT/daoc-progress" "$OUT/navmesh-install.sh" \
-  "$OUT/release.conf" "$OUT/README.md" "$OUT/README-MACOS.md" "$OUT/VERSION"
+# The folder is also the user's install: replace only what the build owns (bin/, defaults/ and
+# the top-level EXTRAS). config/, data/ (accounts, characters, bots), logs/ and run/ are the
+# user's and survive every rebuild; navmesh/ is refreshed in place by the navmesh step below.
+EXTRAS=(daoc-server.sh daoc-admin daoc-progress navmesh-install.sh release.conf README.md README-MACOS.md VERSION)
+rm -rf "$OUT/bin" "$OUT/defaults" "${EXTRAS[@]/#/$OUT/}"
 echo "== Publishing server (self-contained osx-arm64)"
 "$DOTNET" publish "$SNAPSHOT/CoreServer/CoreServer.csproj" -c Release -r osx-arm64 --self-contained true \
   -o "$OUT/bin" -nologo -v quiet -clp:ErrorsOnly
