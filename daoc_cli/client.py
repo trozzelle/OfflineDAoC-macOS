@@ -154,6 +154,19 @@ def carry_over(checkout: Checkout) -> Optional[Dict[str, Any]]:
     if status["textures"]["pending"]:
         raise DaocError(f"graphics has an interrupted '{status['textures']['pending']}'; "
                         "run `daoc graphics textures recover` first")
+    # restore can only bring back what `enable` sets, so a half-applied patch
+    # would be lost; textures are carried per component instead.
+    partly = [p for p, s in status["patches"].items() if s == "partly on" and p != "textures"]
+    if partly:
+        names = " ".join(partly)
+        raise DaocError(f"graphics patch {names} is partly on, which an update cannot carry "
+                        f"over; finish it (`daoc graphics enable {names}`) or turn it off "
+                        f"(`daoc graphics disable {names}`), then run `daoc client update` "
+                        "again", 2)
+    if status["mtld3d_conf"] == "your own":
+        raise DaocError(f"{checkout.app_dir / 'mtld3d.conf'} is your own file and the update "
+                        "replaces that folder; move it aside first, then run "
+                        "`daoc client update` again", 2)
     export = checkout.state / TEXTURES_EXPORT
     # Without a carry-over.json no update owns an export, so any one is stale.
     shutil.rmtree(export, ignore_errors=True)

@@ -53,9 +53,11 @@ if args == ["status", "--json"]:
     patches["textures"] = ("not installed" if not comps else "on" if tex == {"pack active"}
                            else "off" if tex == {"originals active"} else "partly on")
     patches["anisotropy"] = "on" if state["level"] else "off"
+    patches.update(state.get("override", {}))  # states enable/disable never produce
     print(json.dumps({
         "schema": 1, "patches": patches, "anisotropy_level": state["level"],
-        "mtld3d_conf": "daoc-gfx" if state["display"]["srgb"] == "on" else "none",
+        "mtld3d_conf": state.get("conf")
+        or ("daoc-gfx" if state["display"]["srgb"] == "on" else "none"),
         "textures": {"components": [{"name": n, "state": s} for n, s in comps],
                      "pending": None}}))
     sys.exit(0)
@@ -293,6 +295,27 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertIn("run `daoc graphics update` first", err)
         self.assert_old_client_untouched()
         self.assertFalse(self.saved.exists())
+
+    def assert_refused_unchanged(self, state, message):
+        self.set_gfx(state)
+        code, out, err = self.update()
+        self.assertEqual(code, 2, err)
+        self.assertIn(message, err)
+        self.assertEqual(self.gfx_state(), state)
+        self.assertEqual([c["args"] for c in self.gfx_calls()], [["status", "--json"]])
+        self.assertFalse(self.saved.exists())
+        self.assertFalse(self.export.exists())
+        self.assert_old_client_untouched()
+
+    def test_partly_on_patch_is_refused_before_any_change(self):
+        self.assert_refused_unchanged(
+            dict(EVERY_STATE, override={"anisotropy": "partly on"}),
+            "graphics patch anisotropy is partly on")
+
+    def test_own_mtld3d_conf_is_refused_before_any_change(self):
+        self.assert_refused_unchanged(
+            dict(EVERY_STATE, conf="your own"),
+            f"{self.co.app_dir / 'mtld3d.conf'} is your own file")
 
     def test_no_client_skips_the_carry_over(self):
         (self.co.app_dir / "game.dll").unlink()

@@ -5,17 +5,18 @@ launcher wrapper, the server port overlay, and the install/e2e scripts. Findings
 marked **fixed** were corrected during the build; **noted** items are deliberate
 and documented here.
 
-## client/apply_game_patch.py — client byte-patcher
+## client/apply_game_patch.py (now `daoc_cli/client_patch.py`) — client byte-patcher
 
 - **Fixed** — runs under the stock Xcode CLT Python 3.9 (`from __future__ import
   annotations`; the `Path | None` unions otherwise raise TypeError at import on
   a stock Mac with no pyenv/Homebrew Python).
-- **Fixed** — original version hardcoded an absolute home path; now takes the
+- **Fixed** — original version hardcoded an absolute home path; it then took the
   DLL path as an argument and the expected pristine hash from the repo's
-  `manifest.json` (`client.game_dll_sha256`), passed explicitly by the install
-  script. The pin is the single source of truth — `update.sh client` (now
-  `daoc client update`) clearing it
-  genuinely forces re-derivation.
+  `manifest.json` (`client.game_dll_sha256`). `daoc_cli/client_patch.py` now
+  checks the pristine hash against its `PROVEN_BUILDS` table instead, and
+  `daoc client update` (formerly `update.sh client`) moves to a release only
+  when its pristine `game.dll` hash is a Proven build, recording that measured
+  hash in the Local pin.
 - **Fixed** — a `.orig` that already exists is trusted as the pristine base (it
   was hash-verified when created); an unpatched DLL with no `.orig` and no pin is
   refused; an already-patched DLL with no `.orig` is reported as "nothing to do"
@@ -131,9 +132,10 @@ and documented here.
 - **Noted** — `update.sh server` (now `daoc server update`) clones the new upstream HEAD into a temp dir
   and runs `git apply --check` over the port patches *before* touching the pin;
   a breaking upstream change leaves the pin untouched and exits non-zero.
-- **Noted** — `update.sh client` (now `daoc client update`) clears `game_dll_sha256` on a version bump so
-  the patcher cannot silently accept an unknown base; re-deriving the hash is a
-  deliberate manual step.
+- **Noted** — `daoc client update` (formerly `update.sh client`) hashes the new
+  release's `game.dll` before any change and stops unless it is a Proven build
+  ("needs a shipped update"); on success it records the measured hash as
+  `game_dll_sha256` in the Local pin.
 
 ## server/tools/build-release.sh — rebuilds and the release zip
 
