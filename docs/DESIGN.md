@@ -149,13 +149,14 @@ falls back to the hash of its pristine `game.dll`.
   needs a shipped update" before changing anything. It refuses while the client
   runs. Graphics patches are carried across through the Graphics project's machine
   interface only: save `daoc-gfx status --json` (in `.daoc/carry-over.json`),
-  `textures export` the texture pack, disable every patch, replace
-  `dist/OfflineDAoC` (the Wine prefix is kept) and apply the Client patch, record
-  the Local pin, re-enable the same patches, `textures install --from-dir` the
-  export, and compare `status --json` with the saved one. An interrupted update
-  resumes at the re-enable step. Without an `upstream/graphics/` clone (`daoc
-  graphics` never ran) there is nothing to carry over, so the graphics project is
-  not cloned.
+  `textures export` the texture pack, disable every patch, extract the release
+  beside `dist/OfflineDAoC`, apply the Client patch to it and record the Local pin,
+  then swap it in (the Wine prefix is kept): an interruption leaves either the old
+  client or the finished new one. Then re-enable the same patches, `textures
+  install --from-dir` the export, and compare `status --json` with the saved one.
+  An interrupted update resumes at the re-enable step. Without an
+  `upstream/graphics/` clone (`daoc graphics` never ran) there is nothing to carry
+  over, so the graphics project is not cloned.
 - **Graphics** (`daoc graphics update`): the new commit must pass the contract
   check — its own tests, plus the `daoc-gfx` options, launcher line and machine
   interface this Checkout relies on — before the pin moves.

@@ -262,22 +262,25 @@ def _recover_swap(checkout: Checkout) -> None:
     shutil.rmtree(staging, ignore_errors=True)
 
 
-def replace_install(checkout: Checkout, archive: Path, pin: Dict[str, Any]) -> None:
+def replace_install(checkout: Checkout, archive: Path, pin: Dict[str, Any], local: bool) -> None:
     """Replace the Client install with pin's release in archive, apply the
-    Client patch and record pin in the install. The release is extracted beside
-    the install and swapped in, so the old install stays whole until the new
-    one is complete."""
+    Client patch and record pin in the install; local also makes pin the Local
+    client pin. The release is extracted, patched and recorded beside the
+    install, and the pin set, before it is swapped in: an interruption leaves
+    either the old install or the finished new one under its pin."""
     staging, old = _swap_dirs(checkout)
     shutil.rmtree(staging, ignore_errors=True)
     new = release.extract(archive, pin["root_folder"], staging)
+    client_patch.patch(new / GAME_DLL)
+    pins.record_installed(checkout, "client", pin, install=new)
+    if local:
+        pins.set_local(checkout, "client", pin)
     if checkout.client_root.exists():
         checkout.client_root.rename(old)
     os.replace(new, checkout.client_root)
     say("removing the old client")
     shutil.rmtree(old, ignore_errors=True)
     shutil.rmtree(staging)
-    client_patch.patch(checkout.app_dir / "game.dll")
-    pins.record_installed(checkout, "client", pin)
 
 
 def _resume(checkout: Checkout, command: str) -> None:
@@ -295,10 +298,10 @@ def _resume(checkout: Checkout, command: str) -> None:
 
 
 def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloader,
-             command: str) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-    """Replace the Client install with pin's release, carrying the graphics
-    patches over up to the restore; return (pin with its game.dll hash, the
-    saved graphics state for restore, or None)."""
+             command: str, local: bool = False) -> Optional[Dict[str, Any]]:
+    """Replace the Client install with pin's release (see replace_install),
+    carrying the graphics patches over up to the restore; return the saved
+    graphics state for restore, or None."""
     version = pin["version"]
     archive = release.download_release(pin, checkout.downloads / f"v{version}",
                                        fetch_url=fetch_url)
@@ -308,9 +311,8 @@ def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloa
                         "it needs a shipped update")
     _refuse_running(checkout, command)
     saved = carry_over(checkout, command)
-    pin = dict(pin, game_dll_sha256=sha)
-    replace_install(checkout, archive, pin)
-    return pin, saved
+    replace_install(checkout, archive, dict(pin, game_dll_sha256=sha), local)
+    return saved
 
 
 def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -> int:
@@ -326,12 +328,10 @@ def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -
         say(f"client already at {version}")
         return 0
     say(f"client update: OfflineDAoC {built} -> {version}")
-    pin, saved = _replace(checkout, latest, fetch_url or release.download, "update")
-    # The pin follows the install as soon as it is replaced, so a failed restore
-    # resumes against the right pin.
+    # The pin is set with the replace, so a failed restore resumes against the
+    # right pin.
     local = not updates.same("client", current, latest)
-    if local:
-        pins.set_local(checkout, "client", pin)
+    saved = _replace(checkout, latest, fetch_url or release.download, "update", local)
     if saved is not None:
         restore(checkout, saved, "update")
     say(f"client update: done; OfflineDAoC {version} is the Local client pin "
@@ -434,7 +434,7 @@ def _install_release(checkout: Checkout) -> None:
         return
     say(f"replacing OfflineDAoC {built} with the pinned v{version} "
          "(this is a ~5 GB download)")
-    _, saved = _replace(checkout, pin, release.download, "install")
+    saved = _replace(checkout, pin, release.download, "install")
     if saved is not None:
         restore(checkout, saved, "install")
 

@@ -170,10 +170,13 @@ def installed(checkout: Checkout, group: str) -> Optional[Dict[str, Any]]:
     return fields if isinstance(fields, dict) else None
 
 
-def record_installed(checkout: Checkout, group: str, fields: Dict[str, Any]) -> None:
-    """Record fields as the pin the group's install was built from."""
-    atomic_write(_installed_path(checkout, group),
-                 json.dumps({k: v for k, v in fields.items() if k != "note"}, indent=2) + "\n")
+def record_installed(checkout: Checkout, group: str, fields: Dict[str, Any],
+                     install: Optional[Path] = None) -> None:
+    """Record fields as the pin the group's install was built from; install
+    names another folder to record into (a staged install before its swap)."""
+    path = _installed_path(checkout, group) if install is None else install / INSTALLED
+    atomic_write(path, json.dumps({k: v for k, v in fields.items() if k != "note"},
+                                  indent=2) + "\n")
 
 
 def forget_installed(checkout: Checkout, group: str) -> None:

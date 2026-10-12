@@ -306,6 +306,32 @@ class ClientUpdateTest(unittest.TestCase):
         self.assert_old_client_untouched()
         self.assertFalse(old.exists())
 
+    def test_interruption_right_after_the_swap_leaves_the_finished_client(self):
+        self.set_gfx(EVERY_STATE)
+        real_say = client.say
+
+        def say(msg):
+            if msg == "removing the old client":
+                raise KeyboardInterrupt
+            real_say(msg)
+
+        with mock.patch.object(client, "say", side_effect=say):
+            code, out, err = self.update()
+        self.assertEqual(code, 130, err)
+        # Patched and under its pin already, so neither an install nor an update
+        # replaces it again.
+        self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), patched_bytes())
+        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
+        self.assertEqual(pins.local(self.co, "client")["version"], "T")
+
+        code, out, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertIn("resuming an interrupted client update", err)
+        self.assertIn("daoc: client already at T", err)
+        self.assertEqual(self.downloads.urls, [])
+        self.assert_new_client()
+        self.assert_carried_over(EVERY_STATE)
+
     def test_pinned_daoc_gfx_without_status_json_is_refused(self):
         self.set_gfx(EVERY_STATE)
         (self.gfx_src / "mode").write_text("no-json")

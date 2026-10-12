@@ -182,8 +182,7 @@ def _logins(checkout: Checkout, account: str) -> int:
     return len(re.findall(r"User " + re.escape(account) + r" logging on!", text, re.IGNORECASE))
 
 
-def start(checkout: Checkout, *, character: Optional[str] = None, retries: int = 1,
-          port: Optional[int] = None) -> None:
+def start(checkout: Checkout, *, character: Optional[str] = None, retries: int = 1) -> None:
     """Launch until the client enters the world; DaocError when it never does.
 
     An account without a character is launched to character select instead, and
@@ -191,7 +190,7 @@ def start(checkout: Checkout, *, character: Optional[str] = None, retries: int =
     kill the client while the character is being created."""
     if character is not None:
         os.environ["DAOC_CHARACTER"] = character
-    game_port = port if port is not None else default_port(checkout)
+    game_port = default_port(checkout)
     account, password = _credentials()
     chosen = _load_character(checkout, account)
 

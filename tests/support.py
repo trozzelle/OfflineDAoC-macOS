@@ -1,4 +1,4 @@
-"""Test harness: temp Checkouts, PATH stubs, and in-process cli.main runs.
+"""Test harness: temp Checkouts, PATH stubs, real git, and in-process cli.main runs.
 
 Run from the Checkout root: /usr/bin/python3 -m unittest discover -s tests
 """
@@ -6,6 +6,7 @@ import io
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -18,6 +19,19 @@ if str(ROOT) not in sys.path:
 from daoc_cli import cli  # noqa: E402
 
 STUB_LOG = "calls.log"
+
+# Real git without the user's or the system's config (commit signing, hooks,
+# url rewrites), and with a fixed identity. Also pass it to cli runs that make
+# daoc run git.
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+def git(*args: str, cwd: Optional[Union[str, Path]] = None) -> str:
+    """git args (with GIT_ENV) in cwd; its stripped stdout."""
+    return subprocess.run(["git", *args], cwd=cwd, env=dict(os.environ, **GIT_ENV),
+                          check=True, capture_output=True, text=True).stdout.strip()
 
 
 def make_checkout(tmp: Union[str, Path]) -> Path:

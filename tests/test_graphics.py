@@ -4,26 +4,18 @@ A local bare repo stands in for the graphics remote; nothing touches the network
 """
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import make_checkout, run_cli
+from tests.support import GIT_ENV, git as _git, make_checkout, run_cli
 
 from daoc_cli import graphics, proc
 
 
 class Exec(Exception):
     pass
-
-
-def _git(*args: str, cwd=None) -> str:
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
-                          capture_output=True, text=True).stdout.strip()
 
 
 class GraphicsTest(unittest.TestCase):
@@ -68,7 +60,7 @@ class GraphicsTest(unittest.TestCase):
         path.write_text(json.dumps(manifest))
 
     def run_gfx(self, *args: str, env=None):
-        env = dict({"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None}, **(env or {}))
+        env = dict({"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None}, **GIT_ENV, **(env or {}))
         try:
             return run_cli(["graphics", *args], self.root, env=env)
         except Exec:

@@ -21,6 +21,7 @@ from daoc_cli.errors import DaocError
 
 ACCOUNT = "probeacct"
 PASSWORD = "s3cret-pw"
+REAL_LAUNCH = e2e._launch
 
 CONFIG = """<Server>
   <Port>10300</Port>
@@ -303,6 +304,44 @@ class E2ETest(unittest.TestCase):
         self.assertEqual((self.root / "evidence" / "server.log").read_text(), "the active run's")
         self.assertFalse((self.sd / "script-calls.log").exists())
         self.server_install.assert_not_called()
+
+    def test_wine_overrides_ride_on_the_launch_and_scope_the_client_lookup(self):
+        # Relative, as a user may set them: LaunchServices starts the Launcher
+        # elsewhere, so they must reach it resolved against this directory.
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        wine, prefix = self.tmp.resolve() / "my wine", self.tmp.resolve() / "p" / "x"
+        opened, scoped = [], []
+        real_run = e2e.proc.run
+
+        def run(argv, **kwargs):
+            if argv[0] != e2e.client_runtime.OPEN:
+                return real_run(argv, **kwargs)
+            opened.append([str(a) for a in argv])
+            self._launch(None, argv[-2], argv[-1])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        def game_pids(checkout):
+            scoped.append((checkout.wine_home, checkout.prefix))
+            return self._game_pids(checkout)
+
+        self.kill.side_effect = lambda checkout: scoped.append((checkout.wine_home,
+                                                                checkout.prefix))
+        with mock.patch.object(e2e, "_launch", REAL_LAUNCH), \
+                mock.patch.object(e2e.proc, "run", run), \
+                mock.patch.object(e2e.client_runtime, "game_pids", game_pids):
+            code, out, err = run_cli(["dev", "e2e", ACCOUNT, PASSWORD], self.root,
+                                     env={"DAOC_WINE_HOME": "my wine",
+                                          "DAOC_WINEPREFIX": "p/x"})
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(opened), 1)
+        argv = opened[0]
+        envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
+        self.assertIn(f"DAOC_WINE_HOME={wine}", envs)
+        self.assertIn(f"DAOC_WINEPREFIX={prefix}", envs)
+        self.assertTrue(scoped)
+        self.assertEqual(set(scoped), {(wine, prefix)})
 
 
 class MovePortsTest(unittest.TestCase):

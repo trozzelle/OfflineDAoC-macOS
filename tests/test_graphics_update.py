@@ -5,14 +5,12 @@ daoc-gfx project per commit; resolve_latest is patched to name a commit of it,
 so nothing touches the network or the real graphics project.
 """
 import json
-import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import make_checkout, run_cli
+from tests.support import GIT_ENV, git as _git, make_checkout, run_cli
 
 from daoc_cli import pins, updates
 from daoc_cli.checkout import Checkout
@@ -98,13 +96,6 @@ BROKEN = {
 }
 
 
-def _git(*args: str, cwd=None) -> str:
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
-                          capture_output=True, text=True).stdout.strip()
-
-
 class GraphicsUpdateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -143,7 +134,7 @@ class GraphicsUpdateTest(unittest.TestCase):
     def update(self, ref: str):
         latest = {"repo": str(self.bare), "ref": ref}
         with mock.patch.object(updates, "resolve_latest", return_value=latest) as resolve:
-            result = run_cli(["graphics", "update"], self.root)
+            result = run_cli(["graphics", "update"], self.root, env=GIT_ENV)
         resolve.assert_called_once()
         return result
 

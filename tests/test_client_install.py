@@ -2,7 +2,9 @@
 with synthetic files, a fake downloader and stub wine binaries (no network)."""
 import io
 import json
+import os
 import shutil
+import signal
 import tarfile
 import tempfile
 import time
@@ -177,8 +179,12 @@ case "$1 $2" in
     ln -s /tmp "$WINEPREFIX/drive_c/users/crossover/Documents" ;;
   "wineboot -u")
     [ -z "$WINE_FAIL" ] || { echo "wine says boom"; exit 3; }
-    # Like wineserver: a child that outlives wineboot with its stdout.
-    [ -z "$WINE_LINGER" ] || sleep 20 & ;;
+    # Like wineserver: a child that outlives wineboot with its stdout. Its pid
+    # is recorded so the test can stop it.
+    if [ -n "$WINE_LINGER" ]; then
+      sleep 20 &
+      echo $! > "$(dirname "$0")/linger.pid"
+    fi ;;
 esac
 """
 
@@ -268,8 +274,17 @@ class InstallTest(unittest.TestCase):
         (self.prefix / "system.reg").touch()
         started = time.monotonic()
         code, out, err = self.install(WINE_LINGER="1")
+        elapsed = time.monotonic() - started
+        self.addCleanup(self.stop, int((self.stubs / "linger.pid").read_text()))
         self.assertEqual(code, 0, err)
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(elapsed, 10)
+
+    @staticmethod
+    def stop(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     def test_unproven_client_stops_the_install(self):
         dll = self.co.app_dir / "game.dll"
