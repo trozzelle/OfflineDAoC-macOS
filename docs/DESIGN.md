@@ -263,9 +263,10 @@ It is published into `bin/` and links the vendored System.Data.SQLite:
 no flag keeps the current one (rosetta when none is recorded). Each has its own
 tree and prefix, so both can be installed; the flavour is written to
 `dist/.wine-flavour` only after a complete install, and `Checkout` derives the
-default `wine_home`/`prefix` from it. Each flavour's pin records the macOS its
-binaries are built for as `min_macos`, and install checks `sw_vers` against the
-selected flavour's before downloading anything.
+default `wine_home`/`prefix` from it, on first use: a bad record fails only the
+commands that use Wine, and `--wine` replaces it without reading it. Each flavour's
+pin records the macOS its binaries are built for as `min_macos`, and install checks
+`sw_vers` against the selected flavour's before downloading anything.
 
 1. Wine.
    - **rosetta** (default): verify/fetch athei's wine-build tarball (SHA-256),
@@ -307,8 +308,10 @@ x87sidecar removes that cost; mtld3d replaces wined3d's GL path with Metal.
 Why the arm64 wine: Rosetta is general-purpose only through macOS 27. The launch
 settings it needs (`client_runtime.ARM64_ENV`: `d3d9=n,b`, FEX disk cache, FEX x87
 reduced precision, mtld3d config, large-address-aware) ride on `--env` when `wine_home` has an
-`lib/wine/aarch64-unix`, and the Launcher exports `DYLD_FALLBACK_LIBRARY_PATH` to
-its `ext/lib` (FreeType). The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal
+`lib/wine/aarch64-unix` (`checkout.wine_is_arm64`, the one arm64 test). Every wine
+daoc runs on it, and the Launcher on the same test, gets `DYLD_FALLBACK_LIBRARY_PATH`
+to its `ext/lib` (`checkout.wine_env`): without it Wine runs but finds no FreeType
+("Wine cannot find the FreeType font library"). The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal
 Performance HUD. The evidence behind this, and the other client pitfalls (TCC
 prompt, the `crossover` prefix user, the linkdead wait after a kill), is in
 `docs/CLIENT-NOTES.md`.

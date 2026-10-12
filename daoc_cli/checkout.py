@@ -22,10 +22,31 @@ DEFAULT_FLAVOUR = "rosetta"
 _DIRS = {"rosetta": ("wine", "prefix"), "arm64": ("wine-arm64", "prefix-arm64")}
 
 
-def _env_path(name: str, default: Path) -> Path:
-    """`${NAME:-default}`; a relative value resolves against the caller's cwd."""
+def _env_path(name: str) -> Optional[Path]:
+    """$NAME, or None when unset/empty; a relative value resolves against the caller's cwd."""
     value = os.environ.get(name, "")
-    return Path(os.path.abspath(value)) if value else default
+    return Path(os.path.abspath(value)) if value else None
+
+
+def wine_is_arm64(wine_home: Path) -> bool:
+    """wine_home is an arm64 Wine (Hadron's layout), judged by its files so a
+    DAOC_WINE_HOME override is classified too. The Launcher runs the same test."""
+    return (wine_home / "lib" / "wine" / "aarch64-unix").is_dir()
+
+
+def wine_env(wine_home: Path, prefix: Path) -> Dict[str, str]:
+    """os.environ plus what running wine_home's wine/wineserver on prefix needs.
+    prefix must be absolute: wine rejects a relative WINEPREFIX."""
+    env = dict(os.environ, WINEPREFIX=str(prefix))
+    if wine_is_arm64(wine_home):
+        # Hadron's Wine opens FreeType and friends by name from its ext/lib.
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = str(wine_home / "ext" / "lib")
+    return env
+
+
+def _flavour_fix() -> str:
+    return ("; rewrite it by installing the Wine you use: "
+            + " or ".join(f"daoc client install --wine {f}" for f in FLAVOURS))
 
 
 class Checkout:
@@ -35,9 +56,11 @@ class Checkout:
         self.client_root = self.root / "dist" / "OfflineDAoC"
         self.app_dir = self.client_root / "runtime" / "client-opendaoc" / "app"
         self.flavour_file = self.root / "dist" / ".wine-flavour"
-        wine_home, prefix = self.flavour_paths(self.flavour)
-        self.wine_home = _env_path("DAOC_WINE_HOME", wine_home)
-        self.prefix = _env_path("DAOC_WINEPREFIX", prefix)
+        # The overrides resolve against the caller's cwd now; the recorded
+        # flavour behind the defaults is read on first use of wine_home/prefix,
+        # so a bad record fails only the commands that use Wine.
+        self._wine_home_env = _env_path("DAOC_WINE_HOME")
+        self._prefix_env = _env_path("DAOC_WINEPREFIX")
         self.launcher_src = self.root / "client" / "DAoCLauncher.app"
         self.launcher_app = self.root / "dist" / "DAoCLauncher.app"
         self.graphics_src = self.root / "upstream" / "graphics"
@@ -53,10 +76,10 @@ class Checkout:
         except FileNotFoundError:
             return DEFAULT_FLAVOUR
         except OSError as e:
-            raise DaocError(f"cannot read {self.flavour_file}: {e}") from None
+            raise DaocError(f"cannot read {self.flavour_file}: {e}{_flavour_fix()}") from None
         if value not in FLAVOURS:
             raise DaocError(f"{self.flavour_file} names an unknown Wine flavour {value!r} "
-                            f"(expected one of: {', '.join(FLAVOURS)})")
+                            f"(expected one of: {', '.join(FLAVOURS)}){_flavour_fix()}")
         return value
 
     def flavour_paths(self, flavour: str) -> Tuple[Path, Path]:
@@ -65,11 +88,22 @@ class Checkout:
         dist = self.root / "dist"
         return dist / wine, dist / prefix
 
-    @property
-    def wine_is_arm64(self) -> bool:
-        """wine_home is an arm64 Wine (Hadron's layout), judged by its files so a
-        DAOC_WINE_HOME override is classified too."""
-        return (self.wine_home / "lib" / "wine" / "aarch64-unix").is_dir()
+    @cached_property
+    def wine_home(self) -> Path:
+        """DAOC_WINE_HOME, else the recorded flavour's Wine."""
+        return self._wine_home_env or self.flavour_paths(self.flavour)[0]
+
+    @cached_property
+    def prefix(self) -> Path:
+        """DAOC_WINEPREFIX, else the recorded flavour's prefix."""
+        return self._prefix_env or self.flavour_paths(self.flavour)[1]
+
+    def assume_flavour(self, flavour: str) -> None:
+        """wine_home/prefix as if the record named flavour (the overrides still
+        win), without reading it: `daoc client install --wine` replacing a bad one."""
+        wine_home, prefix = self.flavour_paths(flavour)
+        self.wine_home = self._wine_home_env or wine_home
+        self.prefix = self._prefix_env or prefix
 
     @cached_property
     def manifest(self) -> Dict[str, Any]:

@@ -30,10 +30,11 @@ if [ "$MODE" = "wine" ]; then
     export WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"
     export WINEPREFIX="${DAOC_WINEPREFIX:-$INSTALL_DIR/dist/prefix}"
     cd "$CLIENT_ROOT/runtime/client-opendaoc/app"
-    # The arm64 Wine (Hadron's runtime) opens FreeType and its other libraries
-    # by name from ext/lib. Set here: SIP strips DYLD_* when this /bin/bash
-    # script starts.
-    if [ -d "$WINE_HOME/ext/lib" ]; then
+    # The arm64 Wine (Hadron's runtime, recognised by lib/wine/aarch64-unix as
+    # in daoc_cli.checkout.wine_is_arm64) opens FreeType and its other
+    # libraries by name from ext/lib. Set here: SIP strips DYLD_* when this
+    # /bin/bash script starts.
+    if [ -d "$WINE_HOME/lib/wine/aarch64-unix" ]; then
         export DYLD_FALLBACK_LIBRARY_PATH="$WINE_HOME/ext/lib"
     fi
     # Benchmark probe: DAOC_FTLOG_DIR=<dir> logs one timestamp per presented

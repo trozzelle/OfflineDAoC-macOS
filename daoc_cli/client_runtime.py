@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from daoc_cli import files, keychain, proc, watchdog
-from daoc_cli.checkout import Checkout
+from daoc_cli.checkout import Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 
 PS = "/bin/ps"
@@ -67,7 +67,7 @@ ARM64_ENV = {
 
 def wine_defaults(checkout: Checkout) -> Dict[str, str]:
     """Launch environment the Checkout's Wine needs unless the caller sets it."""
-    return dict(ARM64_ENV) if checkout.wine_is_arm64 else {}
+    return dict(ARM64_ENV) if wine_is_arm64(checkout.wine_home) else {}
 
 
 REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}
@@ -293,7 +293,7 @@ def kill(checkout: Checkout) -> None:
     so a relaunch never overlaps a previous client."""
     wine_home = _real_wine_home(checkout)
     wineserver = os.path.join(wine_home, "bin", "wineserver")
-    env = dict(os.environ, WINEPREFIX=str(checkout.prefix))
+    env = wine_env(checkout.wine_home, checkout.prefix)
     # The app launcher's relaunch loop first, or it respawns wine in the gap. It
     # is a bash script, so this Checkout's bundle path is in its argv.
     proc.run([PKILL, "-f", str(checkout.launcher_app / "Contents" / "MacOS" / "launch")], check=False)

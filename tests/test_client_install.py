@@ -19,8 +19,8 @@ from unittest import mock
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 from tests.test_client_patch import SPEC, patched_bytes, pristine_bytes, sha
 
-from daoc_cli import client, client_patch, pins, release
-from daoc_cli.checkout import FLAVOURS, Checkout
+from daoc_cli import client, client_patch, client_runtime, pins, release
+from daoc_cli.checkout import FLAVOURS, Checkout, wine_is_arm64
 from daoc_cli.errors import DaocError
 
 URL = "https://example.invalid/rel/"
@@ -203,13 +203,20 @@ class InstallBase(unittest.TestCase):
         pins.record_installed(self.co, "client", pins.shipped(self.co, "client"))
         self.env = {"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None,
                     "USER": "olduser", "WINE_FAIL": None, "WINE_LINGER": None}
+        self.pids = []  # the running client's game.dll pids
+        self.pid_scopes = []  # the wine_home each running-client check looked under
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def install(self, *args, **env):
+        def game_pids(checkout):
+            self.pid_scopes.append(checkout.wine_home)
+            return list(self.pids)
+
         # The synthetic pristine game.dll is a Proven build for every install here.
         with mock.patch.object(client, "_requirements"), \
+                mock.patch.object(client_runtime, "game_pids", game_pids), \
                 mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}):
             return run_cli(["client", "install", *args], self.root, dict(self.env, **env))
 
@@ -471,7 +478,7 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual(self.co.flavour, "arm64")
         selected = Checkout(self.root)
         self.assertEqual((selected.wine_home, selected.prefix), (self.wine_arm64, self.prefix_arm64))
-        self.assertTrue(selected.wine_is_arm64)
+        self.assertTrue(wine_is_arm64(selected.wine_home))
         self.assertIn("daoc client start now uses the arm64 Wine", err)
         self.assertNotIn("Local Network", err)
         # The prefix: Hadron's mtld3d in place of Wine's d3d9, settings carried
@@ -523,6 +530,38 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual(self.co.flavour, "rosetta")
         self.assertEqual(Checkout(self.root).wine_home, self.wine_home)
         self.assertFalse(self.wine_arm64.exists())
+
+    def test_flavour_switch_refused_while_the_current_client_runs(self):
+        dll = self.co.app_dir / "game.dll"
+        dll.write_bytes(pristine_bytes())  # the running client's game.dll, not yet patched
+        self.pids = [4242]
+        code, out, err = self.install("--wine", "arm64")
+        self.assertEqual(code, 2)
+        self.assertIn("the client is running", err)
+        self.assertEqual(self.pid_scopes, [self.wine_home])  # looked under the running Wine
+        self.assertEqual(dll.read_bytes(), pristine_bytes())
+        self.assertEqual(self.co.flavour, "rosetta")
+        self.assertFalse(self.wine_arm64.exists())
+        # The reverse: an arm64 client up, a switch back to rosetta.
+        self.pids = []
+        self.assertEqual(self.install("--wine", "arm64")[0], 0)
+        self.pids, self.pid_scopes = [4242], []
+        code, out, err = self.install("--wine", "rosetta")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.pid_scopes, [self.wine_arm64])
+        self.assertEqual(self.co.flavour, "arm64")
+
+    def test_explicit_wine_replaces_a_bad_record(self):
+        self.co.flavour_file.parent.mkdir(exist_ok=True)
+        self.co.flavour_file.write_text("x86\n")
+        code, out, err = self.install()  # no flag: the record decides, and it is bad
+        self.assertEqual(code, 1)
+        self.assertIn("unknown Wine flavour 'x86'", err)
+        self.assertIn("daoc client install --wine arm64", err)
+        code, out, err = self.install("--wine", "arm64")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.co.flavour, "arm64")
+        self.assertEqual(self.pid_scopes, [self.wine_arm64])  # the Wine being installed
 
 
 class RequirementsTest(unittest.TestCase):
@@ -604,14 +643,20 @@ class RequirementsTest(unittest.TestCase):
             self.check("26.0", flavour="rosetta", rosetta=False)
         self.assertIn("--wine arm64", cm.exception.msg)
 
-    def test_unknown_recorded_flavour_is_refused(self):
-        with tempfile.TemporaryDirectory() as tmp:
+    def test_bad_recorded_flavour_fails_only_wine_use(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            os.environ.pop("DAOC_WINE_HOME", None)
+            os.environ.pop("DAOC_WINEPREFIX", None)
             root = make_checkout(tmp)
             (root / "dist").mkdir()
             (root / "dist" / ".wine-flavour").write_text("x86\n")
-            with self.assertRaises(DaocError) as cm:
-                Checkout(root)
-            self.assertIn("unknown Wine flavour", cm.exception.msg)
+            code, out, err = run_cli(["--version"], root)
+            self.assertEqual(code, 0, err)
+            for attr in ("wine_home", "prefix"):
+                with self.subTest(attr), self.assertRaises(DaocError) as cm:
+                    getattr(Checkout(root), attr)
+                self.assertIn("unknown Wine flavour 'x86'", cm.exception.msg)
+                self.assertIn("daoc client install --wine rosetta", cm.exception.msg)
 
 
 if __name__ == "__main__":

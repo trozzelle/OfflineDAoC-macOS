@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
                       updates)
-from daoc_cli.checkout import FLAVOURS, Checkout
+from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
 
@@ -625,14 +625,11 @@ def _check_local_network(wine: str, wineserver: str, env: Mapping[str, str]) -> 
 
 
 def _init_prefix(checkout: Checkout, flavour: str, verbose: bool) -> None:
-    # Absolute: wine rejects a relative WINEPREFIX.
     wine_home, prefix = checkout.flavour_paths(flavour)
+    arm64 = wine_is_arm64(wine_home)
     wine = str(wine_home / "bin" / "wine")
     wineserver = str(wine_home / "bin" / "wineserver")
-    env = dict(os.environ, WINEPREFIX=str(prefix))
-    if flavour == "arm64":
-        # Hadron's Wine opens FreeType and friends by name from its ext/lib.
-        env["DYLD_FALLBACK_LIBRARY_PATH"] = str(wine_home / "ext" / "lib")
+    env = wine_env(wine_home, prefix)
     if not (prefix / "system.reg").is_file():
         say("initializing wine prefix (win10 version)")
         prefix.mkdir(parents=True, exist_ok=True)
@@ -654,7 +651,7 @@ def _init_prefix(checkout: Checkout, flavour: str, verbose: bool) -> None:
     if users.is_dir():
         _keep_profile_folders(users)
         _carry_settings(checkout, flavour, users)
-    if flavour == "arm64":
+    if arm64:
         _install_mtld3d(wine_home, prefix)
         _check_local_network(wine, wineserver, env)
 
@@ -679,11 +676,22 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
     """Install or complete the Client install with the flavour's Wine (default:
     the current one); finished steps are skipped. The flavour is recorded last,
     so `daoc client start` switches only after a complete install."""
-    current = checkout.flavour
-    flavour = flavour or current
+    if flavour is None:
+        flavour = current = checkout.flavour
+    else:
+        try:
+            current = checkout.flavour
+        except DaocError:
+            # --wine replaces a bad record without reading it; until install
+            # rewrites it, the Wine being installed is this checkout's.
+            checkout.assume_flavour(flavour)
+            current = flavour
     version = pins.effective(checkout, "client")["version"]
     say(f"client install: OfflineDAoC v{version} + {WINE_NAMES[flavour]}")
     _requirements(checkout, flavour)
+    # Before anything touches Wine or game.dll, and while checkout still names
+    # the current Wine: a flavour switch would orphan the running client.
+    _refuse_running(checkout, "install")
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
     _install_wine(checkout, flavour, verbose)
