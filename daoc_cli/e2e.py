@@ -329,17 +329,14 @@ def move_ports(text: str) -> str:
     return "".join(lines)
 
 
-def _ignore_sighup() -> None:
-    signal.signal(signal.SIGHUP, signal.SIG_IGN)
-
-
-def _start_detached(argv: List[Path], cwd: Path, log: Path) -> "subprocess.Popen[bytes]":
-    """nohup argv in a new session, stdin from /dev/null and stdout+stderr into
-    log (truncated), so it outlives this process and its terminal."""
-    with log.open("wb") as out:
-        return subprocess.Popen([str(a) for a in argv], cwd=str(cwd), stdin=subprocess.DEVNULL,
-                                stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
-                                preexec_fn=_ignore_sighup)
+def _start_detached(argv: List[Path], cwd: Path, log: Path) -> None:
+    """Start argv in the background the way the script's `( nohup … & )` did: a
+    short-lived shell starts it and exits, so launchd adopts it and reaps it when
+    it exits. A direct child of this process would linger as a zombie after it
+    exits, and `daoc-server.sh stop` (kill -0) would keep counting it as running.
+    stdin from /dev/null; stdout and stderr into log (truncated)."""
+    subprocess.run(["/bin/sh", "-c", 'log=$1; shift; nohup "$@" </dev/null >"$log" 2>&1 &',
+                    "sh", str(log), *(str(a) for a in argv)], cwd=str(cwd), check=True)
 
 
 def _port_open(port: int) -> bool:

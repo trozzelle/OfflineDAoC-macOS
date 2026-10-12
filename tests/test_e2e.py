@@ -6,6 +6,7 @@ process lookup, teardown) is patched in-process, and a fake clock replaces
 every wait. Nothing real is launched or signalled.
 """
 import os
+import subprocess
 import tempfile
 import time as real_time
 import unittest
@@ -20,7 +21,6 @@ from daoc_cli.errors import DaocError
 
 ACCOUNT = "probeacct"
 PASSWORD = "s3cret-pw"
-START_DETACHED = e2e._start_detached
 
 CONFIG = """<Server>
   <Port>10300</Port>
@@ -125,10 +125,10 @@ class E2ETest(unittest.TestCase):
 
     @staticmethod
     def _start_detached(argv, cwd, log):
-        """The real detached start, waited for so console.out is complete."""
-        child = START_DETACHED(argv, cwd, log)
-        child.wait()
-        return child
+        """Run the server stub in the foreground so console.out is complete."""
+        with open(log, "wb") as out:
+            subprocess.run([str(a) for a in argv], cwd=str(cwd), stdout=out,
+                           stderr=subprocess.STDOUT, check=True)
 
     def _launch(self, checkout, account, password):
         self.assertEqual((account, password), (ACCOUNT, PASSWORD))
@@ -311,6 +311,32 @@ class MovePortsTest(unittest.TestCase):
         self.assertEqual(e2e.move_ports(text),
                          "<Port>20300</Port><Port>10300</Port>\n<UdpPort>20400</UdpPort>\n"
                          "<Port>10301</Port>\n")
+
+
+class DetachedStartTest(unittest.TestCase):
+    def test_exited_server_is_reaped_so_kill_0_sees_it_gone(self):
+        # daoc-server.sh stop polls `kill -0`; a zombie child of daoc would look
+        # alive until its 120 s timeout.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            script = tmp / "server.sh"
+            script.write_text('#!/bin/sh\necho "$$" > pid\necho started\nsleep 0.2\n')
+            script.chmod(0o755)
+            log = tmp / "console.out"
+            e2e._start_detached([script], tmp, log)
+            deadline = real_time.monotonic() + 5
+            while not (tmp / "pid").exists() and real_time.monotonic() < deadline:
+                real_time.sleep(0.02)
+            pid = int((tmp / "pid").read_text())
+            while real_time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                real_time.sleep(0.05)
+            else:
+                self.fail(f"pid {pid} still visible to kill -0 after it exited")
+            self.assertEqual(log.read_text(), "started\n")
 
 
 if __name__ == "__main__":
