@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-from daoc_cli import pins
+from daoc_cli import pins, release
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -74,19 +74,21 @@ def _latest_client(checkout: Checkout) -> Dict[str, Any]:
         raise DaocError(f"GitHub returned no tag for the latest {owner}/{repo} release")
     version = tag[1:] if tag.startswith("v") else tag
     release_url = f"https://github.com/{owner}/{repo}/releases/download/{tag}/"
-    asset = shipped.get("manifest_asset") or "download-manifest.json"
+    asset = release.plain_name(shipped.get("manifest_asset") or "download-manifest.json",
+                               "manifest_asset")
     # Cross-check the new release's manifest before reporting it as a pin.
     rm = _get_json(release_url + asset)
     try:
         if rm["Version"] != version:
             raise DaocError(f"{asset} of {tag} says version {rm['Version']!r}, not {version!r}")
-        parts = [{"name": p["Name"], "bytes": p["Bytes"], "sha256": p["SHA256"]}
+        parts = [{"name": release.plain_name(p["Name"], f"{asset} part"),
+                  "bytes": p["Bytes"], "sha256": p["SHA256"]}
                  for p in rm["Parts"]]
         fields = {
             "release_url": release_url,
             "version": version,
             "manifest_asset": asset,
-            "root_folder": rm["RootFolder"],
+            "root_folder": release.plain_name(rm["RootFolder"], f"{asset} RootFolder"),
             "archive_sha256": rm["ArchiveSHA256"],
             "archive_bytes": rm["ArchiveBytes"],
             "parts": parts,

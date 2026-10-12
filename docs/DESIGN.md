@@ -78,9 +78,9 @@ written at install time, never committed.
   `daoc client bench` uses 0 pass, 1 fail, 2 invalid run. The `~/.local/bin/daoc`
   wrapper exits 127 when its Checkout is gone.
 - Environment overrides: `DAOC_WINE_HOME`, `DAOC_WINEPREFIX` (wine and prefix),
-  `DAOC_CHARACTER`, `DAOC_PORT`, `DAOC_SOURCE_REPO`, `DAOC_FPS_OVERLAY`,
-  `DAOC_WINEDEBUG`, `DAOC_DLL_OVERRIDES`, `DAOC_LAUNCHER_RETRIES`, and for the
-  benchmark gate `DAOC_BENCH_ACCOUNT`, `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`.
+  `DAOC_CHARACTER`, `DAOC_PORT`, `DAOC_FPS_OVERLAY`, `DAOC_WINEDEBUG`,
+  `DAOC_DLL_OVERRIDES`, and for the benchmark gate `DAOC_BENCH_ACCOUNT`,
+  `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`.
 
 ## Manifest
 
@@ -123,17 +123,24 @@ records a Local pin in `.daoc/pins.json` (gitignored), one entry per group, alon
 with the Shipped pin it replaced. The Checkout stays clean, so the next `git pull`
 never conflicts on the manifest. When a pull changes that group's Shipped pin, the
 Local pin lapses: it is dropped with a one-line notice and the new Shipped pin
-applies. `daoc <group> update --check` only reports what is available.
+applies. The Server and Client installs record the pin they were built from
+(`.daoc-pin.json` in the install folder), and every "already up to date" decision
+reads that record, never the pin: after a pull moves the pin, `daoc server
+install` and `daoc client install` bring the install to it, and `daoc server|client
+update` still moves it to the latest. A client install made before the record
+falls back to the hash of its pristine `game.dll`.
+`daoc <group> update --check` only reports what is available.
 `daoc dev ship-pins` is the maintainer step: it writes the effective pins into
 `manifest.json` for a commit.
 
 ## Update flows
 
 - **Server** (`daoc server update`): resolve the upstream's latest `main`, clone it
-  shallowly and check that every port patch still applies — before the pin moves,
-  so a breaking upstream change fails loudly and leaves the install alone. A
-  running server is stopped only after asking (off a terminal it refuses). Then
-  the Local pin is recorded and the server rebuilt. If the new build ships
+  (blobless, `--filter=blob:none`) and check that every port patch still applies —
+  before the pin moves, so a breaking upstream change fails loudly and leaves the
+  install alone. A running server is stopped only after asking (off a terminal it
+  refuses). Then the server is rebuilt from the new commit, and only a successful build records
+  it as the Local pin, so a rerun after a failed build retries it. If the new build ships
   different world data, it explains the Progress upgrade and asks before running
   one (default no); otherwise it prints `daoc progress upgrade` for later.
 - **Client** (`daoc client update`): download and verify the latest OfflineDAoC
@@ -146,7 +153,9 @@ applies. `daoc <group> update --check` only reports what is available.
   `dist/OfflineDAoC` (the Wine prefix is kept) and apply the Client patch, record
   the Local pin, re-enable the same patches, `textures install --from-dir` the
   export, and compare `status --json` with the saved one. An interrupted update
-  resumes at the re-enable step.
+  resumes at the re-enable step. Without an `upstream/graphics/` clone (`daoc
+  graphics` never ran) there is nothing to carry over, so the graphics project is
+  not cloned.
 - **Graphics** (`daoc graphics update`): the new commit must pass the contract
   check — its own tests, plus the `daoc-gfx` options, launcher line and machine
   interface this Checkout relies on — before the pin moves.
@@ -311,8 +320,10 @@ local OpenDAoC server without breaking on the encryption handshake.
 `daoc dev e2e` on a clean checkout: install server → boot it on ports
 20300/20400, clear of a running server's 10300/10400) → create an account via `daoc-admin` → install client →
 launch → pass when the server log shows the login reaching character select and the
-client process is still alive ≥120 s later → exit 0. Manual UAT (renders, plays)
-gates final acceptance after that.
+client process is still alive ≥120 s later → exit 0. The client runs this
+checkout's Wine and prefix (`DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override, as for
+the launcher), and that same Wine is what e2e finds and kills it by. Manual UAT
+(renders, plays) gates final acceptance after that.
 
 ## Server-side notes
 

@@ -43,7 +43,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Run `daoc` with no arguments for an overview: where the checkout is, whether the
 Server install and Client install are present, whether the server runs, and each
-pin. `daoc <group> --help` lists a group's actions.
+pin. `daoc <group> --help` lists a group's actions. `admin`, `progress` and
+`graphics` hand `--help` to their tool instead, so it works only once the Server
+install (`admin`, `progress`) or Client install (`graphics`) exists.
 
 ## Install the server
 
@@ -226,7 +228,10 @@ daoc graphics update           # move the Graphics project to its latest commit
 Shipped pins, in `manifest.json`. An update records your newer version as a
 Local pin in `.daoc/pins.json` (not tracked by git), so it applies only to this
 checkout. When a `git pull` brings a new Shipped pin for that part, your Local
-pin lapses and the shipped version applies again. `daoc` shows both pins.
+pin lapses and the shipped version applies again. `daoc` shows both pins, what
+each install was built from, and "rebuild due" when they differ: `daoc server
+install` or `daoc client install` brings that install to the pin (the client
+keeps your graphics patches, as an update does).
 
 `daoc server update` checks the macOS patches still apply before it moves
 anything. If the server is running it asks before stopping it. The rebuild

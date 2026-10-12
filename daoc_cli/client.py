@@ -5,7 +5,9 @@ install, in order (re-runs skip finished steps):
   2. Wine: fetch and verify athei/wine-build (manifest.json `wine`): CrossOver
      Wine with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
-     (see release). Skipped whenever the Client install exists.
+     (see release). An existing Client install built from another release (the
+     pin it records, see pins.INSTALLED) is replaced the way update replaces
+     it, graphics carried over; one built from the pin is kept.
   4. Client patch on game.dll (see client_patch).
   5. Wine prefix (win10 version setting, profile folders kept inside the
      prefix, settings carried over from an older wine's user, prefix upgrade)
@@ -18,10 +20,11 @@ update moves the Client install to the latest OfflineDAoC release:
      .daoc/carry-over.json, export the texture pack to .daoc/textures-export,
      then turn every graphics patch off.
   4. Replace dist/OfflineDAoC (extracted beside it, then swapped; the Wine
-     prefix is kept), apply the Client patch and record the Local pin.
+     prefix is kept), apply the Client patch, record the pin in the install and
+     record the Local pin.
   5. Turn the same patches back on, reinstall the pack from the export, and
      compare `status --json` with the saved one; a difference keeps both files.
-A carry-over.json left by an interrupted update resumes at step 5.
+A carry-over.json left by an interrupted install or update resumes at step 5.
 Downloads are cached in downloads/. start/stop/kill/login live in
 client_runtime.
 """
@@ -31,15 +34,15 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
-                      updates)
+from daoc_cli import (bench, client_patch, client_runtime, graphics, overview, pins, proc,
+                      release, updates)
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
+from daoc_cli.files import atomic_write, sha256
 
 XATTR = "/usr/bin/xattr"
 ARCH = "/usr/bin/arch"
@@ -51,10 +54,6 @@ CARRY_OVER = "carry-over.json"
 TEXTURES_EXPORT = "textures-export"
 # daoc-gfx patches restored by carry_over's own steps rather than a plain enable.
 _NOT_DISPLAY = ("textures", "anisotropy")
-
-
-def _say(msg: str) -> None:
-    print(f"daoc: {msg}", file=sys.stderr, flush=True)
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
@@ -101,11 +100,8 @@ def _update(args: argparse.Namespace, checkout: Checkout) -> int:
 def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:
     """result's stdout; on failure replay its output and raise."""
     if result.returncode != 0:
-        for captured in (result.stdout, result.stderr):
-            if captured:
-                sys.stderr.write(captured if captured.endswith("\n") else captured + "\n")
-        sys.stderr.flush()
-        raise DaocError(f"daoc-gfx {' '.join(args)} failed (exit {result.returncode})")
+        proc.replay(result.stdout, result.stderr)
+        raise proc.failed(f"daoc-gfx {' '.join(args)}", result.returncode)
     return result.stdout
 
 
@@ -114,14 +110,14 @@ def _gfx(checkout: Checkout, *args: str) -> str:
     return _gfx_checked(graphics.gfx(checkout, list(args)), list(args))
 
 
-def _gfx_status(checkout: Checkout) -> Dict[str, Any]:
+def _gfx_status(checkout: Checkout, command: str) -> Dict[str, Any]:
     """daoc-gfx `status --json` (schema 1)."""
     args = ["status", "--json"]
     result = graphics.gfx(checkout, args)
     if result.returncode != 0 and "unrecognized arguments" in (result.stderr or ""):
         raise DaocError("the pinned daoc-gfx has no `status --json`, which the graphics "
                         "carry-over needs; run `daoc graphics update` first, then "
-                        "`daoc client update` again")
+                        f"`daoc client {command}` again")
     _gfx_checked(result, args)
     try:
         status = json.loads(result.stdout)
@@ -130,27 +126,31 @@ def _gfx_status(checkout: Checkout) -> Dict[str, Any]:
     if not isinstance(status, dict) or status.get("schema") != graphics.STATUS_SCHEMA:
         raise DaocError(f"the pinned daoc-gfx gave no schema {graphics.STATUS_SCHEMA} "
                         "`status --json`; run `daoc graphics update` first, then "
-                        "`daoc client update` again")
+                        f"`daoc client {command}` again")
     return status
 
 
-def _refuse_running(checkout: Checkout) -> None:
+def _refuse_running(checkout: Checkout, command: str) -> None:
     if client_runtime.game_pids(checkout):
         raise DaocError("the client is running; quit the game (or `daoc client stop`) and "
-                        "run `daoc client update` again", 2)
+                        f"run `daoc client {command}` again", 2)
 
 
-def carry_over(checkout: Checkout) -> Optional[Dict[str, Any]]:
+def carry_over(checkout: Checkout, command: str) -> Optional[Dict[str, Any]]:
     """Save the graphics state (.daoc/carry-over.json), export the texture
     pack (.daoc/textures-export) and turn every graphics patch off; return the
     saved state, or None when there is nothing to carry over."""
     if not (checkout.app_dir / "game.dll").is_file():
-        _say("no client game.dll yet; skipping the graphics carry-over")
+        say("no client game.dll yet; skipping the graphics carry-over")
         return None
     if not isinstance(checkout.manifest.get("graphics"), dict):
-        _say("no graphics pin in manifest.json; skipping the graphics carry-over")
+        say("no graphics pin in manifest.json; skipping the graphics carry-over")
         return None
-    status = _gfx_status(checkout)
+    if not (checkout.graphics_src / ".git").is_dir():
+        # Only daoc graphics clones it, so no clone means no patch to carry over.
+        say(f"no graphics checkout in {checkout.graphics_src}; skipping the graphics carry-over")
+        return None
+    status = _gfx_status(checkout, command)
     if status["textures"]["pending"]:
         raise DaocError(f"graphics has an interrupted '{status['textures']['pending']}'; "
                         "run `daoc graphics textures recover` first")
@@ -161,24 +161,24 @@ def carry_over(checkout: Checkout) -> Optional[Dict[str, Any]]:
         names = " ".join(partly)
         raise DaocError(f"graphics patch {names} is partly on, which an update cannot carry "
                         f"over; finish it (`daoc graphics enable {names}`) or turn it off "
-                        f"(`daoc graphics disable {names}`), then run `daoc client update` "
+                        f"(`daoc graphics disable {names}`), then run `daoc client {command}` "
                         "again", 2)
     if status["mtld3d_conf"] == "your own":
         raise DaocError(f"{checkout.app_dir / 'mtld3d.conf'} is your own file and the update "
                         "replaces that folder; move it aside first, then run "
-                        "`daoc client update` again", 2)
+                        f"`daoc client {command}` again", 2)
     export = checkout.state / TEXTURES_EXPORT
     # Without a carry-over.json no update owns an export, so any one is stale.
     shutil.rmtree(export, ignore_errors=True)
     if status["textures"]["components"]:
-        _say(f"graphics: exporting the texture pack to {export}")
+        say(f"graphics: exporting the texture pack to {export}")
         export.parent.mkdir(parents=True, exist_ok=True)
         _gfx(checkout, "textures", "export", str(export))
     # Written once the export is complete: from here on a re-run restores.
-    pins.atomic_write(checkout.state / CARRY_OVER, json.dumps(status, indent=2) + "\n")
+    atomic_write(checkout.state / CARRY_OVER, json.dumps(status, indent=2) + "\n")
     active = [p for p, s in status["patches"].items() if s not in ("off", "not installed")]
     if active:
-        _say(f"graphics: turning off {', '.join(active)} for the replace")
+        say(f"graphics: turning off {', '.join(active)} for the replace")
         _gfx(checkout, "disable", *active)
     return status
 
@@ -195,7 +195,7 @@ def _differences(saved: Dict[str, Any], now: Dict[str, Any]) -> List[str]:
     return out
 
 
-def restore(checkout: Checkout, saved: Dict[str, Any]) -> None:
+def restore(checkout: Checkout, saved: Dict[str, Any], command: str) -> None:
     """Bring the graphics state saved by carry_over back on the current client.
 
     Steps already done (by an interrupted run) are skipped. A remaining
@@ -204,22 +204,22 @@ def restore(checkout: Checkout, saved: Dict[str, Any]) -> None:
     """
     state, export = checkout.state / CARRY_OVER, checkout.state / TEXTURES_EXPORT
     was = saved["patches"]
-    now = _gfx_status(checkout)
+    now = _gfx_status(checkout, command)
     display = [p for p, s in was.items()
                if s == "on" and p not in _NOT_DISPLAY and now["patches"].get(p) != "on"]
     if display:
-        _say(f"graphics: turning {', '.join(display)} back on")
+        say(f"graphics: turning {', '.join(display)} back on")
         _gfx(checkout, "enable", *display)
     level = saved.get("anisotropy_level")
     if was.get("anisotropy") == "on" and (now["patches"].get("anisotropy") != "on"
                                           or now.get("anisotropy_level") != level):
-        _say(f"graphics: turning anisotropy back on ({level}x)")
+        say(f"graphics: turning anisotropy back on ({level}x)")
         _gfx(checkout, "enable", "anisotropy", *(["--level", str(level)] if level else []))
     components = saved["textures"]["components"]
     if components and not now["textures"]["components"]:
-        _say("graphics: reinstalling the texture pack from the export")
+        say("graphics: reinstalling the texture pack from the export")
         _gfx(checkout, "textures", "install", "--from-dir", str(export))
-        now = _gfx_status(checkout)
+        now = _gfx_status(checkout, command)
     # A fresh install leaves every component pack-active; a restore on the old
     # client (an update that stopped before the replace) finds them all original.
     live = {c["name"]: c["state"] for c in now["textures"]["components"]}
@@ -229,19 +229,19 @@ def restore(checkout: Checkout, saved: Dict[str, Any]) -> None:
                  if c["state"] == want and live.get(c["name"]) == other]
         if names:
             _gfx(checkout, "textures", "use", variant, *[a for n in names for a in ("-c", n)])
-    diff = _differences(saved, _gfx_status(checkout))
+    diff = _differences(saved, _gfx_status(checkout, command))
     if diff:
         raise DaocError(
             "graphics did not come back as before the update:\n  " + "\n  ".join(diff)
             + f"\nthe saved state is kept in {state}"
             + (f" and the texture pack in {export}" if export.exists() else "")
-            + "; set it with `daoc graphics …`, then run `daoc client update` again to "
+            + f"; set it with `daoc graphics …`, then run `daoc client {command}` again to "
               "compare (delete those to accept the current state)")
     # carry-over.json first: an export without it is stale, the reverse would resume
     # without its pack.
     state.unlink()
     shutil.rmtree(export, ignore_errors=True)
-    _say("graphics: carried over")
+    say("graphics: carried over")
 
 
 def _swap_dirs(checkout: Checkout) -> Tuple[Path, Path]:
@@ -258,63 +258,85 @@ def _recover_swap(checkout: Checkout) -> None:
             shutil.rmtree(old)
         else:
             old.rename(checkout.client_root)
-            _say("put back the client an interrupted update had moved aside")
+            say("put back the client an interrupted update had moved aside")
     shutil.rmtree(staging, ignore_errors=True)
 
 
-def replace_install(checkout: Checkout, archive: Path, root_folder: str) -> None:
-    """Replace the Client install with the release in archive, then apply the
-    Client patch. The release is extracted beside the install and swapped in,
-    so the old install stays whole until the new one is complete."""
+def replace_install(checkout: Checkout, archive: Path, pin: Dict[str, Any]) -> None:
+    """Replace the Client install with pin's release in archive, apply the
+    Client patch and record pin in the install. The release is extracted beside
+    the install and swapped in, so the old install stays whole until the new
+    one is complete."""
     staging, old = _swap_dirs(checkout)
     shutil.rmtree(staging, ignore_errors=True)
-    new = release.extract(archive, root_folder, staging)
+    new = release.extract(archive, pin["root_folder"], staging)
     if checkout.client_root.exists():
         checkout.client_root.rename(old)
     os.replace(new, checkout.client_root)
-    _say("removing the old client")
+    say("removing the old client")
     shutil.rmtree(old, ignore_errors=True)
     shutil.rmtree(staging)
     client_patch.patch(checkout.app_dir / "game.dll")
+    pins.record_installed(checkout, "client", pin)
+
+
+def _resume(checkout: Checkout, command: str) -> None:
+    """Finish a replace an earlier install or update left unfinished."""
+    _recover_swap(checkout)
+    saved_path = checkout.state / CARRY_OVER
+    if saved_path.is_file():
+        _refuse_running(checkout, command)
+        say(f"resuming an interrupted client update at the graphics restore ({saved_path})")
+        try:
+            saved = json.loads(saved_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise DaocError(f"cannot read {saved_path}: {e}") from None
+        restore(checkout, saved, command)
+
+
+def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloader,
+             command: str) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Replace the Client install with pin's release, carrying the graphics
+    patches over up to the restore; return (pin with its game.dll hash, the
+    saved graphics state for restore, or None)."""
+    version = pin["version"]
+    archive = release.download_release(pin, checkout.downloads / f"v{version}",
+                                       fetch_url=fetch_url)
+    sha = release.member_sha256(archive, f"{pin['root_folder']}/{GAME_DLL}")
+    if sha not in client_patch.PROVEN_BUILDS:
+        raise DaocError(f"{version}'s game.dll ({sha[:12]}) is not a Proven build; "
+                        "it needs a shipped update")
+    _refuse_running(checkout, command)
+    saved = carry_over(checkout, command)
+    pin = dict(pin, game_dll_sha256=sha)
+    replace_install(checkout, archive, pin)
+    return pin, saved
 
 
 def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -> int:
     """Move the Client install to the latest OfflineDAoC release (Local pin),
     carrying the graphics patches over. fetch_url defaults to release.download."""
-    _recover_swap(checkout)
-    saved_path = checkout.state / CARRY_OVER
-    if saved_path.is_file():
-        _refuse_running(checkout)
-        _say(f"resuming an interrupted client update at the graphics restore ({saved_path})")
-        try:
-            saved = json.loads(saved_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            raise DaocError(f"cannot read {saved_path}: {e}") from None
-        restore(checkout, saved)
-
+    _resume(checkout, "update")
     latest = updates.resolve_latest(checkout, "client")
     current = pins.effective(checkout, "client")
     version = latest["version"]
-    if updates.same("client", latest, current):
-        _say(f"client already at {version}")
+    # Read from the install, not the pin: a pull can move the pin alone.
+    built, matches = overview._built_from(checkout, "client", latest)
+    if matches:
+        say(f"client already at {version}")
         return 0
-    _say(f"client update: OfflineDAoC {current['version']} -> {version}")
-    archive = release.download_release(latest, checkout.downloads / f"v{version}",
-                                       fetch_url=fetch_url or release.download)
-    sha = release.member_sha256(archive, f"{latest['root_folder']}/{GAME_DLL}")
-    if sha not in client_patch.PROVEN_BUILDS:
-        raise DaocError(f"{version}'s game.dll ({sha[:12]}) is not a Proven build; "
-                        "it needs a shipped update")
-    _refuse_running(checkout)
-    saved = carry_over(checkout)
-    replace_install(checkout, archive, latest["root_folder"])
+    say(f"client update: OfflineDAoC {built} -> {version}")
+    pin, saved = _replace(checkout, latest, fetch_url or release.download, "update")
     # The pin follows the install as soon as it is replaced, so a failed restore
     # resumes against the right pin.
-    pins.set_local(checkout, "client", dict(latest, game_dll_sha256=sha))
+    local = not updates.same("client", current, latest)
+    if local:
+        pins.set_local(checkout, "client", pin)
     if saved is not None:
-        restore(checkout, saved)
-    _say(f"client update: done; OfflineDAoC {version} is the Local client pin "
-         "(`daoc dev ship-pins` makes it Shipped)")
+        restore(checkout, saved, "update")
+    say(f"client update: done; OfflineDAoC {version} is the Local client pin "
+         "(`daoc dev ship-pins` makes it Shipped)" if local else
+         f"client update: done; OfflineDAoC {version}")
     return 0
 
 
@@ -336,11 +358,8 @@ def _wine(argv: List[str], env: Mapping[str, str], verbose: bool, check: bool = 
         if rc == 0 or not check:
             return
         log.seek(0)
-        sys.stderr.write(log.read().decode("utf-8", "replace"))
-        sys.stderr.flush()
-    if rc < 0:
-        raise DaocError(f"{name} {argv[1]} was killed by signal {-rc}")
-    raise DaocError(f"{name} {argv[1]} failed (exit {rc})")
+        proc.replay(log.read().decode("utf-8", "replace"))
+    raise proc.failed(f"{name} {argv[1]}", rc)
 
 
 def _unquarantine(path: Path) -> None:
@@ -379,19 +398,19 @@ def _install_paths(checkout: Checkout) -> Tuple[Path, Path]:
 def _install_wine(checkout: Checkout, verbose: bool) -> None:
     wine_home, _ = _install_paths(checkout)
     if os.access(wine_home / "bin" / "wine", os.X_OK):
-        _say("wine already installed")
+        say("wine already installed")
         return
     pin = checkout.manifest["wine"]
     tarball = checkout.downloads / pin["tarball"]
     if not tarball.is_file():
-        _say(f"downloading Wine ({pin['tarball']})")
+        say(f"downloading Wine ({pin['tarball']})")
         proc.run(["curl", "-fSL", "-#" if verbose else "-s", "--retry", "3", pin["url"],
                   "-o", tarball], verbose=verbose)
-    actual = release.sha256_file(tarball)
+    actual = sha256(tarball)
     if actual != pin["sha256"]:
         raise DaocError(f"wine tarball checksum mismatch\n  expected {pin['sha256']}\n"
                         f"  actual   {actual}")
-    _say("extracting Wine")
+    say("extracting Wine")
     shutil.rmtree(wine_home, ignore_errors=True)
     wine_home.mkdir(parents=True)
     # The tarball's root is wine/; strip it so the bundle lands directly in dist/wine.
@@ -400,17 +419,29 @@ def _install_wine(checkout: Checkout, verbose: bool) -> None:
 
 
 def _install_release(checkout: Checkout) -> None:
-    if checkout.client_root.is_dir():
-        _say("OfflineDAoC already installed")
+    _recover_swap(checkout)
+    pin = pins.effective(checkout, "client")
+    version = pin["version"]
+    if not checkout.client_root.is_dir():
+        say(f"fetching OfflineDAoC v{version} (this is a ~5 GB download)")
+        release.install(checkout)
         return
-    version = pins.effective(checkout, "client")["version"]
-    _say(f"fetching OfflineDAoC v{version} (this is a ~5 GB download)")
-    release.install(checkout)
+    _resume(checkout, "install")
+    # Read from the install, not the pin: a pull can move the pin alone.
+    built, matches = overview._built_from(checkout, "client", pin)
+    if matches is not False:
+        say("OfflineDAoC already installed")
+        return
+    say(f"replacing OfflineDAoC {built} with the pinned v{version} "
+         "(this is a ~5 GB download)")
+    _, saved = _replace(checkout, pin, release.download, "install")
+    if saved is not None:
+        restore(checkout, saved, "install")
 
 
 def _patch_client(checkout: Checkout) -> None:
     if (checkout.app_dir / "game.dll.orig").is_file():
-        _say("client already patched")
+        say("client already patched")
         return
     client_patch.patch(checkout.app_dir / "game.dll")
 
@@ -438,7 +469,7 @@ def _init_prefix(checkout: Checkout, verbose: bool) -> None:
     wineserver = str(wine_home / "bin" / "wineserver")
     env = dict(os.environ, WINEPREFIX=str(prefix))
     if not (prefix / "system.reg").is_file():
-        _say("initializing wine prefix (win10 version)")
+        say("initializing wine prefix (win10 version)")
         _wine([wine, "wineboot", "-i"], env, verbose)
         _wine([wine, "reg", "add", "HKCU\\Software\\Wine", "/v", "Version", "/d", "win10", "/f"],
               env, verbose, check=False)
@@ -447,7 +478,7 @@ def _init_prefix(checkout: Checkout, verbose: bool) -> None:
         if not (prefix / "system.reg").is_file():
             raise DaocError("wine prefix init failed")
     else:
-        _say("wine prefix already initialized")
+        say("wine prefix already initialized")
     # Bring an existing prefix (e.g. one made by an older wine) up to this
     # wine's version now, so its first game launch does not do it.
     _wine([wine, "wineboot", "-u"], env, verbose)
@@ -463,7 +494,7 @@ def _init_prefix(checkout: Checkout, verbose: bool) -> None:
     ea = Path("AppData") / "Roaming" / "Electronic Arts"
     ea_old, ea_new = users / user / ea, users / "crossover" / ea
     if user and user != "crossover" and ea_old.is_dir() and not os.path.lexists(ea_new):
-        _say(f"copying client settings from prefix user {user} to crossover")
+        say(f"copying client settings from prefix user {user} to crossover")
         ea_new.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(ea_old, ea_new, symlinks=True)
 
@@ -483,7 +514,7 @@ def _install_launcher(checkout: Checkout) -> None:
 def install(checkout: Checkout, verbose: bool = False) -> None:
     """Install or complete the Client install; finished steps are skipped."""
     version = pins.effective(checkout, "client")["version"]
-    _say(f"client install: OfflineDAoC v{version} + CrossOver Wine (x87sidecar)")
+    say(f"client install: OfflineDAoC v{version} + CrossOver Wine (x87sidecar)")
     _requirements()
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
@@ -492,4 +523,4 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
     _patch_client(checkout)
     _init_prefix(checkout, verbose)
     _install_launcher(checkout)
-    _say("client install: done; launch the game (server running) with: daoc client start")
+    say("client install: done; launch the game (server running) with: daoc client start")

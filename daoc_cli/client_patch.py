@@ -13,13 +13,12 @@ whose bytes already match a spec's patched output is accepted as already
 patched (a client patched before the .orig convention); anything else that is
 not a Proven build is refused.
 """
-import hashlib
 import shutil
-import sys
 from pathlib import Path
 from typing import Dict, List, Mapping, NamedTuple, Optional, Tuple
 
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
+from daoc_cli.files import sha256
 
 
 class Edit(NamedTuple):
@@ -44,18 +43,6 @@ PROVEN_BUILDS: Dict[str, PatchSpec] = {
     # OfflineDAoC v0.35b, the Sluaghbinder client.
     "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b": NO_ENCRYPTION,
 }
-
-
-def _say(msg: str) -> None:
-    print(f"daoc: {msg}", file=sys.stderr, flush=True)
-
-
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _is_patched(data: bytes, spec: PatchSpec) -> bool:
@@ -96,7 +83,7 @@ def patch(dll: Path, proven: Optional[Mapping[str, PatchSpec]] = None) -> bool:
     else:
         current = dll.read_bytes()
         if any(_is_patched(current, spec) for spec in proven.values()):
-            _say(f"{dll.name} looks already patched and no pristine copy exists; "
+            say(f"{dll.name} looks already patched and no pristine copy exists; "
                  "leaving it as-is")
             return False
         pristine = dll
@@ -110,12 +97,12 @@ def patch(dll: Path, proven: Optional[Mapping[str, PatchSpec]] = None) -> bool:
     done = _apply(data, spec)
     if pristine is dll:
         shutil.copy2(dll, orig)
-        _say(f"saved pristine copy -> {orig.name}")
+        say(f"saved pristine copy -> {orig.name}")
     elif dll.read_bytes() == data:
-        _say(f"{dll.name} already patched")
+        say(f"{dll.name} already patched")
         return False
     for line in done:
-        _say(line)
+        say(line)
     dll.write_bytes(data)
-    _say(f"patched -> {dll}")
+    say(f"patched -> {dll}")
     return True

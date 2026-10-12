@@ -10,10 +10,8 @@ against the release manifest is fatal: upstream changed something, and the pin
 has to be moved deliberately. Parts, the release manifest and the joined
 archive are cached in downloads/v<version>/.
 """
-import hashlib
 import json
 import shutil
-import sys
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -21,27 +19,16 @@ from typing import Any, Callable, Dict, Optional
 
 from daoc_cli import pins
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
+from daoc_cli.files import sha256, sha256_of
 
 Downloader = Callable[[str, Path], None]
-
-
-def _say(msg: str) -> None:
-    print(f"daoc: {msg}", file=sys.stderr, flush=True)
-
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def download(url: str, dest: Path) -> None:
     """GET url into dest through dest.part, so an interrupted download is
     never mistaken for a cached file."""
-    _say(f"  downloading {url}")
+    say(f"  downloading {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "daoc-macos-installer/1.0"})
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
@@ -59,12 +46,29 @@ def _verified(path: Path, size: Optional[int], sha: str) -> bool:
         return False
     if size is not None and path.stat().st_size != size:
         return False
-    return sha256_file(path) == sha
+    return sha256(path) == sha
 
 
 def _changed(what: str) -> DaocError:
     return DaocError(f"{what}; upstream changed the release, so the client pin has to be "
                      "moved deliberately")
+
+
+def plain_name(name: Any, what: str) -> str:
+    """name, refused unless it is one plain path component: release manifests
+    come from the network, and their names are joined onto local directories."""
+    if not isinstance(name, str) or name in ("", "..") or Path(name).name != name:
+        raise DaocError(f"{what} {name!r} is not a plain file name")
+    return name
+
+
+def _cache_path(cache_dir: Path, name: str, what: str) -> Path:
+    """cache_dir/name, refused unless it stays directly inside cache_dir (a
+    symlink there that leads elsewhere is refused too)."""
+    path = cache_dir / plain_name(name, what)
+    if path.resolve().parent != cache_dir.resolve():
+        raise DaocError(f"{what} {name!r} resolves outside {cache_dir}")
+    return path
 
 
 def _verify_release_manifest(manifest: Dict[str, Any], pin: Dict[str, Any]) -> None:
@@ -106,7 +110,7 @@ def download_release(pin: Dict[str, Any], cache_dir: Path,
 
     # 1. Release manifest, cross-checked against the pin.
     manifest_name = pin.get("manifest_asset", "download-manifest.json")
-    manifest_path = cache_dir / manifest_name
+    manifest_path = _cache_path(cache_dir, manifest_name, "manifest_asset")
     if not manifest_path.exists():
         fetch_url(release_url + manifest_name, manifest_path)
     try:
@@ -119,53 +123,50 @@ def download_release(pin: Dict[str, Any], cache_dir: Path,
     #    release manifest was just checked to match).
     for want in pin["parts"]:
         name, sha = want["name"], want["sha256"]
-        dest = cache_dir / name
+        dest = _cache_path(cache_dir, name, "release part")
         if _verified(dest, want.get("bytes"), sha):
-            _say(f"  cached {name} (verified)")
+            say(f"  cached {name} (verified)")
             continue
         if dest.exists():
             dest.unlink()
         fetch_url(release_url + name, dest)
-        if sha256_file(dest) != sha:
+        if sha256(dest) != sha:
             raise DaocError(f"{name} failed SHA-256 verification")
-        _say(f"  verified {name}")
+        say(f"  verified {name}")
 
     # 3. Join + whole-archive verification.
-    archive = cache_dir / f"OfflineDAoC-v{pin['version']}.zip"
+    archive = _cache_path(cache_dir, f"OfflineDAoC-v{pin['version']}.zip", "archive")
     if not _verified(archive, pin.get("archive_bytes"), pin["archive_sha256"]):
-        _say("  joining parts")
+        say("  joining parts")
         with archive.open("wb") as out:
             for want in pin["parts"]:
-                with (cache_dir / want["name"]).open("rb") as src:
+                with _cache_path(cache_dir, want["name"], "release part").open("rb") as src:
                     shutil.copyfileobj(src, out, 1 << 20)
-        if sha256_file(archive) != pin["archive_sha256"]:
+        if sha256(archive) != pin["archive_sha256"]:
             raise DaocError("joined archive failed SHA-256 verification")
-    _say(f"  archive verified ({pin['archive_sha256'][:16]}…)")
+    say(f"  archive verified ({pin['archive_sha256'][:16]}…)")
     return archive
 
 
 def member_sha256(archive: Path, name: str) -> str:
     """sha256 of one file inside the archive, read without extracting anything."""
-    h = hashlib.sha256()
     with zipfile.ZipFile(archive) as zf:
         try:
             src = zf.open(name)
         except KeyError:
             raise DaocError(f"{archive.name} has no {name}") from None
         with src:
-            for chunk in iter(lambda: src.read(1 << 20), b""):
-                h.update(chunk)
-    return h.hexdigest()
+            return sha256_of(src)
 
 
 def extract(archive: Path, root_folder: str, dest_dir: Path) -> Path:
     """Extract a verified archive into dest_dir with zip-slip validation;
     returns dest_dir/<root_folder>. An existing destination is refused."""
-    target = dest_dir / root_folder
+    target = dest_dir / plain_name(root_folder, "root_folder")
     if target.exists():
         raise DaocError(f"destination {target} already exists")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    _say("  extracting (this takes a few minutes)")
+    say("  extracting (this takes a few minutes)")
     root_prefix = f"{root_folder}/"
     base = str(dest_dir.resolve()) + "/"
     with zipfile.ZipFile(archive) as zf:
@@ -176,14 +177,16 @@ def extract(archive: Path, root_folder: str, dest_dir: Path) -> Path:
             if not str((dest_dir / name).resolve()).startswith(base):
                 raise DaocError(f"zip-slip attempt in {name!r}")
         zf.extractall(dest_dir)
-    _say(f"  extracted to {target}")
+    say(f"  extracted to {target}")
     return target
 
 
 def install(checkout: Checkout, *, fetch_url: Downloader = download) -> None:
-    """Fetch the effective client pin's release into checkout.client_root."""
+    """Fetch the effective client pin's release into checkout.client_root and
+    record that pin in the install."""
     pin = pins.effective(checkout, "client")
     dist = checkout.client_root.parent
     extracted = fetch(pin, checkout.downloads / f"v{pin['version']}", dist, fetch_url=fetch_url)
     # The archive's root is <root_folder>/; the install lives under a fixed name.
     extracted.rename(checkout.client_root)
+    pins.record_installed(checkout, "client", pin)

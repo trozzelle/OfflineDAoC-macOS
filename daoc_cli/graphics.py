@@ -50,10 +50,6 @@ def register(groups: "argparse._SubParsersAction") -> None:
     p.set_defaults(func=handle)
 
 
-def _git(src: Path, *args: str) -> str:
-    return proc.run(["git", "-C", str(src), *args]).stdout.strip()
-
-
 def ensure_checkout(checkout: Checkout) -> Path:
     """Make checkout.graphics_src a clean clone at the effective graphics pin;
     return it. Status lines go to stderr."""
@@ -66,16 +62,16 @@ def ensure_checkout(checkout: Checkout) -> Path:
         proc.run(["git", "clone", "--quiet", repo, str(src)])
     # Refuse edited or untracked files: they would run (or, for d3d9.dll, be
     # copied next to game.dll) as if they were the pinned commit.
-    if _git(src, "status", "--porcelain"):
+    if proc.git(src, "status", "--porcelain").stdout.strip():
         raise DaocError(
             f'{src} has local changes (git -C "{src}" status); '
             "remove that folder to re-clone the pinned commit"
         )
-    if _git(src, "rev-parse", "HEAD") != ref:
+    if proc.head(src) != ref:
         print(f"== graphics: checking out pinned {ref[:12]}", file=sys.stderr)
-        _git(src, "fetch", "--quiet", "origin")
-        _git(src, "checkout", "--quiet", "--detach", ref)
-    actual = _git(src, "rev-parse", "HEAD")
+        proc.git(src, "fetch", "--quiet", "origin")
+        proc.git(src, "checkout", "--quiet", "--detach", ref)
+    actual = proc.head(src)
     if actual != ref:
         raise DaocError(f"{src} is at {actual[:12]}, pinned {ref[:12]}")
     return src
@@ -124,7 +120,7 @@ def _last_line(text: str) -> str:
 def contract_check(src: Path, checkout: Checkout) -> None:
     """Check that the daoc-gfx clone at src still keeps the contract this
     Checkout relies on. Raises DaocError naming the first failing check."""
-    at = _git(src, "rev-parse", "HEAD")[:12]
+    at = proc.head(src)[:12]
 
     def broken(check: str, why: str) -> DaocError:
         return DaocError(f"graphics contract check '{check}' fails at {at}: {why}; pin unchanged")
@@ -132,7 +128,7 @@ def contract_check(src: Path, checkout: Checkout) -> None:
     # 1. The commit's own tests. Captured: replayed on failure, skips surfaced.
     r = proc.run([PYTHON, "-m", "unittest", "discover", "-v", "-s", "tests"], cwd=src, check=False)
     if r.returncode != 0:
-        sys.stderr.write(r.stdout + r.stderr)
+        proc.replay(r.stdout, r.stderr)
         raise broken("tests", f"{PYTHON} -m unittest discover -s tests exits {r.returncode}")
     for line in (r.stdout + r.stderr).splitlines():
         if "... skipped" in line:
@@ -200,16 +196,17 @@ def update(checkout: Checkout) -> int:
     latest = updates.resolve_latest(checkout, "graphics")
     sha = latest["ref"]
     if sha == current.get("ref"):
-        print(f"graphics already at {sha[:12]}")
+        print(f"graphics already at {sha[:12]}", file=sys.stderr)
         return 0
     with tempfile.TemporaryDirectory(prefix="daoc-graphics-") as tmp:
         src = Path(tmp) / "graphics"
         print(f"== graphics: checking main at {sha[:12]} in a temp clone", file=sys.stderr)
         proc.run(["git", "clone", "--quiet", latest["repo"], str(src)])
-        _git(src, "checkout", "--quiet", "--detach", sha)
+        proc.git(src, "checkout", "--quiet", "--detach", sha)
         contract_check(src, checkout)
     pins.set_local(checkout, "graphics", {**pins.shipped(checkout, "graphics"), **latest})
-    print(f"graphics pin -> {sha[:12]} (Local pin); the next daoc graphics … call checks it out")
+    print(f"graphics pin -> {sha[:12]} (Local pin); the next daoc graphics … call checks it out",
+          file=sys.stderr)
     return 0
 
 

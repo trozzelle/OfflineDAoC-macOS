@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 from daoc_cli import keychain, proc, watchdog
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
 
 PS = "/bin/ps"
 PGREP = "/usr/bin/pgrep"
@@ -45,10 +45,6 @@ FORWARD_ENV = ("DAOC_WINE_HOME", "DAOC_WINEPREFIX", "DAOC_DLL_OVERRIDES", "WINE_
 FORWARD_PREFIXES = ("X87_", "MTL_")
 
 REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}
-
-
-def _say(msg: str) -> None:
-    print(f"daoc: {msg}", file=sys.stderr, flush=True)
 
 
 def _server_log(checkout: Checkout) -> Path:
@@ -160,9 +156,9 @@ def _launch_once(checkout: Checkout, game_port: int, account: str, password: str
     if not checkout.launcher_app.is_dir():
         raise DaocError(f"{checkout.launcher_app} is missing; run daoc client install", 2)
     if chosen:
-        _say(f"launching {chosen[0]} ({REALMS.get(chosen[1], chosen[1])}) on port {game_port}")
+        say(f"launching {chosen[0]} ({REALMS.get(chosen[1], chosen[1])}) on port {game_port}")
     else:
-        _say(f"account {account} has no character yet; opening character select on port "
+        say(f"account {account} has no character yet; opening character select on port "
              f"{game_port} so you can create one")
     try:
         proc.run(launch_argv(checkout, account, password, chosen, game_port, dict(os.environ)),
@@ -217,17 +213,17 @@ def start(checkout: Checkout, *, character: Optional[str] = None, retries: int =
                     if "Wrong password" in _log_tail(_server_log(checkout), log_offset):
                         raise DaocError(f"the server rejected the password for {account}; "
                                         "run daoc client login to save the right one", 2)
-                    _say(f"logged in after {watch.waited}s; create your character at "
+                    say(f"logged in after {watch.waited}s; create your character at "
                          "character select")
                     return
-                _say(f"in world after {watch.waited}s")
+                say(f"in world after {watch.waited}s")
                 return
             if verdict == watchdog.HUNG:
-                _say(f"hung: wine log static {watch.stall}s, game cpu {watch.busy}cs/10s, "
+                say(f"hung: wine log static {watch.stall}s, game cpu {watch.busy}cs/10s, "
                      f"not in world; killing tree (try {tries}/{retries})")
                 break
             if verdict == watchdog.TIMEOUT:
-                _say(f"timeout: not in world after {watchdog.CAP}s (try {tries}/{retries}); "
+                say(f"timeout: not in world after {watchdog.CAP}s (try {tries}/{retries}); "
                      "killing tree")
                 break
         kill(checkout)  # launcher loop + this prefix's wine tree
@@ -313,20 +309,20 @@ def stop(checkout: Checkout) -> None:
     slog = _server_log(checkout)
     before = _size(slog)
     kill(checkout)
-    _say(f"{time.strftime('%H:%M:%S')} client stopped")
+    say(f"{time.strftime('%H:%M:%S')} client stopped")
     time.sleep(3)
-    if watchdog.LINKDEAD_MARK in _log_tail(slog, before):
+    if watchdog.linkdead_pending(_log_tail(slog, before)):
         for _ in range(45):
-            if watchdog.DISCONNECTED_MARK in _log_tail(slog, before):
-                _say(f"{time.strftime('%H:%M:%S')} server dropped the character")
-                break
             time.sleep(2)
+            if not watchdog.linkdead_pending(_log_tail(slog, before)):
+                say(f"{time.strftime('%H:%M:%S')} server dropped the character")
+                break
     # Anything wine-related still alive is a leak (e.g. another prefix's wineserver).
     result = proc.run([PS, "-Ao", "pid=,comm="], check=False)
     for line in (result.stdout or "").splitlines():
         fields = line.split(None, 1)
         if len(fields) == 2 and re.search(r"wine|x87sidecar|preloader", fields[1]):
-            _say(f"leftover: {fields[0]} {fields[1]}")
+            say(f"leftover: {fields[0]} {fields[1]}")
 
 
 def _start(args: argparse.Namespace, checkout: Checkout) -> int:
@@ -337,7 +333,7 @@ def _start(args: argparse.Namespace, checkout: Checkout) -> int:
         if name:
             print(name)
         else:
-            _say("no character yet; start opens character select so you can create one")
+            say("no character yet; start opens character select so you can create one")
         return 0
     if args.retries < 1:
         raise DaocError("--retries must be at least 1", 2)

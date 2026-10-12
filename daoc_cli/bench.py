@@ -33,7 +33,7 @@ from typing import Callable, List, Sequence, Tuple
 
 from daoc_cli import client_runtime, keychain, proc, server
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
 
 MAKE = "/usr/bin/make"
 SETTLE = 45
@@ -51,10 +51,6 @@ ROUTE = (("0xE04B", 900), ("0x11", 6000), ("0xE04D", 1500), ("0x11", 5000),
 
 class Invalid(Exception):
     """The run cannot be judged: exit 2 with `INVALID: <reason>` on stdout."""
-
-
-def _say(msg: str) -> None:
-    print(f"daoc: {msg}", file=sys.stderr, flush=True)
 
 
 # --- verdict ---------------------------------------------------------------
@@ -115,7 +111,7 @@ def restore_leftover(checkout: Checkout) -> None:
     if not _setrole(checkout, prev, "player"):
         raise Invalid(f"cannot restore {prev} to player (left at gm by an earlier run)")
     mark.unlink()
-    _say(f"restored {prev} to player (left at gm by an earlier run)")
+    say(f"restored {prev} to player (left at gm by an earlier run)")
 
 
 def restore(checkout: Checkout) -> None:
@@ -199,7 +195,7 @@ def drive(checkout: Checkout, seconds: int, state: Path) -> None:
         # the character running into a wall.
         for code in HELD_KEYS:
             si("sc", code, "up")
-    _say(f"bench drive: {n} interaction cycles in {seconds}s")
+    say(f"bench drive: {n} interaction cycles in {seconds}s")
 
 
 # --- probe and checks ----------------------------------------------------------
@@ -268,7 +264,7 @@ def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path,
         ftlog.mkdir(parents=True, exist_ok=True)
     except OSError:
         raise Invalid(f"cannot create {ftlog}") from None
-    _say(f"[{tag}] character {char}; output in {out}")
+    say(f"[{tag}] character {char}; output in {out}")
 
     client_runtime.stop(checkout)
     try:

@@ -93,6 +93,17 @@ class OverviewTest(unittest.TestCase):
         out, _ = self.overview()
         self.assertRegex(line(out, "Server running:"), r"unknown \(daoc-server.sh status exit 3\)$")
 
+    def test_server_built_from_its_recorded_pin(self):
+        self.server_install("echo stopped")
+        shipped = pins.shipped(self.co, "server")
+        pins.record_installed(self.co, "server", shipped)
+        out, _ = self.overview()
+        self.assertEqual(pin_row(out, "server")[3:], [shipped["ref"][:12]])
+
+        pins.record_installed(self.co, "server", dict(shipped, ref=NEW_REF))
+        out, _ = self.overview()
+        self.assertEqual(pin_row(out, "server")[3:], [NEW_REF[:12], "rebuild", "due"])
+
     def test_client_built_from_game_dll_orig(self):
         self.co.client_root.mkdir(parents=True)
         self.co.app_dir.mkdir(parents=True)
@@ -112,6 +123,7 @@ class OverviewTest(unittest.TestCase):
         (self.root / ".git").mkdir()
         (self.co.graphics_src / ".git").mkdir(parents=True)
         stubs = path_stubs(self.tmp, {"git": "\n".join((
+            '[ "$1" = -C ] && shift 2',
             'case "$*" in',
             '  "rev-list --count HEAD..@{u}") echo 3 ;;',
             '  "rev-parse --abbrev-ref @{u}") echo origin/main ;;',

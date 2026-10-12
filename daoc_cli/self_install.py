@@ -10,10 +10,10 @@ import argparse
 import os
 import shlex
 import sys
-import tempfile
 from pathlib import Path
 
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, ask
+from daoc_cli.files import atomic_write
 
 MARKER = "# daoc wrapper written by daoc self-install"
 PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"'
@@ -42,19 +42,6 @@ def wrapper_text(root: Path) -> str:
     )
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".daoc.")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-        os.chmod(tmp, 0o755)
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-
 def _ours(path: Path) -> bool:
     try:
         with open(path, "r", errors="replace") as f:
@@ -79,9 +66,7 @@ def _offer_path(home: Path) -> None:
               file=sys.stderr)
         print(f"  {PATH_LINE}", file=sys.stderr)
         return
-    print("Add ~/.local/bin to PATH in ~/.zprofile? [y/N] ", end="", file=sys.stderr, flush=True)
-    answer = sys.stdin.readline().strip().lower()
-    if answer not in ("y", "yes"):
+    if not ask("Add ~/.local/bin to PATH in ~/.zprofile?"):
         print(f"Not changed. To do it yourself, add: {PATH_LINE}", file=sys.stderr)
         return
     existing = profile.read_text() if profile.exists() else ""
@@ -103,8 +88,7 @@ def handle(args: argparse.Namespace, checkout) -> int:
     if (target.exists() or target.is_symlink()) and (target.is_symlink() or not _ours(target)):
         raise DaocError(f"{target} exists and was not written by daoc self-install; "
                         "move it aside and re-run", code=2)
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    _write_atomic(target, wrapper_text(root))
+    atomic_write(target, wrapper_text(root), mode=0o755)
     print(f"Wrote {target} -> {root}/daoc", file=sys.stderr)
     if not _on_path(bin_dir):
         _offer_path(home)

@@ -17,9 +17,10 @@ and documented here.
   `daoc client update` (formerly `update.sh client`) moves to a release only
   when its pristine `game.dll` hash is a Proven build, recording that measured
   hash in the Local pin.
-- **Fixed** — a `.orig` that already exists is trusted as the pristine base (it
-  was hash-verified when created); an unpatched DLL with no `.orig` and no pin is
-  refused; an already-patched DLL with no `.orig` is reported as "nothing to do"
+- **Fixed** — an existing `.orig` is used as the pristine base only when its
+  sha256 is a Proven build, and refused otherwise; a DLL with no `.orig` whose
+  hash is not a Proven build is refused; a DLL with no `.orig` whose bytes
+  already match a Proven build's patched output is reported as already patched
   rather than an error.
 - Verified: output is byte-identical to the client variant that was played and
   confirmed working end-to-end (login → world → combat → quit).

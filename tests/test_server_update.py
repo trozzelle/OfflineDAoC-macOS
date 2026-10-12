@@ -3,6 +3,7 @@
 git, the build (server.install), daoc-server.sh status and the GitHub lookup are stubbed.
 """
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from tests.support import make_checkout, run_cli
 
 from daoc_cli import pins, proc, server, updates
 from daoc_cli.checkout import Checkout
+from daoc_cli.errors import DaocError
 
 NEW_SHA = "abcdef012345" + "9" * 28
 
@@ -47,6 +49,7 @@ class ServerUpdateTest(unittest.TestCase):
         self.failing = None
         self.states = [(False, "stopped")]
         self.new_world = b"new world"
+        self.build_fails = False
         self.calls = []
         self.installs = []
 
@@ -64,9 +67,11 @@ class ServerUpdateTest(unittest.TestCase):
     def fake_status(self, checkout):
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
 
-    def fake_install(self, checkout, verbose=False):
-        self.installs.append(pins.effective(checkout, "server"))
+    def fake_install(self, checkout, verbose=False, pin=None):
+        self.installs.append(pin if pin is not None else pins.effective(checkout, "server"))
         self.world.write_bytes(self.new_world)
+        if self.build_fails:
+            raise DaocError("build-release.sh failed")
 
     def update(self, stdin: str = "", tty: bool = False):
         with mock.patch.object(updates, "resolve_latest", lambda co, group: dict(self.latest)), \
@@ -87,10 +92,25 @@ class ServerUpdateTest(unittest.TestCase):
 
     def test_already_at_latest(self) -> None:
         self.latest["ref"] = self.co.manifest["server"]["ref"]
+        pins.record_installed(self.co, "server", self.latest)
         code, _, err = self.update()
         self.assertEqual(code, 0)
         self.assertIn(f"server already at {self.latest['ref'][:12]}", err)
         self.assertEqual((self.calls, self.installs), ([], []))
+
+    def test_install_behind_a_newer_shipped_pin_is_rebuilt(self) -> None:
+        # A pull brought a Shipped pin naming upstream's latest; the install is older.
+        manifest = json.loads(self.manifest)
+        manifest["server"]["ref"] = NEW_SHA
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+        pins.record_installed(self.co, "server", {"upstream": self.latest["upstream"],
+                                                  "ref": "1" * 40})
+        self.new_world = b"old world"
+        code, _, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("already at", err)
+        self.assertEqual(self.installs, [self.latest])
+        self.assertIsNone(self.local())
 
     def test_failing_patch_leaves_the_pin_unchanged(self) -> None:
         self.failing = "020-b.patch"
@@ -132,6 +152,23 @@ class ServerUpdateTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn([str(self.co.server_dir / "daoc-server.sh"), "stop"], self.calls)
         self.assertEqual(len(self.installs), 1)
+
+    def test_failed_build_leaves_the_pin_unchanged_and_a_rerun_rebuilds(self) -> None:
+        self.build_fails = True
+        code, _, err = self.update()
+        self.assertEqual(code, 1)
+        self.assertIn("build-release.sh failed", err)
+        self.assertEqual(self.installs, [self.latest])
+        self.assertIsNone(self.local())
+
+        self.build_fails = False
+        self.world.write_bytes(b"old world")
+        code, _, err = self.update()
+        self.assertEqual(code, 0)
+        self.assertNotIn("already at", err)
+        self.assertEqual(self.installs, [self.latest, self.latest])
+        self.assertEqual(self.local(), self.latest)
+        self.assertIn("daoc progress upgrade", err)
 
     def test_world_change_off_a_tty_prints_the_hint_and_runs_no_upgrade(self) -> None:
         code, _, err = self.update()

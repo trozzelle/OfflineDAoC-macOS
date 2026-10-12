@@ -2,8 +2,9 @@
 
 run() is for steps whose output is noise unless they fail: without --verbose it
 captures the child's stdout and stderr and replays both to stderr only when the
-step fails. execv() replaces daoc with a passthrough tool, so TUIs keep the TTY
-and signals reach the child directly.
+step fails; replay() and failed() are that failure path for callers that judge
+an exit themselves. git() runs git in a repository. execv() replaces daoc with
+a passthrough tool, so TUIs keep the TTY and signals reach the child directly.
 """
 import os
 import subprocess
@@ -47,16 +48,35 @@ def run(
     except OSError as e:
         raise DaocError(f"cannot run {args[0]}: {e.strerror or e}") from None
     if check and result.returncode != 0:
-        for captured in (result.stdout, result.stderr):
-            if captured:
-                sys.stderr.write(captured)
-                if not captured.endswith("\n"):
-                    sys.stderr.write("\n")
-        sys.stderr.flush()
-        if result.returncode < 0:
-            raise DaocError(f"{name} was killed by signal {-result.returncode}")
-        raise DaocError(f"{name} failed (exit {result.returncode})")
+        replay(result.stdout, result.stderr)
+        raise failed(name, result.returncode)
     return result
+
+
+def replay(*captured: Optional[str]) -> None:
+    """Write each captured output to stderr, each ending in a newline."""
+    for text in captured:
+        if text:
+            sys.stderr.write(text if text.endswith("\n") else text + "\n")
+    sys.stderr.flush()
+
+
+def failed(what: str, returncode: int) -> DaocError:
+    """The error for what exiting with returncode (negative: killed by a signal)."""
+    if returncode < 0:
+        return DaocError(f"{what} was killed by signal {-returncode}")
+    return DaocError(f"{what} failed (exit {returncode})")
+
+
+def git(repo: StrPath, *args: str, verbose: bool = False,
+        check: bool = True) -> "subprocess.CompletedProcess[str]":
+    """`git -C repo args` through run()."""
+    return run(["git", "-C", repo, *args], verbose=verbose, check=check)
+
+
+def head(repo: StrPath) -> str:
+    """The commit repo has checked out."""
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def execv(

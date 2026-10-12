@@ -126,6 +126,19 @@ class ResolveLatestTest(Base):
             updates.resolve_latest(self.co, "client")
         self.assertIn("0.35b", e.exception.msg)
 
+    def test_client_manifest_names_must_be_plain(self) -> None:
+        for field, bad in (("Name", "../x"), ("Name", "/tmp/x"), ("RootFolder", "a/b"),
+                           ("RootFolder", "..")):
+            rm = release_manifest("0.36")
+            if field == "Name":
+                rm["Parts"][0]["Name"] = bad
+            else:
+                rm["RootFolder"] = bad
+            self.responses = {self.release_api: {"tag_name": "v0.36"}, self.asset("v0.36"): rm}
+            with self.serve(), self.assertRaises(DaocError) as e:
+                updates.resolve_latest(self.co, "client")
+            self.assertIn("not a plain file name", e.exception.msg)
+
     def test_rate_limit_is_named(self) -> None:
         for code in (403, 429):
             self.responses = {self.server_api: code}

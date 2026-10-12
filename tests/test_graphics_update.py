@@ -152,8 +152,9 @@ class GraphicsUpdateTest(unittest.TestCase):
         code, out, err = self.update(good)
         self.assertEqual(code, 0, err)
         self.assertEqual(pins.local(self.co, "graphics"), {"repo": str(self.bare), "ref": good})
-        self.assertIn(f"graphics pin -> {good[:12]}", out)
-        self.assertIn("the next daoc graphics … call checks it out", out)
+        self.assertEqual(out, "")
+        self.assertIn(f"graphics pin -> {good[:12]}", err)
+        self.assertIn("the next daoc graphics … call checks it out", err)
         self.assertIn(f"== graphics tests pass at {good[:12]}", err)
         self.assertIn("skipped 'no cc'", err)
         self.assertIn(f"== daoc-gfx machine interface matches at {good[:12]}", err)
@@ -162,7 +163,7 @@ class GraphicsUpdateTest(unittest.TestCase):
     def test_already_at_the_effective_pin(self) -> None:
         base = self.commits["base"]
         code, out, err = self.update(base)
-        self.assertEqual((code, out), (0, f"graphics already at {base[:12]}\n"))
+        self.assertEqual((code, out, err), (0, "", f"graphics already at {base[:12]}\n"))
         self.assertFalse((self.root / ".daoc" / "pins.json").exists())
 
     def test_already_at_the_local_pin(self) -> None:
@@ -170,7 +171,7 @@ class GraphicsUpdateTest(unittest.TestCase):
         pins.set_local(self.co, "graphics", {"repo": str(self.bare), "ref": good})
         before = (self.root / ".daoc" / "pins.json").read_bytes()
         code, out, err = self.update(good)
-        self.assertEqual((code, out), (0, f"graphics already at {good[:12]}\n"))
+        self.assertEqual((code, out, err), (0, "", f"graphics already at {good[:12]}\n"))
         self.assertEqual((self.root / ".daoc" / "pins.json").read_bytes(), before)
 
     def assert_refused(self, ref: str, check: str) -> str:
@@ -180,7 +181,7 @@ class GraphicsUpdateTest(unittest.TestCase):
         self.assertIn("pin unchanged", err)
         self.assertIsNone(pins.local(self.co, "graphics"))
         self.assertFalse((self.root / ".daoc" / "pins.json").exists())
-        self.assertNotIn("graphics pin ->", out)
+        self.assertNotIn("graphics pin ->", err)
         return err
 
     def test_each_failing_check_leaves_the_pin_and_names_the_check(self) -> None:

@@ -1,8 +1,8 @@
 """The `daoc` command tree: group registration, routing and exit codes.
 
 Groups. GROUPS is the one ordered list of groups, in help order. An entry is
-(name, module). A group module exposes `register(groups)`, where `groups` is
-the top-level argparse subparsers object: it adds its own group parser and
+(name, group), where group is a module or object exposing `register(groups)`;
+`groups` is the top-level argparse subparsers object. register adds its own group parser and
 actions and sets `func` defaults with the signature `handler(args, checkout)
 -> int`. A group whose choice help is argparse.SUPPRESS (dev) is left out of
 the help listing.
@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
 from daoc_cli.checkout import Checkout
-from daoc_cli import admin, client, dev, graphics, overview, progress, self_install, server
+from daoc_cli import client, dev, graphics, overview, self_install, server
+from daoc_cli.server_tools import admin, progress
 from daoc_cli.errors import DaocError
 
 GROUPS = (

@@ -9,7 +9,7 @@ from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import keychain, proc, server
+from daoc_cli import errors, keychain, proc, server
 from daoc_cli.checkout import Checkout
 
 
@@ -140,8 +140,8 @@ class PromptTest(unittest.TestCase):
             result = fn()
         return result, out.getvalue(), err.getvalue()
 
-    def test_server_ask(self):
-        yes, out, err = self.ask(lambda: server._ask("Stop?"), "y\n")
+    def test_ask(self):
+        yes, out, err = self.ask(lambda: errors.ask("Stop?"), "y\n")
         self.assertTrue(yes)
         self.assertEqual(out, "")
         self.assertIn("Stop? [y/N] ", err)

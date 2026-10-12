@@ -5,26 +5,25 @@ install:
      commit, and pre-check the port patches against it.
   2. Install the .NET 10 SDK if missing (server/tools/setup-dotnet.sh).
   3. Run the port's build pipeline (server/tools/build-release.sh), which applies
-     the macOS patches from server/patches/ and builds server/dist/daoc-server.
+     the macOS patches from server/patches/ and builds server/dist/daoc-server,
+     then record the pin it was built from in the install (pins.INSTALLED).
 
 start/stop/status exec the install's own daoc-server.sh, which stays shell.
 
-update moves the Local pin to upstream's latest after a patch pre-check, then
-rebuilds (see update()).
+update moves the install to upstream's latest after a patch pre-check, then
+rebuilds and records it as the Local pin (see update()).
 """
 import argparse
-import hashlib
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import pins, proc, updates
+from daoc_cli import files, pins, proc, updates
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, ask
 
 NO_INSTALL = "no Server install; run daoc server install"
 
@@ -117,19 +116,13 @@ def running(checkout: Checkout) -> Optional[bool]:
     return status(checkout)[0]
 
 
-def _git(args: List[str], src: Path, verbose: bool, **kw) -> "subprocess.CompletedProcess[str]":
-    return proc.run(["git", "-C", str(src), *args], verbose=verbose, **kw)
-
-
-def _head(src: Path) -> str:
-    return proc.run(["git", "-C", str(src), "rev-parse", "HEAD"]).stdout.strip()
-
-
-def install(checkout: Checkout, verbose: bool = False) -> None:
+def install(checkout: Checkout, verbose: bool = False,
+            pin: Optional[Dict[str, Any]] = None) -> None:
+    """Build the Server install from pin (default: the effective server pin)."""
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
     root = Path(os.path.realpath(checkout.root))
     progress = "--progress" if verbose else "--quiet"
-    pin = pins.effective(checkout, "server")
+    pin = pin if pin is not None else pins.effective(checkout, "server")
     url, ref = pin["upstream"], pin["ref"]
     src = root / "upstream" / "server"
 
@@ -146,21 +139,22 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
     if not (src / ".git").is_dir():
         print("== cloning upstream (this downloads ~400 MB)", file=sys.stderr)
         proc.run(["git", "clone", progress, url, str(src)], verbose=True)
-    checked = _head(src)
+    checked = proc.head(src)
     if checked != ref:
         print(f"== checking out pinned {ref[:12]} (have {checked[:12]})", file=sys.stderr)
         # Fetching a bare sha can be refused by the server; fall back to a full fetch.
         # Its error is only shown with --verbose, as before.
-        if _git(["fetch", progress, "origin", ref], src, verbose, check=False).returncode != 0:
-            _git(["fetch", progress, "origin"], src, True)
-        _git(["checkout", progress, "--detach", ref], src, True)
-    actual = _head(src)
+        if proc.git(src, "fetch", progress, "origin", ref, verbose=verbose,
+                    check=False).returncode != 0:
+            proc.git(src, "fetch", progress, "origin", verbose=True)
+        proc.git(src, "checkout", progress, "--detach", ref, verbose=True)
+    actual = proc.head(src)
     if actual != ref:
         raise DaocError(f"upstream HEAD {actual[:12]} != pinned {ref[:12]}")
 
     # Pre-check the macOS patches apply cleanly to this snapshot.
     patches = [str(p) for p in _patches(root)]
-    if _git(["apply", "--check", *patches], src, True, check=False).returncode != 0:
+    if proc.git(src, "apply", "--check", *patches, verbose=True, check=False).returncode != 0:
         raise DaocError("patches no longer apply to the pinned upstream — re-derive them")
     print("== patches apply cleanly", file=sys.stderr)
 
@@ -176,7 +170,10 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
     build = [str(root / "server" / "tools" / "build-release.sh")]
     if verbose:
         build.append("--verbose")
+    # A build that stops halfway leaves an install built from no pin.
+    pins.forget_installed(checkout, "server")
     proc.run(build, cwd=root, env=env, verbose=True)
+    pins.record_installed(checkout, "server", pin)
 
     print("== install-server: done — server/dist/daoc-server", file=sys.stderr)
     print("   start it:  daoc server start", file=sys.stderr)
@@ -187,25 +184,11 @@ def _patches(root: Path) -> List[Path]:
     return sorted((root / "server" / "patches").glob("*.patch"))
 
 
-def _ask(question: str) -> bool:
-    """A y/N question on the terminal; anything but y/yes (or EOF) is no."""
-    try:
-        print(f"{question} [y/N] ", end="", file=sys.stderr, flush=True)
-        answer = input()
-    except EOFError:
-        return False
-    return answer.strip().lower() in ("y", "yes")
-
-
 def _world_hash(checkout: Checkout) -> Optional[str]:
     path = checkout.server_dir / WORLD_DATA
     if not path.is_file():
         return None
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return files.sha256(path)
 
 
 def _precheck(url: str, ref: str, patches: List[Path], current: str) -> None:
@@ -218,14 +201,14 @@ def _precheck(url: str, ref: str, patches: List[Path], current: str) -> None:
         if proc.run(["git", "clone", "--quiet", "--filter=blob:none", url, str(src)],
                     check=False).returncode != 0:
             raise DaocError("upstream clone failed")
-        _git(["checkout", "--quiet", "--detach", ref], src, False)
+        proc.git(src, "checkout", "--quiet", "--detach", ref)
         for patch in patches:
-            if _git(["apply", "--check", str(patch)], src, False, check=False).returncode != 0:
+            if proc.git(src, "apply", "--check", str(patch), check=False).returncode != 0:
                 raise DaocError(
                     f"{patch.name} no longer applies to {ref[:12]}; re-derive it against the "
                     f"new source (pin not changed: still {current[:12]})"
                 )
-            _git(["apply", str(patch)], src, False)
+            proc.git(src, "apply", str(patch))
     print(f"== patches apply cleanly to {ref[:12]}", file=sys.stderr)
 
 
@@ -240,7 +223,7 @@ def _stop_first(checkout: Checkout) -> None:
                         "stop it first (daoc server stop)", 2)
     if not sys.stdin.isatty():
         raise DaocError("the server is running; stop it first (daoc server stop)", 2)
-    if not _ask(f"The server is {detail}. Stop it to update?"):
+    if not ask(f"The server is {detail}. Stop it to update?"):
         raise DaocError("server update refused: the server is running", 2)
     proc.run([script(checkout), "stop"], cwd=checkout.server_dir, verbose=True)
     if running(checkout) is not False:
@@ -258,20 +241,24 @@ fresh. The previous save is backed up to data/progress-backups/<time>/."""
 
 
 def update(checkout: Checkout) -> int:
-    """Move the Server install to the upstream's latest main as a Local pin and
-    rebuild it. Exit 0 (updated, or already at latest); DaocError 1 on a
+    """Move the Server install to the upstream's latest main and rebuild it,
+    recording that commit as the Local pin unless the pin already names it. Exit 0
+    (updated, or the install already built from latest); DaocError 1 on a
     failing patch or build, 2 when stopping the server is refused."""
+    from daoc_cli import overview  # overview imports this module
+
     root = Path(os.path.realpath(checkout.root))
 
-    # 1. Resolve the upstream's latest main.
+    # 1. Resolve the upstream's latest main. Whether the install is already there
+    #    is read from the install, not the pin: a pull can move the pin alone.
     print("== resolving upstream main", file=sys.stderr)
     current = pins.effective(checkout, "server")
     latest = updates.resolve_latest(checkout, "server")
-    if updates.same("server", current, latest):
+    if overview._built_from(checkout, "server", latest)[1]:
         print(f"server already at {latest['ref'][:12]}", file=sys.stderr)
         return 0
 
-    # 2. Clone the new commit shallowly and prove the port patches still apply to
+    # 2. Clone the new commit (blobless) and prove the port patches still apply to
     #    it BEFORE moving the pin: an upstream change that breaks a patch fails
     #    here, loudly, and the pin stays put.
     _precheck(latest["upstream"], latest["ref"], _patches(root), current["ref"])
@@ -279,11 +266,13 @@ def update(checkout: Checkout) -> int:
     # 3. Never rebuild under a live server.
     _stop_first(checkout)
 
-    # 4. Record the Local pin, then rebuild against it.
+    # 4. Rebuild against the new commit, then record it as the Local pin. A
+    #    failed build leaves the pin where it was, so a rerun retries the build.
     before = _world_hash(checkout)
-    pins.set_local(checkout, "server", latest)
-    print(f"== server Local pin -> {latest['ref'][:12]}", file=sys.stderr)
-    install(checkout)
+    install(checkout, pin=latest)
+    if not updates.same("server", current, latest):
+        pins.set_local(checkout, "server", latest)
+        print(f"== server Local pin -> {latest['ref'][:12]}", file=sys.stderr)
 
     # 5. New World data does not reach an existing save on its own: offer a
     #    Progress upgrade, never run one unasked.
@@ -295,7 +284,7 @@ def update(checkout: Checkout) -> int:
               "daoc progress upgrade", file=sys.stderr)
         return 0
     print(PROGRESS_UPGRADE.format(world=WORLD_DATA), file=sys.stderr)
-    if not _ask("Run the Progress upgrade now?"):
+    if not ask("Run the Progress upgrade now?"):
         print("skipped; run it later with:  daoc progress upgrade", file=sys.stderr)
         return 0
     # No chdir: daoc-progress resolves its own directory.

@@ -12,16 +12,19 @@ group:
 changes that Shipped pin, the Local pin lapses: it is dropped with a one-line
 notice and the new Shipped pin applies. Only ship() writes the manifest, for a
 maintainer to commit.
+
+The Server and Client installs record the pin they were built from in their
+own folder (INSTALLED), so whether an install is up to date is read from the
+install, never inferred from the pin.
 """
 import json
-import os
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from daoc_cli.checkout import Checkout
+from daoc_cli.files import atomic_write
 from daoc_cli.errors import DaocError
 
 GROUPS = ("server", "client", "graphics")
@@ -30,6 +33,8 @@ GROUPS = ("server", "client", "graphics")
 _SHORT_FIELD = {"server": "ref", "client": "version", "graphics": "ref"}
 
 STORE = "pins.json"
+# In the Server and Client install folders: the pin the install was built from.
+INSTALLED = ".daoc-pin.json"
 
 
 def _check_group(group: str) -> None:
@@ -90,34 +95,6 @@ def _save(checkout: Checkout, entries: List[Dict[str, Any]]) -> None:
     atomic_write(path, json.dumps(entries, indent=2) + "\n")
 
 
-def atomic_write(path: Path, text: str) -> None:
-    """Replace path with text through a temp file in the same directory.
-
-    The parent directory is created on demand. An existing file's mode is kept.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mode = path.stat().st_mode & 0o7777
-    except FileNotFoundError:
-        umask = os.umask(0)
-        os.umask(umask)
-        mode = 0o666 & ~umask
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, mode)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
-
-
 def _entry(entries: List[Dict[str, Any]], group: str) -> Optional[Dict[str, Any]]:
     for entry in entries:
         if entry["group"] == group:
@@ -172,6 +149,39 @@ def set_local(checkout: Checkout, group: str, fields: Dict[str, Any]) -> None:
     })
     entries.sort(key=lambda e: GROUPS.index(e["group"]))
     _save(checkout, entries)
+
+
+def _installed_path(checkout: Checkout, group: str) -> Path:
+    if group == "server":
+        return checkout.server_dir / INSTALLED
+    if group == "client":
+        return checkout.client_root / INSTALLED
+    raise DaocError(f"the {group} install records no pin")
+
+
+def installed(checkout: Checkout, group: str) -> Optional[Dict[str, Any]]:
+    """The pin the group's install records it was built from; None when it
+    records none (no install, an install made before the record, or a build
+    that did not finish)."""
+    try:
+        fields = json.loads(_installed_path(checkout, group).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return fields if isinstance(fields, dict) else None
+
+
+def record_installed(checkout: Checkout, group: str, fields: Dict[str, Any]) -> None:
+    """Record fields as the pin the group's install was built from."""
+    atomic_write(_installed_path(checkout, group),
+                 json.dumps({k: v for k, v in fields.items() if k != "note"}, indent=2) + "\n")
+
+
+def forget_installed(checkout: Checkout, group: str) -> None:
+    """Drop the install's record before a rebuild changes the install."""
+    try:
+        _installed_path(checkout, group).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _merge(entry: Dict[str, Any], pin: Dict[str, Any]) -> Dict[str, Any]:

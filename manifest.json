@@ -28,7 +28,7 @@
   },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
-    "ref": "7b407473c569ee4e8d5128ad3ebfd40b660a718b",
+    "ref": "89a10e7498302a306f15b90cd595486d24bab358",
     "note": "Optional graphical patches the user turns on one by one (retina, srgb, textures, anisotropy). Only daoc graphics pulls it: the first call clones this commit into upstream/graphics/, and every call refuses to run unless HEAD is this commit and git status shows no local changes; daoc client install never fetches it."
   }
 }

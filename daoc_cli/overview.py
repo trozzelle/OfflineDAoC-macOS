@@ -3,18 +3,18 @@
 Offline only: nothing here touches the network. "Built from" is read from what
 each install records about itself, and shows `unknown` when it records nothing
 usable:
-  - Server: the install records only VERSION, the macOS port's own commit
-    (`git describe` of this repo at build time), and its zip is named after that
-    same commit. Neither names the upstream server ref, so built-from is unknown.
-  - Client: the pristine game.dll is kept as game.dll.orig once patched; its
-    sha256 is compared with the pin's `game_dll_sha256`.
+  - Server: the pin `daoc server install` records in the install
+    (pins.INSTALLED) once a build succeeds. An install built before that record
+    existed names no upstream ref, so built-from is unknown.
+  - Client: the pin recorded in the install (pins.INSTALLED); an install made
+    before that record falls back to the pristine game.dll, kept as game.dll.orig
+    once patched, whose sha256 is compared with the pin's `game_dll_sha256`.
   - Graphics: the HEAD commit of the upstream/graphics clone.
 """
-import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from daoc_cli import pins, proc, server
+from daoc_cli import files, pins, proc, server, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -28,21 +28,17 @@ def _git(args: Sequence[str], cwd: Path) -> Optional[str]:
     if not (cwd / ".git").exists():
         return None
     try:
-        result = proc.run(["git", *args], cwd=cwd, check=False)
+        result = proc.git(cwd, *args, check=False)
     except DaocError:
         return None
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _sha256(path: Path) -> Optional[str]:
-    h = hashlib.sha256()
     try:
-        with path.open("rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
+        return files.sha256(path)
     except OSError:
         return None
-    return h.hexdigest()
 
 
 def _server_install(checkout: Checkout) -> str:
@@ -65,14 +61,20 @@ def _server_running(checkout: Checkout) -> str:
 
 
 def _built_from(checkout: Checkout, group: str, pin: Dict[str, Any]) -> Tuple[str, Optional[bool]]:
-    """(label, matches the effective pin); matches is None when unknown."""
+    """(label, the install was built from pin); matches is None when unknown."""
     if group == "server":
         if not checkout.server_dir.is_dir():
             return NOT_INSTALLED, None
-        return UNKNOWN, None
+        record = pins.installed(checkout, group)
+        if record is None:
+            return UNKNOWN, None
+        return pins.short(group, record), updates.same(group, record, pin)
     if group == "client":
         if not checkout.app_dir.is_dir():
             return NOT_INSTALLED, None
+        record = pins.installed(checkout, group)
+        if record is not None:
+            return pins.short(group, record), updates.same(group, record, pin)
         dll = checkout.app_dir / "game.dll.orig"
         if not dll.is_file():
             dll = checkout.app_dir / "game.dll"
@@ -147,6 +149,7 @@ def show(checkout: Checkout) -> int:
     width = max(len(name) for name, _ in commands)
     lines += ["", "Commands:"]
     lines += [f"  daoc {name.ljust(width)}  {help_line}".rstrip() for name, help_line in commands]
-    lines += ["", "Run `daoc <command> --help` for its actions."]
+    lines += ["", "Run `daoc <command> --help` for its actions (admin and progress need",
+              "the Server install, graphics the Client install)."]
     print("\n".join(lines))
     return 0

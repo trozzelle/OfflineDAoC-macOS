@@ -106,6 +106,7 @@ class ClientUpdateTest(unittest.TestCase):
         self.gfx_src = Path(tmp.name) / "gfx"
         self.gfx_src.mkdir()
         (self.gfx_src / "daoc-gfx").write_text(FAKE_GFX)
+        (self.co.graphics_src / ".git").mkdir(parents=True)
         self.export = self.co.state / client.TEXTURES_EXPORT
         self.saved = self.co.state / client.CARRY_OVER
         self.pids = []
@@ -226,6 +227,7 @@ class ClientUpdateTest(unittest.TestCase):
 
     def test_already_at_latest(self):
         self.latest = pins.shipped(self.co, "client")
+        pins.record_installed(self.co, "client", self.latest)
         self.served = {}
         code, out, err = self.update()
         self.assertEqual(code, 0, err)
@@ -233,6 +235,22 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertEqual(self.downloads.urls, [])
         self.assert_old_client_untouched()
         self.assertEqual(self.gfx_calls(), [])
+
+    def test_install_behind_a_newer_shipped_pin_catches_up(self):
+        # A pull brought a Shipped pin naming the latest release; the install is older.
+        pin, self.served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": self.dll,
+                                         f"{ROOT_FOLDER}/readme.txt": b"new release"})
+        self.latest = dict(pin, game_dll_sha256=sha(self.dll))
+        manifest = json.loads((self.root / "manifest.json").read_text())
+        manifest["client"] = self.latest
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+        pins.record_installed(self.co, "client", {"version": "older"})
+        code, out, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertIn("daoc: client update: OfflineDAoC older -> T", err)
+        self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"new release")
+        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
+        self.assertIsNone(pins.local(self.co, "client"))
 
     def test_failed_restore_keeps_the_carry_over_and_a_rerun_resumes(self):
         self.set_gfx(EVERY_STATE)
@@ -277,9 +295,10 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertTrue(self.saved.exists())
 
     def test_interrupted_swap_is_undone(self):
+        self.latest = pins.shipped(self.co, "client")
+        pins.record_installed(self.co, "client", self.latest)
         old = self.co.client_root.parent / ".OfflineDAoC.old"
         self.co.client_root.rename(old)
-        self.latest = pins.shipped(self.co, "client")
         self.served = {}
         code, out, err = self.update()
         self.assertEqual(code, 0, err)
@@ -322,6 +341,14 @@ class ClientUpdateTest(unittest.TestCase):
         code, out, err = self.update()
         self.assertEqual(code, 0, err)
         self.assertIn("no client game.dll yet; skipping the graphics carry-over", err)
+        self.assert_new_client()
+        self.assertEqual(self.gfx_calls(), [])
+
+    def test_no_graphics_checkout_skips_the_carry_over(self):
+        (self.co.graphics_src / ".git").rmdir()
+        code, out, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertIn("skipping the graphics carry-over", err)
         self.assert_new_client()
         self.assertEqual(self.gfx_calls(), [])
 

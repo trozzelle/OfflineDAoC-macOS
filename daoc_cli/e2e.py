@@ -349,9 +349,14 @@ def _port_open(port: int) -> bool:
 
 def _launch(checkout: Checkout, account: str, password: str) -> None:
     """Open the Launcher for one attempt at character select. The password rides
-    on the argv the Launcher requires and is never printed."""
+    on the argv the Launcher requires and is never printed. LaunchServices drops
+    the caller's environment, so the Checkout's wine and prefix (DAOC_WINE_HOME /
+    DAOC_WINEPREFIX, resolved) ride on --env: game_pids and kill look for the
+    client under the same wine."""
     proc.run([client_runtime.OPEN, "-n", checkout.launcher_app,
               "--env", "DAOC_LAUNCHER_RETRIES=1",
+              "--env", f"DAOC_WINE_HOME={checkout.wine_home}",
+              "--env", f"DAOC_WINEPREFIX={checkout.prefix}",
               "--args", "wine", "game.dll", "127.0.0.1", str(GAME_PORT), "42", account, password],
              check=False)
 
