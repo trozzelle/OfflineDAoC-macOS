@@ -37,7 +37,8 @@ def save_interactive() -> None:
     if not sys.stdin.isatty():
         raise DaocError("daoc client login needs a terminal", 2)
     try:
-        account = input("Game account name: ").strip()
+        print("Game account name: ", end="", file=sys.stderr, flush=True)
+        account = input().strip()
     except EOFError:
         account = ""
     if not account:

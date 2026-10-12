@@ -1,4 +1,6 @@
 """client bench: the frame-time verdict and the gm-raise marker lifecycle."""
+import os
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -88,7 +90,7 @@ class MarkerTest(unittest.TestCase):
         bench.raise_gm(self.checkout, "bob")
         self.assertEqual(bench.marker(self.checkout).read_text(), "bob\n")
         self.assertEqual(self.calls[-1], ("accounts", "set-role", "bob", "gm"))
-        bench.restore(self.checkout, "bob")
+        bench.restore(self.checkout)
         self.assertEqual(self.calls[-1], ("accounts", "set-role", "bob", "player"))
         self.assertFalse(bench.marker(self.checkout).exists())
 
@@ -97,12 +99,38 @@ class MarkerTest(unittest.TestCase):
         self.ok = False
         with mock.patch.object(bench.server, "tool", return_value=Path("/x/daoc-admin")), \
                 mock.patch("sys.stderr"):
-            bench.restore(self.checkout, "bob")
+            bench.restore(self.checkout)
         self.assertTrue(bench.marker(self.checkout).exists())
         self.ok = True
         bench.restore_leftover(self.checkout)
         self.assertEqual(self.calls[-1], ("accounts", "set-role", "bob", "player"))
         self.assertFalse(bench.marker(self.checkout).exists())
+
+    def test_restore_uses_marker_account(self):
+        bench.marker(self.checkout).write_text("alice\n")
+        bench.restore(self.checkout)
+        self.assertEqual(self.calls, [("accounts", "set-role", "alice", "player")])
+        self.assertFalse(bench.marker(self.checkout).exists())
+
+    def test_interrupt_before_raise_restores_leftover_only(self):
+        bench.marker(self.checkout).write_text("alice\n")
+        out = Path(self.checkout.root) / "out"
+
+        def interrupt(_checkout):
+            os.kill(os.getpid(), signal.SIGINT)
+
+        with mock.patch.dict(os.environ, {"DAOC_BENCH_ACCOUNT": "bob", "DAOC_BENCH_OUT": str(out)}), \
+                mock.patch.object(bench, "_build"), \
+                mock.patch.object(bench, "_server_up", return_value=True), \
+                mock.patch.object(bench.client_runtime, "character", return_value="Hero"), \
+                mock.patch.object(bench.client_runtime, "stop", side_effect=interrupt), \
+                mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as cm:
+                bench.run(self.checkout, 10, "t")
+        self.assertEqual(cm.exception.code, 130)
+        self.assertEqual(self.calls, [("accounts", "set-role", "alice", "player")])
+        self.assertFalse(bench.marker(self.checkout).exists())
+        self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler)
 
 
 if __name__ == "__main__":

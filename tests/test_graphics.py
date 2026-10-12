@@ -114,7 +114,7 @@ class GraphicsTest(unittest.TestCase):
         self.assertFalse(self.src.exists())
 
     def test_update_reserved(self) -> None:
-        code, out, err = self.run_gfx("update")
+        code, out, err = self.run_gfx("update", "now")
         self.assertEqual(code, 2)
         self.assertIsNone(self.argv)
         self.assertFalse(self.src.exists())

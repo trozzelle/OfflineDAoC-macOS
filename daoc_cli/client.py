@@ -10,10 +10,23 @@ install, in order (re-runs skip finished steps):
   5. Wine prefix (win10 version setting, profile folders kept inside the
      prefix, settings carried over from an older wine's user, prefix upgrade)
      and the Launcher bundle.
+update moves the Client install to the latest OfflineDAoC release:
+  1. Download and verify it (cached), and hash its game.dll inside the archive:
+     a build that is not Proven stops here, before any change.
+  2. Refuse while the client runs.
+  3. Graphics carry-over through the pinned daoc-gfx: save `status --json` in
+     .daoc/carry-over.json, export the texture pack to .daoc/textures-export,
+     then turn every graphics patch off.
+  4. Replace dist/OfflineDAoC (extracted beside it, then swapped; the Wine
+     prefix is kept), apply the Client patch and record the Local pin.
+  5. Turn the same patches back on, reinstall the pack from the export, and
+     compare `status --json` with the saved one; a difference keeps both files.
+A carry-over.json left by an interrupted update resumes at step 5.
 Downloads are cached in downloads/. start/stop/kill/login live in
 client_runtime.
 """
 import argparse
+import json
 import os
 import platform
 import shutil
@@ -21,15 +34,23 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Mapping
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from daoc_cli import bench, client_patch, client_runtime, pins, proc, release, updates
+from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
+                      updates)
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
 XATTR = "/usr/bin/xattr"
 ARCH = "/usr/bin/arch"
 TAR = "/usr/bin/tar"
+
+# game.dll below the Client install (and below the release archive's root folder).
+GAME_DLL = "runtime/client-opendaoc/app/game.dll"
+CARRY_OVER = "carry-over.json"
+TEXTURES_EXPORT = "textures-export"
+# daoc-gfx patches restored by carry_over's own steps rather than a plain enable.
+_NOT_DISPLAY = ("textures", "anisotropy")
 
 
 def _say(msg: str) -> None:
@@ -74,7 +95,214 @@ def _install(args: argparse.Namespace, checkout: Checkout) -> int:
 def _update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
         return updates.check(checkout, "client")
-    raise DaocError("client update is not available yet", 2)
+    return update(checkout)
+
+
+def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:
+    """result's stdout; on failure replay its output and raise."""
+    if result.returncode != 0:
+        for captured in (result.stdout, result.stderr):
+            if captured:
+                sys.stderr.write(captured if captured.endswith("\n") else captured + "\n")
+        sys.stderr.flush()
+        raise DaocError(f"daoc-gfx {' '.join(args)} failed (exit {result.returncode})")
+    return result.stdout
+
+
+def _gfx(checkout: Checkout, *args: str) -> str:
+    """daoc-gfx args; on failure replay its output and raise."""
+    return _gfx_checked(graphics.gfx(checkout, list(args)), list(args))
+
+
+def _gfx_status(checkout: Checkout) -> Dict[str, Any]:
+    """daoc-gfx `status --json` (schema 1)."""
+    args = ["status", "--json"]
+    result = graphics.gfx(checkout, args)
+    if result.returncode != 0 and "unrecognized arguments" in (result.stderr or ""):
+        raise DaocError("the pinned daoc-gfx has no `status --json`, which the graphics "
+                        "carry-over needs; run `daoc graphics update` first, then "
+                        "`daoc client update` again")
+    _gfx_checked(result, args)
+    try:
+        status = json.loads(result.stdout)
+    except ValueError:
+        status = None
+    if not isinstance(status, dict) or status.get("schema") != graphics.STATUS_SCHEMA:
+        raise DaocError(f"the pinned daoc-gfx gave no schema {graphics.STATUS_SCHEMA} "
+                        "`status --json`; run `daoc graphics update` first, then "
+                        "`daoc client update` again")
+    return status
+
+
+def _refuse_running(checkout: Checkout) -> None:
+    if client_runtime.game_pids(checkout):
+        raise DaocError("the client is running; quit the game (or `daoc client stop`) and "
+                        "run `daoc client update` again", 2)
+
+
+def carry_over(checkout: Checkout) -> Optional[Dict[str, Any]]:
+    """Save the graphics state (.daoc/carry-over.json), export the texture
+    pack (.daoc/textures-export) and turn every graphics patch off; return the
+    saved state, or None when there is nothing to carry over."""
+    if not (checkout.app_dir / "game.dll").is_file():
+        _say("no client game.dll yet; skipping the graphics carry-over")
+        return None
+    if not isinstance(checkout.manifest.get("graphics"), dict):
+        _say("no graphics pin in manifest.json; skipping the graphics carry-over")
+        return None
+    status = _gfx_status(checkout)
+    if status["textures"]["pending"]:
+        raise DaocError(f"graphics has an interrupted '{status['textures']['pending']}'; "
+                        "run `daoc graphics textures recover` first")
+    export = checkout.state / TEXTURES_EXPORT
+    # Without a carry-over.json no update owns an export, so any one is stale.
+    shutil.rmtree(export, ignore_errors=True)
+    if status["textures"]["components"]:
+        _say(f"graphics: exporting the texture pack to {export}")
+        export.parent.mkdir(parents=True, exist_ok=True)
+        _gfx(checkout, "textures", "export", str(export))
+    # Written once the export is complete: from here on a re-run restores.
+    pins.atomic_write(checkout.state / CARRY_OVER, json.dumps(status, indent=2) + "\n")
+    active = [p for p, s in status["patches"].items() if s not in ("off", "not installed")]
+    if active:
+        _say(f"graphics: turning off {', '.join(active)} for the replace")
+        _gfx(checkout, "disable", *active)
+    return status
+
+
+def _differences(saved: Dict[str, Any], now: Dict[str, Any]) -> List[str]:
+    out = []
+    for key in sorted(set(saved) | set(now)):
+        was, got = saved.get(key), now.get(key)
+        if key == "patches" and isinstance(was, dict) and isinstance(got, dict):
+            out += [f"{p}: was {was.get(p, 'absent')}, now {got.get(p, 'absent')}"
+                    for p in sorted(set(was) | set(got)) if was.get(p) != got.get(p)]
+        elif was != got:
+            out.append(f"{key}: was {json.dumps(was)}, now {json.dumps(got)}")
+    return out
+
+
+def restore(checkout: Checkout, saved: Dict[str, Any]) -> None:
+    """Bring the graphics state saved by carry_over back on the current client.
+
+    Steps already done (by an interrupted run) are skipped. A remaining
+    difference keeps carry-over.json and the export and raises; on success
+    both are deleted.
+    """
+    state, export = checkout.state / CARRY_OVER, checkout.state / TEXTURES_EXPORT
+    was = saved["patches"]
+    now = _gfx_status(checkout)
+    display = [p for p, s in was.items()
+               if s == "on" and p not in _NOT_DISPLAY and now["patches"].get(p) != "on"]
+    if display:
+        _say(f"graphics: turning {', '.join(display)} back on")
+        _gfx(checkout, "enable", *display)
+    level = saved.get("anisotropy_level")
+    if was.get("anisotropy") == "on" and (now["patches"].get("anisotropy") != "on"
+                                          or now.get("anisotropy_level") != level):
+        _say(f"graphics: turning anisotropy back on ({level}x)")
+        _gfx(checkout, "enable", "anisotropy", *(["--level", str(level)] if level else []))
+    components = saved["textures"]["components"]
+    if components and not now["textures"]["components"]:
+        _say("graphics: reinstalling the texture pack from the export")
+        _gfx(checkout, "textures", "install", "--from-dir", str(export))
+        now = _gfx_status(checkout)
+    # A fresh install leaves every component pack-active; a restore on the old
+    # client (an update that stopped before the replace) finds them all original.
+    live = {c["name"]: c["state"] for c in now["textures"]["components"]}
+    for variant, want, other in (("original", "originals active", "pack active"),
+                                 ("pack", "pack active", "originals active")):
+        names = [c["name"] for c in components
+                 if c["state"] == want and live.get(c["name"]) == other]
+        if names:
+            _gfx(checkout, "textures", "use", variant, *[a for n in names for a in ("-c", n)])
+    diff = _differences(saved, _gfx_status(checkout))
+    if diff:
+        raise DaocError(
+            "graphics did not come back as before the update:\n  " + "\n  ".join(diff)
+            + f"\nthe saved state is kept in {state}"
+            + (f" and the texture pack in {export}" if export.exists() else "")
+            + "; set it with `daoc graphics …`, then run `daoc client update` again to "
+              "compare (delete those to accept the current state)")
+    # carry-over.json first: an export without it is stale, the reverse would resume
+    # without its pack.
+    state.unlink()
+    shutil.rmtree(export, ignore_errors=True)
+    _say("graphics: carried over")
+
+
+def _swap_dirs(checkout: Checkout) -> Tuple[Path, Path]:
+    """(staging, old): the folders beside the Client install a replace uses."""
+    dist, name = checkout.client_root.parent, checkout.client_root.name
+    return dist / f".{name}.new", dist / f".{name}.old"
+
+
+def _recover_swap(checkout: Checkout) -> None:
+    """Finish or undo a replace that was interrupted between its renames."""
+    staging, old = _swap_dirs(checkout)
+    if old.exists():
+        if checkout.client_root.exists():
+            shutil.rmtree(old)
+        else:
+            old.rename(checkout.client_root)
+            _say("put back the client an interrupted update had moved aside")
+    shutil.rmtree(staging, ignore_errors=True)
+
+
+def replace_install(checkout: Checkout, archive: Path, root_folder: str) -> None:
+    """Replace the Client install with the release in archive, then apply the
+    Client patch. The release is extracted beside the install and swapped in,
+    so the old install stays whole until the new one is complete."""
+    staging, old = _swap_dirs(checkout)
+    shutil.rmtree(staging, ignore_errors=True)
+    new = release.extract(archive, root_folder, staging)
+    if checkout.client_root.exists():
+        checkout.client_root.rename(old)
+    os.replace(new, checkout.client_root)
+    _say("removing the old client")
+    shutil.rmtree(old, ignore_errors=True)
+    shutil.rmtree(staging)
+    client_patch.patch(checkout.app_dir / "game.dll")
+
+
+def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -> int:
+    """Move the Client install to the latest OfflineDAoC release (Local pin),
+    carrying the graphics patches over. fetch_url defaults to release.download."""
+    _recover_swap(checkout)
+    saved_path = checkout.state / CARRY_OVER
+    if saved_path.is_file():
+        _refuse_running(checkout)
+        _say(f"resuming an interrupted client update at the graphics restore ({saved_path})")
+        try:
+            saved = json.loads(saved_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise DaocError(f"cannot read {saved_path}: {e}") from None
+        restore(checkout, saved)
+
+    latest = updates.resolve_latest(checkout, "client")
+    current = pins.effective(checkout, "client")
+    version = latest["version"]
+    if updates.same("client", latest, current):
+        _say(f"client already at {version}")
+        return 0
+    _say(f"client update: OfflineDAoC {current['version']} -> {version}")
+    archive = release.download_release(latest, checkout.downloads / f"v{version}",
+                                       fetch_url=fetch_url or release.download)
+    sha = release.member_sha256(archive, f"{latest['root_folder']}/{GAME_DLL}")
+    if sha not in client_patch.PROVEN_BUILDS:
+        raise DaocError(f"{version}'s game.dll ({sha[:12]}) is not a Proven build; "
+                        "it needs a shipped update")
+    _refuse_running(checkout)
+    saved = carry_over(checkout)
+    replace_install(checkout, archive, latest["root_folder"])
+    # The pin follows the install as soon as it is replaced, so a failed restore
+    # resumes against the right pin.
+    pins.set_local(checkout, "client", dict(latest, game_dll_sha256=sha))
+    if saved is not None:
+        restore(checkout, saved)
+    _say(f"client update: done; OfflineDAoC {version} is the Local client pin "
+         "(`daoc dev ship-pins` makes it Shipped)")
+    return 0
 
 
 def _wine(argv: List[str], env: Mapping[str, str], verbose: bool, check: bool = True) -> None:
@@ -126,8 +354,17 @@ def _requirements() -> None:
         raise DaocError("curl required")
 
 
+def _install_paths(checkout: Checkout) -> Tuple[Path, Path]:
+    """(wine home, prefix) that install builds: always <root>/dist/wine and
+    <root>/dist/prefix. DAOC_WINE_HOME / DAOC_WINEPREFIX are runtime overrides
+    (launcher, kill, bench) and never install targets: install deletes and
+    initializes what it targets."""
+    dist = checkout.root / "dist"
+    return dist / "wine", dist / "prefix"
+
+
 def _install_wine(checkout: Checkout, verbose: bool) -> None:
-    wine_home = checkout.wine_home
+    wine_home, _ = _install_paths(checkout)
     if os.access(wine_home / "bin" / "wine", os.X_OK):
         _say("wine already installed")
         return
@@ -144,7 +381,7 @@ def _install_wine(checkout: Checkout, verbose: bool) -> None:
     _say("extracting Wine")
     shutil.rmtree(wine_home, ignore_errors=True)
     wine_home.mkdir(parents=True)
-    # The tarball's root is wine/; strip it so DAOC_WINE_HOME may name any folder.
+    # The tarball's root is wine/; strip it so the bundle lands directly in dist/wine.
     proc.run([TAR, "-xJf", tarball, "-C", wine_home, "--strip-components", "1"])
     _unquarantine(wine_home)
 
@@ -183,9 +420,9 @@ def _keep_profile_folders(users: Path) -> None:
 
 
 def _init_prefix(checkout: Checkout, verbose: bool) -> None:
-    prefix = checkout.prefix  # absolute: wine rejects a relative WINEPREFIX
-    wine = str(checkout.wine_home / "bin" / "wine")
-    wineserver = str(checkout.wine_home / "bin" / "wineserver")
+    wine_home, prefix = _install_paths(checkout)  # absolute: wine rejects a relative WINEPREFIX
+    wine = str(wine_home / "bin" / "wine")
+    wineserver = str(wine_home / "bin" / "wineserver")
     env = dict(os.environ, WINEPREFIX=str(prefix))
     if not (prefix / "system.reg").is_file():
         _say("initializing wine prefix (win10 version)")

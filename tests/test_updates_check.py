@@ -170,12 +170,6 @@ class CheckTest(Base):
         self.assertTrue(client[1].rstrip().endswith("up to date"), client[1])
         self.assertIn(f"latest {'e' * 12}  UPDATE AVAILABLE", gfx[1])
 
-    def test_update_without_check_is_refused_for_client_and_graphics(self) -> None:
-        for argv in (["client", "update"], ["graphics", "update"]):
-            code, _, err = run_cli(argv, self.root)
-            self.assertEqual(code, 2)
-            self.assertIn("not available yet", err)
-
 
 if __name__ == "__main__":
     unittest.main()

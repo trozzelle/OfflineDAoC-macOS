@@ -92,9 +92,17 @@ def fetch(pin: Dict[str, Any], cache_dir: Path, dest_dir: Path,
 
     fetch_url(url, dest) downloads one file (tests pass their own).
     """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    archive = download_release(pin, cache_dir, fetch_url=fetch_url)
+    return extract(archive, pin["root_folder"], dest_dir)
+
+
+def download_release(pin: Dict[str, Any], cache_dir: Path,
+                     *, fetch_url: Downloader = download) -> Path:
+    """Download (or reuse) and verify the pinned release in cache_dir; returns
+    the verified, joined archive. Nothing is extracted."""
     release_url = pin["release_url"]  # a URL: must stay a string; a Path would mangle '//'
     cache_dir.mkdir(parents=True, exist_ok=True)
-    dest_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Release manifest, cross-checked against the pin.
     manifest_name = pin.get("manifest_asset", "download-manifest.json")
@@ -133,13 +141,32 @@ def fetch(pin: Dict[str, Any], cache_dir: Path, dest_dir: Path,
         if sha256_file(archive) != pin["archive_sha256"]:
             raise DaocError("joined archive failed SHA-256 verification")
     _say(f"  archive verified ({pin['archive_sha256'][:16]}…)")
+    return archive
 
-    # 4. Extract with zip-slip validation; refuse an existing destination.
-    target = dest_dir / pin["root_folder"]
+
+def member_sha256(archive: Path, name: str) -> str:
+    """sha256 of one file inside the archive, read without extracting anything."""
+    h = hashlib.sha256()
+    with zipfile.ZipFile(archive) as zf:
+        try:
+            src = zf.open(name)
+        except KeyError:
+            raise DaocError(f"{archive.name} has no {name}") from None
+        with src:
+            for chunk in iter(lambda: src.read(1 << 20), b""):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def extract(archive: Path, root_folder: str, dest_dir: Path) -> Path:
+    """Extract a verified archive into dest_dir with zip-slip validation;
+    returns dest_dir/<root_folder>. An existing destination is refused."""
+    target = dest_dir / root_folder
     if target.exists():
         raise DaocError(f"destination {target} already exists")
+    dest_dir.mkdir(parents=True, exist_ok=True)
     _say("  extracting (this takes a few minutes)")
-    root_prefix = f"{pin['root_folder']}/"
+    root_prefix = f"{root_folder}/"
     base = str(dest_dir.resolve()) + "/"
     with zipfile.ZipFile(archive) as zf:
         for info in zf.infolist():

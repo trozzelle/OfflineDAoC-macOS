@@ -29,7 +29,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import Callable, List, Sequence, Tuple
 
 from daoc_cli import client_runtime, keychain, proc, server
 from daoc_cli.checkout import Checkout
@@ -118,10 +118,12 @@ def restore_leftover(checkout: Checkout) -> None:
     _say(f"restored {prev} to player (left at gm by an earlier run)")
 
 
-def restore(checkout: Checkout, account: str) -> None:
+def restore(checkout: Checkout) -> None:
+    """Restore the account the marker names; the marker goes only on success."""
     mark = marker(checkout)
     if not mark.is_file():
         return
+    account = mark.read_text().strip()
     if _setrole(checkout, account, "player"):
         mark.unlink()
         return
@@ -238,7 +240,8 @@ def _build(checkout: Checkout) -> None:
         raise Invalid("cannot build the frametime probe")
 
 
-def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path) -> int:
+def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path,
+           arm: Callable[[], None]) -> int:
     ftlog = out / "ftlog"
     last_npc = out / "last-npc"
     window = out / "window.ns"
@@ -251,6 +254,7 @@ def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path) 
     if not _server_up(checkout):
         raise Invalid(f"server not running ({checkout.server_dir})")
     restore_leftover(checkout)
+    arm()   # signal handlers only once no earlier run's raise is pending
     for p in (last_npc, window):
         if p.exists():
             p.unlink()
@@ -304,7 +308,7 @@ def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path) 
 
         client_runtime.stop(checkout)   # logout saves the character's position
     finally:
-        restore(checkout, account)
+        restore(checkout)
     npc = last_npc.read_text().strip() if last_npc.is_file() else ""
     if not npc:
         raise Invalid("bench drive recorded no NPC interaction")
@@ -323,12 +327,17 @@ def run(checkout: Checkout, seconds: int, tag: str) -> int:
     out = Path(os.environ.get("DAOC_BENCH_OUT") or tempfile.mkdtemp(prefix=f"daoc-bench-{tag}."))
 
     def on_signal(signum: int, _frame: object) -> None:
-        restore(checkout, account)
+        restore(checkout)
         raise SystemExit(130)
 
-    previous = {s: signal.signal(s, on_signal) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    previous = {}
+
+    def arm() -> None:
+        for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            previous[s] = signal.signal(s, on_signal)
+
     try:
-        return _bench(checkout, seconds, tag, account, out)
+        return _bench(checkout, seconds, tag, account, out, arm)
     except Invalid as e:
         print(f"INVALID: {e}", flush=True)
         return 2

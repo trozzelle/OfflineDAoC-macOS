@@ -1,5 +1,7 @@
 """daoc server / admin / progress: passthrough argv, missing install, install build step."""
+import io
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +9,7 @@ from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import proc, server
+from daoc_cli import keychain, proc, server
 from daoc_cli.checkout import Checkout
 
 
@@ -121,6 +123,37 @@ class InstallTest(unittest.TestCase):
                                env={"PATH": f"{self.stubs}:/usr/bin:/bin"})
         self.assertEqual(code, 1)
         self.assertIn("upstream HEAD deadbeef", err)
+
+
+class Tty(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class PromptTest(unittest.TestCase):
+    """Prompts go to stderr; stdout stays data only."""
+
+    def ask(self, fn, answer):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("sys.stdin", Tty(answer)), mock.patch("sys.stdout", out), \
+                mock.patch("sys.stderr", err):
+            result = fn()
+        return result, out.getvalue(), err.getvalue()
+
+    def test_server_ask(self):
+        yes, out, err = self.ask(lambda: server._ask("Stop?"), "y\n")
+        self.assertTrue(yes)
+        self.assertEqual(out, "")
+        self.assertIn("Stop? [y/N] ", err)
+
+    def test_keychain_save_interactive(self):
+        done = subprocess.CompletedProcess([], 0, "secret\n", "")
+        with mock.patch.object(keychain.proc, "run", return_value=done) as run:
+            _, out, err = self.ask(keychain.save_interactive, "alice\n")
+        self.assertEqual(out, "")
+        self.assertIn("Game account name: ", err)
+        self.assertIn("alice", run.call_args_list[0][0][0])
+
 
 
 if __name__ == "__main__":

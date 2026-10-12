@@ -146,7 +146,8 @@ class ServerUpdateTest(unittest.TestCase):
         code, out, err = self.update("n\n", tty=True)
         self.assertEqual(code, 0)
         self.assertIn("keep and relic ownership", err)
-        self.assertIn("Run the Progress upgrade now? [y/N]", out)
+        self.assertIn("Run the Progress upgrade now? [y/N]", err)
+        self.assertEqual(out, "")
         self.assertEqual(self.progress_calls(), [])
 
     def test_world_change_on_a_tty_answer_yes_runs_the_upgrade(self) -> None:

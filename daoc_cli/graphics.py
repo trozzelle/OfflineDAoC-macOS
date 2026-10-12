@@ -11,11 +11,18 @@ runs its daoc-gfx against this Checkout's client, wine and prefix
 launcher). Each patch, and what turning it off restores, is in the graphics
 project's README.
 
-`graphics update` is daoc's own action, reserved here, and never reaches
-daoc-gfx.
+`graphics update` is daoc's own action and never reaches daoc-gfx: it moves
+the Local graphics pin to the project's `main` once that commit passes the
+contract check (its own tests, plus the daoc-gfx options, launcher line and
+machine interface this Checkout relies on).
 """
 import argparse
+import json
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from daoc_cli import pins, proc, updates
@@ -23,6 +30,14 @@ from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
 PYTHON = "/usr/bin/python3"
+
+# The source launcher whose WINEDLLOVERRIDES line the anisotropy patch rewrites
+# (in its installed copy) only if that line equals its STOCK_LINE exactly once.
+SOURCE_LAUNCHER = Path("client") / "DAoCLauncher.app"
+LAUNCH_SCRIPT = Path("Contents") / "MacOS" / "launch"
+# daoc-gfx `status --json` keys this Checkout reads (schema 1).
+STATUS_SCHEMA = 1
+STATUS_KEYS = ("patches", "anisotropy_level", "mtld3d_conf", "textures")
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
@@ -76,6 +91,128 @@ def gfx_argv(checkout: Checkout, src: Path, args: list) -> list:
     ]
 
 
+def gfx(checkout: Checkout, args: list) -> "subprocess.CompletedProcess[str]":
+    """Run the pinned daoc-gfx with args against this Checkout's client and
+    launcher; stdout and stderr are captured and the caller judges the exit."""
+    src = ensure_checkout(checkout)
+    return proc.run([
+        PYTHON, str(src / "daoc-gfx"),
+        "--app", str(checkout.app_dir),
+        "--wine", str(checkout.wine_home),
+        "--prefix", str(checkout.prefix),
+        "--launcher", str(checkout.launcher_app),
+        *args,
+    ], check=False)
+
+
+def _lists(help_text: str, word: str) -> bool:
+    """Whether help_text names word as a whole option or command."""
+    return re.search(rf"(^|[^-\w]){re.escape(word)}([^-\w]|$)", help_text, re.M) is not None
+
+
+def _help(src: Path, *args: str) -> str:
+    """`daoc-gfx <args> --help` output, or "" when it fails."""
+    r = proc.run([PYTHON, str(src / "daoc-gfx"), *args, "--help"], check=False)
+    return r.stdout + r.stderr if r.returncode == 0 else ""
+
+
+def _last_line(text: str) -> str:
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    return lines[-1].strip() if lines else "no output"
+
+
+def contract_check(src: Path, checkout: Checkout) -> None:
+    """Check that the daoc-gfx clone at src still keeps the contract this
+    Checkout relies on. Raises DaocError naming the first failing check."""
+    at = _git(src, "rev-parse", "HEAD")[:12]
+
+    def broken(check: str, why: str) -> DaocError:
+        return DaocError(f"graphics contract check '{check}' fails at {at}: {why}; pin unchanged")
+
+    # 1. The commit's own tests. Captured: replayed on failure, skips surfaced.
+    r = proc.run([PYTHON, "-m", "unittest", "discover", "-v", "-s", "tests"], cwd=src, check=False)
+    if r.returncode != 0:
+        sys.stderr.write(r.stdout + r.stderr)
+        raise broken("tests", f"{PYTHON} -m unittest discover -s tests exits {r.returncode}")
+    for line in (r.stdout + r.stderr).splitlines():
+        if "... skipped" in line:
+            print(line, file=sys.stderr)
+    print(f"== graphics tests pass at {at}", file=sys.stderr)
+
+    # 2. The options and default command gfx_argv passes.
+    top = _help(src)
+    for word in ("--app", "--wine", "--prefix", "select"):
+        if not _lists(top, word):
+            raise broken("daoc-gfx --help", f"it no longer lists {word}")
+
+    # 3. The anisotropy patch's STOCK_LINE against this Checkout's launcher.
+    r = proc.run([PYTHON, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                  "from daoc_gfx.anisotropy import STOCK_LINE; sys.stdout.write(STOCK_LINE)",
+                  str(src)], check=False)
+    if r.returncode != 0:
+        raise broken("STOCK_LINE", f"cannot read daoc_gfx.anisotropy.STOCK_LINE: {_last_line(r.stderr)}")
+    script = checkout.root / SOURCE_LAUNCHER / LAUNCH_SCRIPT
+    try:
+        lines = [line.strip() for line in script.read_text(encoding="utf-8").splitlines()]
+    except OSError as e:
+        raise broken("STOCK_LINE", f"cannot read {script}: {e.strerror or e}") from None
+    count = lines.count(r.stdout)
+    if count != 1:
+        raise broken("STOCK_LINE", f"daoc_gfx.anisotropy.STOCK_LINE occurs {count} times in "
+                     f"{script}, not once ({r.stdout})")
+    print(f"== daoc-gfx options and launcher line match at {at}", file=sys.stderr)
+
+    with tempfile.TemporaryDirectory(prefix="daoc-gfx-check-") as tmp:
+        app = Path(tmp) / "app"
+        app.mkdir()
+        (app / "game.dll").write_bytes(b"")
+        launcher = Path(tmp) / SOURCE_LAUNCHER.name
+        shutil.copytree(checkout.root / SOURCE_LAUNCHER, launcher, symlinks=True)
+
+        # 4. The machine-readable status a client update carries over.
+        r = proc.run([PYTHON, str(src / "daoc-gfx"), "--app", str(app), "--launcher", str(launcher),
+                      "status", "--json"], check=False)
+        if r.returncode != 0:
+            raise broken("status --json", f"exits {r.returncode}: {_last_line(r.stderr)}")
+        try:
+            status = json.loads(r.stdout)
+        except ValueError as e:
+            raise broken("status --json", f"stdout is not JSON ({e})") from None
+        if not isinstance(status, dict) or status.get("schema") != STATUS_SCHEMA:
+            schema = status.get("schema") if isinstance(status, dict) else None
+            raise broken("status --json", f"schema is {schema!r}, not {STATUS_SCHEMA}")
+        missing = [k for k in STATUS_KEYS if k not in status]
+        if missing:
+            raise broken("status --json", f"it has no {', '.join(missing)}")
+
+        # 5. The texture-pack export and install a client update carries over with.
+        if not _lists(_help(src, "--app", str(app), "textures"), "export"):
+            raise broken("textures --help", "it no longer lists export")
+        if not _lists(_help(src, "--app", str(app), "textures", "install"), "--from-dir"):
+            raise broken("textures install --help", "it no longer lists --from-dir")
+    print(f"== daoc-gfx machine interface matches at {at}", file=sys.stderr)
+
+
+def update(checkout: Checkout) -> int:
+    """Move the Local graphics pin to the project's `main` if that commit
+    passes contract_check; otherwise leave the pin as it is."""
+    current = pins.effective(checkout, "graphics")
+    latest = updates.resolve_latest(checkout, "graphics")
+    sha = latest["ref"]
+    if sha == current.get("ref"):
+        print(f"graphics already at {sha[:12]}")
+        return 0
+    with tempfile.TemporaryDirectory(prefix="daoc-graphics-") as tmp:
+        src = Path(tmp) / "graphics"
+        print(f"== graphics: checking main at {sha[:12]} in a temp clone", file=sys.stderr)
+        proc.run(["git", "clone", "--quiet", latest["repo"], str(src)])
+        _git(src, "checkout", "--quiet", "--detach", sha)
+        contract_check(src, checkout)
+    pins.set_local(checkout, "graphics", {**pins.shipped(checkout, "graphics"), **latest})
+    print(f"graphics pin -> {sha[:12]} (Local pin); the next daoc graphics … call checks it out")
+    return 0
+
+
 def handle(args: argparse.Namespace, checkout: Checkout) -> int:
     passthrough = list(args.passthrough or [])
     if passthrough[:1] == ["update"]:
@@ -83,7 +220,7 @@ def handle(args: argparse.Namespace, checkout: Checkout) -> int:
             return updates.check(checkout, "graphics")
         if passthrough[1:]:
             raise DaocError("usage: daoc graphics update [--check]", 2)
-        raise DaocError("graphics update is not available yet", 2)
+        return update(checkout)
     if not (checkout.app_dir / "game.dll").is_file():
         raise DaocError(f"no client in {checkout.app_dir} — run daoc client install")
     src = ensure_checkout(checkout)

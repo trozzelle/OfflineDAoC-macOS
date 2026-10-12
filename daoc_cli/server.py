@@ -188,9 +188,9 @@ def _patches(root: Path) -> List[Path]:
 
 def _ask(question: str) -> bool:
     """A y/N question on the terminal; anything but y/yes (or EOF) is no."""
-    sys.stderr.flush()
     try:
-        answer = input(f"{question} [y/N] ")
+        print(f"{question} [y/N] ", end="", file=sys.stderr, flush=True)
+        answer = input()
     except EOFError:
         return False
     return answer.strip().lower() in ("y", "yes")

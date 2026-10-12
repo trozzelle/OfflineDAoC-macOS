@@ -3,6 +3,7 @@ with synthetic files, a fake downloader and stub wine binaries (no network)."""
 import io
 import json
 import shutil
+import tarfile
 import tempfile
 import time
 import unittest
@@ -157,16 +158,17 @@ class InstallTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = make_checkout(self.tmp.name)
-        self.wine_home = Path(self.tmp.name) / "wine"
+        self.co = Checkout(self.root)
+        # install always targets <root>/dist/wine and <root>/dist/prefix.
+        self.wine_home = self.co.root / "dist" / "wine"
         self.stubs = path_stubs(self.wine_home, {"wine": WINE_STUB, "wineserver": ""})
         (self.wine_home / "bin").symlink_to("stubs")
-        self.prefix = Path(self.tmp.name) / "prefix"
+        self.prefix = self.co.root / "dist" / "prefix"
         launcher = self.root / "client" / "DAoCLauncher.app" / "Contents" / "MacOS"
         launcher.mkdir(parents=True)
         (launcher / "launch").write_text("#!/bin/sh\n")
-        self.co = Checkout(self.root)
         self.co.app_dir.mkdir(parents=True)
-        self.env = {"DAOC_WINE_HOME": str(self.wine_home), "DAOC_WINEPREFIX": str(self.prefix),
+        self.env = {"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None,
                     "USER": "olduser", "WINE_FAIL": None, "WINE_LINGER": None}
 
     def tearDown(self):
@@ -247,6 +249,38 @@ class InstallTest(unittest.TestCase):
         self.assertIn("not a Proven build", err)
         self.assertEqual(dll.read_bytes(), pristine_bytes())
         self.assertEqual(stub_calls(self.stubs), [])
+
+    def test_wine_and_prefix_overrides_are_never_install_targets(self):
+        shutil.rmtree(self.wine_home)  # no Wine installed yet
+        outside_wine = Path(self.tmp.name) / "my-wine"
+        outside_wine.mkdir()
+        (outside_wine / "keep.txt").write_text("mine\n")
+        outside_prefix = Path(self.tmp.name) / "my-prefix"
+        outside_prefix.mkdir()
+        # A cached Wine tarball (root wine/) whose bin/ holds the stubs.
+        bundled = path_stubs(Path(self.tmp.name) / "bundle", {"wine": WINE_STUB,
+                                                              "wineserver": ""})
+        self.co.downloads.mkdir()
+        tarball = self.co.downloads / "wine-test.tar.xz"
+        with tarfile.open(tarball, "w:xz") as tf:
+            tf.add(bundled, arcname="wine/bin")
+        manifest_path = self.root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["wine"] = dict(manifest["wine"], tarball=tarball.name,
+                                sha256=sha(tarball.read_bytes()))
+        manifest_path.write_text(json.dumps(manifest))
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"pristine")
+        code, out, err = self.install(DAOC_WINE_HOME=str(outside_wine),
+                                      DAOC_WINEPREFIX=str(outside_prefix))
+        self.assertEqual(code, 0, err)
+        self.assertEqual([p.name for p in outside_wine.iterdir()], ["keep.txt"])
+        self.assertEqual((outside_wine / "keep.txt").read_text(), "mine\n")
+        self.assertEqual(list(outside_prefix.iterdir()), [])
+        self.assertTrue((self.wine_home / "bin" / "wine").is_file())
+        self.assertTrue((self.prefix / "system.reg").is_file())
+        prefixes = set((self.wine_home / "bin" / "prefix.log").read_text().split())
+        self.assertEqual(prefixes, {str(self.prefix)})
+        self.assertEqual([c[:3] for c in stub_calls(bundled)][0], ["wine", "wineboot", "-i"])
 
 
 if __name__ == "__main__":
