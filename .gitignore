@@ -11,7 +11,7 @@ prefix*/
 *.exe
 *.log
 
-# Run evidence and local working notes (regenerable via e2e-test.sh)
+# Run evidence and local working notes (regenerable via daoc dev e2e)
 evidence/
 evidence-fresh/
 .e2e.lock

@@ -32,7 +32,7 @@ for arg in "$@"; do
 done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"                           # this repo (macOS port)
-# The Linux source repo this port is built from: the pinned upstream clone install-server.sh
+# The Linux source repo this port is built from: the pinned upstream clone `daoc server install`
 # makes in upstream/server (read-only reference; see vendor/README.md).
 REPO="${DAOC_SOURCE_REPO:-$(cd "$HERE/.." && pwd)/upstream/server}"
 # Where the vendored System.Data.SQLite source lives (see vendor/README.md).

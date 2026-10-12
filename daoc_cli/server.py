@@ -1,6 +1,6 @@
 """`daoc server`: build the macOS server, and start/stop/status it.
 
-install ports the old install-server.sh step for step:
+install:
   1. Clone (or reuse) the pinned upstream in upstream/server/, verify the exact
      commit, and pre-check the port patches against it.
   2. Install the .NET 10 SDK if missing (server/tools/setup-dotnet.sh).
@@ -9,7 +9,8 @@ install ports the old install-server.sh step for step:
 
 start/stop/status exec the install's own daoc-server.sh, which stays shell.
 
-update ports update.sh server, then rebuilds (see update()).
+update moves the Local pin to upstream's latest after a patch pre-check, then
+rebuilds (see update()).
 """
 import argparse
 import hashlib

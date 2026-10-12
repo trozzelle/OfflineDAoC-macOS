@@ -30,7 +30,7 @@ DB_CONTENT_SHA256="a6356e74dc74e008e24e3b1c18339207caa9ddd4d7a43fa00527084ed7bd9
 BUNDLED_SHA256="eb87141ffc756514226be05a9d752599c31e2f6d892d284e8983aba9bfb1914f"
 
 # The Linux source repo this port reads its bundled data from: the pinned upstream clone
-# install-server.sh makes in upstream/server (read-only reference).
+# `daoc server install` makes in upstream/server (read-only reference).
 SOURCE_REPO="${DAOC_SOURCE_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/upstream/server}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CACHE="$HERE/.cache/opendaoc-db-$DB_COMMIT"

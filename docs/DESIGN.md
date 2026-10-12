@@ -8,7 +8,9 @@ How this repo is put together, and why.
 daoc-macos/
 ├── README.md
 ├── LICENSE                  # GPL-3.0 — server patches inherit the upstream license
-├── manifest.json            # pinned upstream versions + hashes (single source of truth)
+├── daoc                     # sh launcher: CLT check, then daoc_cli on /usr/bin/python3
+├── daoc_cli/                # the `daoc` command (Python 3.9 stdlib only)
+├── manifest.json            # Shipped pins: upstream versions + hashes
 ├── server/                  # macOS server port overlay, vendored from the port work
 │   ├── patches/             #   source patches applied to the upstream snapshot
 │   ├── vendor/              #   arm64-safe System.Data.SQLite (SQLITE_STANDARD build)
@@ -17,30 +19,72 @@ daoc-macos/
 │   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin /
 │                            #   daoc-progress
 ├── client/
-│   ├── apply_game_patch.py  # game.dll encryption-bypass patch (byte-verified)
-│   ├── fetch_release.py     # OfflineDAoC release fetcher (per-part + archive SHA-256)
 │   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (mtld3d + x87sidecar)
-│   ├── bench-run.sh         # performance gate (5-min scripted play, avg/p95/1%-low)
-│   ├── bench-drive.sh       #   scripted NPC interaction + movement for the gate
-│   ├── input-helper/        #   SendInput helper run inside the prefix (mingw-w64)
-│   └── tools/               # launch-client.sh (Keychain + hang watchdog),
-│                            # stop-client.sh, kill-client.sh (install-scoped
-│                            # teardown), frametime/ (per-present probe dylib)
-├── install-server.sh        # pull pinned upstream → overlay → build → dist/
-├── install-client.sh        # wine + OfflineDAoC release + client patch + launcher
-├── graphics.sh              # optional: pinned OfflineDAoC-macOS-graphics → daoc-gfx on dist/
-├── update.sh                # bump pins in manifest.json
-├── e2e-test.sh              # scripted end-to-end acceptance
+│   ├── input-helper/        # SendInput helper run inside the prefix (mingw-w64)
+│   └── tools/frametime/     # per-present probe dylib for the benchmark gate
+├── tests/                   # unit tests for daoc_cli
 ├── .github/CODEOWNERS       # @trozzelle owns the repository
 └── docs/
 ```
 
-`downloads/` (release caches), `upstream/` (clones), `dist/`, and wine prefixes are
-gitignored — fetched at install time, never committed.
+`downloads/` (release caches), `upstream/` (clones), `dist/`, `server/dist/`, wine
+prefixes and `.daoc/` (Local pins, update scratch) are gitignored — fetched or
+written at install time, never committed.
+
+## The `daoc` command
+
+`daoc` is one command with groups: `server`, `client`, `admin`, `progress`,
+`graphics`, `self-install`, and a `dev` group for maintainers that help leaves out.
+
+- **Launcher.** `./daoc` is a small POSIX sh file. It resolves the Checkout's real
+  directory (following symlinks), refuses with `xcode-select --install` as the fix
+  when the Xcode Command Line Tools are missing (otherwise macOS would pop the CLT
+  install dialog), then runs the `daoc_cli` package on the CLT's `/usr/bin/python3`
+  (3.9). `daoc_cli` uses only the standard library, so there is nothing to
+  `pip install`. Python runs isolated (`-I`) and loads `daoc_cli` from the Checkout
+  by path through `runpy`: `python3 -m daoc_cli` would put the caller's directory
+  first on the import path, so a `daoc_cli/` there (another checkout, say) would
+  shadow this one. `-I` also keeps `PYTHONPATH` and user site-packages out, while
+  child processes still see the caller's environment untouched.
+- **The Checkout is the home.** The git checkout holding `daoc_cli` also holds the
+  manifest, the Server install (`server/dist/daoc-server/`), the Client install
+  (`dist/`), the clones and the download caches. There is no separate home
+  directory and no option to pick one.
+- **`daoc self-install`** writes `~/.local/bin/daoc`, a short sh wrapper with the
+  Checkout path baked in. It is a file, not a symlink, so that when the Checkout
+  moves or is deleted the wrapper says so, names the fix (run `./daoc self-install`
+  from the new place) and exits 127 instead of failing obscurely. A file at that
+  path that `daoc` did not write is never replaced. If `~/.local/bin` is not on
+  `PATH`, a terminal user is offered the line for `~/.zprofile` (default no).
+- **Passthrough.** `daoc admin`, `daoc progress` and `daoc graphics` hand every
+  argument, `--` and options included, to the Server install's `daoc-admin` /
+  `daoc-progress` and the pinned `daoc-gfx`.
+
+### What stays shell, and why
+
+- The Server install's own tools (`daoc-server.sh`, `daoc-admin`, `daoc-progress`)
+  ship inside the portable server folder and must work there without this
+  Checkout; `daoc server start/stop/status` and the passthroughs just run them.
+- The Launcher (`DAoCLauncher.app`) is started by LaunchServices (`open -n`) so
+  wine runs in the Aqua session; it stays a bundle with a shell entry point.
+- The server build pipeline (`server/tools/build-release.sh` and friends)
+  mirrors the upstream Linux port's scripts, so the port stays easy to diff and
+  re-derive against upstream.
+
+### Conventions
+
+- Data goes to stdout; status, progress and errors go to stderr (`daoc: <msg>`).
+- Exit codes: 0 ok, 1 failure, 2 usage error or refusal, 130 interrupted (Ctrl-C).
+  `daoc client bench` uses 0 pass, 1 fail, 2 invalid run. The `~/.local/bin/daoc`
+  wrapper exits 127 when its Checkout is gone.
+- Environment overrides: `DAOC_WINE_HOME`, `DAOC_WINEPREFIX` (wine and prefix),
+  `DAOC_CHARACTER`, `DAOC_PORT`, `DAOC_SOURCE_REPO`, `DAOC_FPS_OVERLAY`,
+  `DAOC_WINEDEBUG`, `DAOC_DLL_OVERRIDES`, `DAOC_LAUNCHER_RETRIES`, and for the
+  benchmark gate `DAOC_BENCH_ACCOUNT`, `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`.
 
 ## Manifest
 
-`manifest.json` pins what the installers pull:
+`manifest.json` holds the Shipped pins — what the installs pull:
 
 ```json
 {
@@ -70,14 +114,49 @@ Server pin = immutable git commit. Client pin = release tag; per-part and
 whole-archive SHA-256 come from the release's own `download-manifest.json` and are
 verified at install time (same scheme as upstream's `Get-OfflineDAoC.ps1`). Wine pin
 = tarball SHA-256 recorded here. Graphics pin = immutable git commit, pulled only
-by `graphics.sh`.
+by `daoc graphics`.
+
+### Shipped pins and Local pins
+
+A user update never edits `manifest.json`. `daoc server|client|graphics update`
+records a Local pin in `.daoc/pins.json` (gitignored), one entry per group, along
+with the Shipped pin it replaced. The Checkout stays clean, so the next `git pull`
+never conflicts on the manifest. When a pull changes that group's Shipped pin, the
+Local pin lapses: it is dropped with a one-line notice and the new Shipped pin
+applies. `daoc <group> update --check` only reports what is available.
+`daoc dev ship-pins` is the maintainer step: it writes the effective pins into
+`manifest.json` for a commit.
+
+## Update flows
+
+- **Server** (`daoc server update`): resolve the upstream's latest `main`, clone it
+  shallowly and check that every port patch still applies — before the pin moves,
+  so a breaking upstream change fails loudly and leaves the install alone. A
+  running server is stopped only after asking (off a terminal it refuses). Then
+  the Local pin is recorded and the server rebuilt. If the new build ships
+  different world data, it explains the Progress upgrade and asks before running
+  one (default no); otherwise it prints `daoc progress upgrade` for later.
+- **Client** (`daoc client update`): download and verify the latest OfflineDAoC
+  release and hash its `game.dll` inside the archive. A `game.dll` the Client patch
+  does not know is not a Proven build, so it stops with "not a Proven build; it
+  needs a shipped update" before changing anything. It refuses while the client
+  runs. Graphics patches are carried across through the Graphics project's machine
+  interface only: save `daoc-gfx status --json` (in `.daoc/carry-over.json`),
+  `textures export` the texture pack, disable every patch, replace
+  `dist/OfflineDAoC` (the Wine prefix is kept) and apply the Client patch, record
+  the Local pin, re-enable the same patches, `textures install --from-dir` the
+  export, and compare `status --json` with the saved one. An interrupted update
+  resumes at the re-enable step.
+- **Graphics** (`daoc graphics update`): the new commit must pass the contract
+  check — its own tests, plus the `daoc-gfx` options, launcher line and machine
+  interface this Checkout relies on — before the pin moves.
 
 ## Graphics patches (optional)
 
 The graphical patches live in their own repository,
 [OfflineDAoC-macOS-graphics](https://github.com/trozzelle/OfflineDAoC-macOS-graphics),
 so they can change without touching the install flow, and nothing about them runs
-unless asked for. `graphics.sh` clones the pinned commit into `upstream/graphics/`
+unless asked for. `daoc graphics` clones the pinned commit into `upstream/graphics/`
 on first use, refuses to run unless `HEAD` is the pin and `git status` shows no
 local changes (the checkout's `d3d9.dll` is what the game loads), and runs that
 checkout's `daoc-gfx`
@@ -93,22 +172,24 @@ refuses to change anything while that client is running. It writes outside
 line of `dist/DAoCLauncher.app/Contents/MacOS/launch` (`d3d9,dxgi=b` →
 `d3d9=n,b;dxgi=b`). It recognises that line only if it matches its `STOCK_LINE`
 character for character, so editing the line in `client/DAoCLauncher.app`
-breaks `enable anisotropy`, and re-running `install-client.sh` copies the stock
-launcher back (anisotropy then reads `partly on`). `update.sh graphics` runs the
+breaks `enable anisotropy`, and re-running `daoc client install` copies the stock
+launcher back (anisotropy then reads `partly on`). `daoc graphics update` runs the
 new commit's tests, then checks that its `daoc-gfx --help` still lists `--app`,
-`--wine`, `--prefix` and `select` and that its `STOCK_LINE` still appears
-exactly once in `client/DAoCLauncher.app`'s launcher, before moving the pin.
+`--wine`, `--prefix` and `select`, that its `STOCK_LINE` still appears
+exactly once in `client/DAoCLauncher.app`'s launcher, and that the machine
+interface the client update uses is there, before moving the pin.
 
 ## Server install
 
 The macOS server port is a source-patch port, not a fork:
 
-1. Clone the pinned upstream commit into `upstream/server/`.
+1. Clone the pinned upstream commit into `upstream/server/` and check the port
+   patches apply to it.
 2. Overlay `server/` (patch `patches/010-adminsockethost-macos-close.patch` via
    `git apply`, vendor `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
-3. Run the port's `tools/build-release.sh` → `dist/daoc-server/` (self-contained
+3. Run the port's `tools/build-release.sh` → `server/dist/daoc-server/` (self-contained
    osx-arm64 .NET publish, cmake-built `libDetour.dylib`, ad-hoc codesigning).
-   It snapshots the source from `DAOC_SOURCE_REPO`; `install-server.sh` pins that
+   It snapshots the source from `DAOC_SOURCE_REPO`; `daoc server install` pins that
    to the verified `upstream/server/` clone, which is also the default when the
    build script or `fetch-upstream-db.sh` runs on its own.
 
@@ -116,7 +197,7 @@ Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
 
 ## Server updates and saved progress
 
-`dist/daoc-server/` is both the build output and the user's install, so a rebuild
+`server/dist/daoc-server/` is both the build output and the user's install, so a rebuild
 must never touch user state:
 
 - `build-release.sh` refuses while the server runs, then deletes only what the build
@@ -171,13 +252,13 @@ local OpenDAoC server without breaking on the encryption handshake.
 
 ## Benchmark gate
 
-`client/bench-run.sh` measures the client the player gets, not a synthetic scene:
+`daoc client bench` measures the client the player gets, not a synthetic scene:
 
-- **Login** — `client/tools/launch-client.sh` with the game account from the login
+- **Login** — `daoc client start` with the game account from the login
   Keychain and the character from the server database (`DAOC_CHARACTER`, else the
   most recently played). The game port is the `<Port>` in the server's
   `config/serverconfig.xml`.
-- **Play** — `bench-drive.sh` drives the character through `sendinput.exe`, a
+- **Play** — the bench drives the character through `sendinput.exe`, a
   mingw-built helper that runs inside the game's own prefix and wineserver, so no
   macOS Accessibility permission is needed. Each cycle `/jump`s to a townsfolk NPC,
   right-clicks it (interact), closes the window and walks a movement pattern.
@@ -198,10 +279,10 @@ local OpenDAoC server without breaking on the encryption handshake.
 
 ## E2E acceptance
 
-`e2e-test.sh` on a clean checkout: install server → boot it (alternate ports when
-the primary are busy) → create an account via `daoc-admin` → install client →
+`daoc dev e2e` on a clean checkout: install server → boot it on ports
+20300/20400, clear of a running server's 10300/10400) → create an account via `daoc-admin` → install client →
 launch → pass when the server log shows the login reaching character select and the
-client process is still alive ≥60 s later → exit 0. Manual UAT (renders, plays)
+client process is still alive ≥120 s later → exit 0. Manual UAT (renders, plays)
 gates final acceptance after that.
 
 ## Server-side notes

@@ -1,6 +1,6 @@
 """Latest upstream pins, and `daoc <group> update --check`.
 
-resolve_latest asks GitHub (unauthenticated, as update.sh did) for each group's
+resolve_latest asks GitHub (unauthenticated) for each group's
 latest upstream and returns it in the shape of that group's manifest.json entry:
   - server: the `main` sha of manifest `server.upstream`.
   - client: the latest release of the repo in `client.release_url`, plus its
