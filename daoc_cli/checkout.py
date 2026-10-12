@@ -1,6 +1,6 @@
 """Every path daoc uses, derived from one Checkout root.
 
-The Checkout is the home (ADR 0002): the git checkout holding this package also
+The Checkout is the home: the git checkout holding this package also
 holds the manifest, the Server and Client installs and the download caches.
 There is no --home / DAOC_HOME; tests pass an explicit root instead.
 """

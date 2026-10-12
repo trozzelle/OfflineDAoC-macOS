@@ -19,7 +19,7 @@ from daoc_cli import cli, proc
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
-VISIBLE_GROUPS = ("server", "client", "admin", "progress", "graphics")
+VISIBLE_GROUPS = ("server", "client", "admin", "progress", "graphics", "self-install")
 
 
 def fake_group(name, handler):
@@ -38,10 +38,12 @@ def with_group(name, module):
 
 
 class HelpAndUsageTest(unittest.TestCase):
-    def test_no_args_prints_help_and_exits_0(self):
-        code, out, err = run_cli([])
+    def test_no_args_prints_the_overview_and_exits_0(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, err = run_cli([], make_checkout(tmp))
         self.assertEqual(code, 0)
-        self.assertTrue(out.startswith("usage: daoc"), out)
+        self.assertTrue(out.startswith("daoc checkout "), out)
+        self.assertIn("Commands:", out)
         self.assertEqual(err, "")
 
     def test_help_lists_groups_but_not_dev(self):

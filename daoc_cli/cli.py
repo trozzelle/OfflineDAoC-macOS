@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Set, Tuple, Union
 
 from daoc_cli.checkout import Checkout
+from daoc_cli import overview, self_install
 from daoc_cli.errors import DaocError
 
 GROUPS = (
@@ -34,6 +35,7 @@ GROUPS = (
     ("admin", None),
     ("progress", None),
     ("graphics", None),
+    ("self-install", self_install),
     ("dev", None),
 )
 
@@ -86,8 +88,7 @@ def _exit_code(e: SystemExit) -> int:
 def _dispatch(argv: Sequence[str], root: Optional[Union[str, Path]]) -> int:
     parser, groups, bare = build_parser()
     if not argv:
-        parser.print_help(sys.stdout)
-        return 0
+        return overview.show(Checkout(root))
     argv = list(argv)
     passthrough = None
     if argv[0] in PASSTHROUGH and argv[0] not in bare:

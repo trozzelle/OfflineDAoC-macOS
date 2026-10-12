@@ -19,6 +19,9 @@ evidence-fresh/
 HANDOFF.md
 client/SESSION-STATE.md
 
+# daoc's per-Checkout state (Local pins); never committed
+.daoc/
+
 # Internal development material (planning, research, agent notes) — never shipped to users
 dev/
 
