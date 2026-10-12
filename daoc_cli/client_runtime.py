@@ -98,8 +98,9 @@ def _credentials() -> Tuple[str, str]:
     return keychain.read()
 
 
-def _load_character(checkout: Checkout, account: str) -> Tuple[str, int]:
-    """(name, realm) for account: $DAOC_CHARACTER, else the most recently played."""
+def _load_character(checkout: Checkout, account: str) -> Optional[Tuple[str, int]]:
+    """(name, realm) for account: $DAOC_CHARACTER, else the most recently played;
+    None when the account has no character yet (a named one must exist)."""
     db = checkout.server_dir / "data" / "opendaoc.sqlite3.db"
     name = os.environ.get("DAOC_CHARACTER", "")
     query = "SELECT Name, Realm FROM DOLCharacters WHERE AccountName = ? COLLATE NOCASE"
@@ -118,14 +119,15 @@ def _load_character(checkout: Checkout, account: str) -> Tuple[str, int]:
     if not row:
         if name:
             raise DaocError(f"account {account} has no character {name}", 2)
-        raise DaocError(f"account {account} has no character; create one in the client first", 2)
+        return None
     return str(row[0]), int(row[1])
 
 
-def character(checkout: Checkout) -> str:
-    """The character a start would enter the world as."""
+def character(checkout: Checkout) -> Optional[str]:
+    """The character a start would enter the world as; None: character select."""
     account, _ = _credentials()
-    return _load_character(checkout, account)[0]
+    chosen = _load_character(checkout, account)
+    return chosen[0] if chosen else None
 
 
 def _forwarded_env(environ: Dict[str, str]) -> List[str]:
@@ -138,26 +140,32 @@ def _forwarded_env(environ: Dict[str, str]) -> List[str]:
     return args
 
 
-def launch_argv(checkout: Checkout, account: str, password: str, name: str, realm: int,
-                game_port: int, environ: Dict[str, str]) -> List[str]:
+def launch_argv(checkout: Checkout, account: str, password: str,
+                chosen: Optional[Tuple[str, int]], game_port: int,
+                environ: Dict[str, str]) -> List[str]:
+    """Without a character the client logs in and stops at character select."""
+    tail = [chosen[0], str(chosen[1])] if chosen else []
     return [
         OPEN, "-n", str(checkout.launcher_app),
         "--env", "WINEDEBUG=" + (environ.get("DAOC_WINEDEBUG") or "trace+frametime"),
         "--env", "DAOC_LAUNCHER_RETRIES=8",
         *_forwarded_env(environ),
         "--args", "wine", "game.dll", "127.0.0.1", str(game_port), "42",
-        account, password, name, str(realm),
+        account, password, *tail,
     ]
 
 
-def _launch_once(checkout: Checkout, game_port: int) -> None:
-    account, password = _credentials()
-    name, realm = _load_character(checkout, account)
+def _launch_once(checkout: Checkout, game_port: int, account: str, password: str,
+                 chosen: Optional[Tuple[str, int]]) -> None:
     if not checkout.launcher_app.is_dir():
         raise DaocError(f"{checkout.launcher_app} is missing; run daoc client install", 2)
-    _say(f"launching {name} ({REALMS.get(realm, realm)}) on port {game_port}")
+    if chosen:
+        _say(f"launching {chosen[0]} ({REALMS.get(chosen[1], chosen[1])}) on port {game_port}")
+    else:
+        _say(f"account {account} has no character yet; opening character select on port "
+             f"{game_port} so you can create one")
     try:
-        proc.run(launch_argv(checkout, account, password, name, realm, game_port, dict(os.environ)),
+        proc.run(launch_argv(checkout, account, password, chosen, game_port, dict(os.environ)),
                  cwd=checkout.root)
     except DaocError as e:
         raise DaocError(e.msg, 2) from None
@@ -168,23 +176,50 @@ def _game_cputime_cs() -> int:
     return watchdog.game_cputime_cs(result.stdout or "")
 
 
+def _logins(checkout: Checkout, account: str) -> int:
+    """Accepted-login lines for account. The server writes "logging on!" before
+    it checks the password, so a "Wrong password" after it is checked separately."""
+    try:
+        text = _server_log(checkout).read_text(errors="replace")
+    except OSError:
+        return 0
+    return len(re.findall(r"User " + re.escape(account) + r" logging on!", text, re.IGNORECASE))
+
+
 def start(checkout: Checkout, *, character: Optional[str] = None, retries: int = 1,
           port: Optional[int] = None) -> None:
-    """Launch until the client enters the world; DaocError when it never does."""
+    """Launch until the client enters the world; DaocError when it never does.
+
+    An account without a character is launched to character select instead, and
+    succeeds once the server accepts the login: waiting for a world entry would
+    kill the client while the character is being created."""
     if character is not None:
         os.environ["DAOC_CHARACTER"] = character
     game_port = port if port is not None else default_port(checkout)
-    before = _world_entries(checkout)
+    account, password = _credentials()
+    chosen = _load_character(checkout, account)
+
+    def progress() -> int:
+        return _world_entries(checkout) if chosen else _logins(checkout, account)
+
     tries = 0
     while tries < retries:
         tries += 1
-        _launch_once(checkout, game_port)
+        before, log_offset = progress(), _size(_server_log(checkout))
+        _launch_once(checkout, game_port, account, password, chosen)
         watch = watchdog.start(before, _size(WINE_LOG), _game_cputime_cs())
         while True:
             time.sleep(watchdog.POLL)
-            sample = watchdog.Sample(_world_entries(checkout), _size(WINE_LOG), _game_cputime_cs())
+            sample = watchdog.Sample(progress(), _size(WINE_LOG), _game_cputime_cs())
             verdict, watch = watchdog.step(watch, sample)
             if verdict == watchdog.IN_WORLD:
+                if not chosen:
+                    if "Wrong password" in _log_tail(_server_log(checkout), log_offset):
+                        raise DaocError(f"the server rejected the password for {account}; "
+                                        "run daoc client login to save the right one", 2)
+                    _say(f"logged in after {watch.waited}s; create your character at "
+                         "character select")
+                    return
                 _say(f"in world after {watch.waited}s")
                 return
             if verdict == watchdog.HUNG:
@@ -298,7 +333,11 @@ def _start(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.character is not None:
         os.environ["DAOC_CHARACTER"] = args.character
     if args.dry_run:
-        print(character(checkout))
+        name = character(checkout)
+        if name:
+            print(name)
+        else:
+            _say("no character yet; start opens character select so you can create one")
         return 0
     if args.retries < 1:
         raise DaocError("--retries must be at least 1", 2)

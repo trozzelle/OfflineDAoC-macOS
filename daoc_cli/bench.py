@@ -248,6 +248,9 @@ def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path,
     # The bench character is the one client start logs in with (DAOC_CHARACTER,
     # else the most recently played).
     char = client_runtime.character(checkout)
+    if char is None:
+        raise Invalid("the game account has no character; create one first (daoc client start "
+                      "opens character select)")
     os.environ["DAOC_CHARACTER"] = char
 
     _build(checkout)

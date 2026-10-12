@@ -157,7 +157,7 @@ class CharacterAndLaunchTest(unittest.TestCase):
 
     def test_launch_argv_forwards_only_set_env(self):
         argv = client_runtime.launch_argv(
-            self.checkout, "acct", "pw", "Recent", 2, 10300,
+            self.checkout, "acct", "pw", ("Recent", 2), 10300,
             {"ROSETTA_X87_PATH": "", "MTL_HUD_ENABLED": "1", "OTHER": "x"})
         self.assertEqual(argv[:3], [client_runtime.OPEN, "-n", str(self.checkout.launcher_app)])
         self.assertIn("WINEDEBUG=trace+frametime", argv)
@@ -167,6 +167,77 @@ class CharacterAndLaunchTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--args"):],
                          ["--args", "wine", "game.dll", "127.0.0.1", "10300", "42",
                           "acct", "pw", "Recent", "2"])
+
+
+class NoCharacterTest(unittest.TestCase):
+    """An account without a character starts at character select."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        sd = root / "server" / "dist" / "daoc-server"
+        (sd / "data").mkdir(parents=True)
+        (sd / "logs").mkdir()
+        self.slog = sd / "logs" / "server.log"
+        self.slog.write_text("")
+        con = sqlite3.connect(str(sd / "data" / "opendaoc.sqlite3.db"))
+        con.execute("CREATE TABLE DOLCharacters (Name, Realm, AccountName, LastPlayed, AccountSlot)")
+        con.commit()
+        con.close()
+        (root / "dist" / "DAoCLauncher.app").mkdir(parents=True)
+        self.checkout = Checkout(root)
+        self.launches = []
+        patches = [
+            mock.patch.object(keychain, "read", return_value=("ada", "s3cret")),
+            mock.patch.object(client_runtime, "_game_cputime_cs", return_value=0),
+            mock.patch.object(client_runtime, "kill"),
+            mock.patch.object(client_runtime.time, "sleep"),
+            mock.patch.object(client_runtime.proc, "run", self.fake_open),
+            mock.patch.dict(os.environ, {"DAOC_CHARACTER": ""}),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.server_says = ["LoginRequestHandler: User ada logging on! (ver 1.127)\n"]
+
+    def fake_open(self, argv, **kwargs):
+        argv = [os.fspath(a) for a in argv]
+        self.launches.append(argv)
+        with self.slog.open("a") as f:
+            f.writelines(self.server_says)
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    def test_start_opens_character_select_and_succeeds_on_login(self):
+        err = io.StringIO()
+        with mock.patch.object(client_runtime.sys, "stderr", err):
+            client_runtime.start(self.checkout, retries=3)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0][-7:],
+                         ["wine", "game.dll", "127.0.0.1", "10300", "42", "ada", "s3cret"])
+        self.assertIn("character select", err.getvalue())
+
+    def test_wrong_password_stops_without_retrying(self):
+        self.server_says.append("LoginRequestHandler: Wrong password!\n")
+        with mock.patch.object(client_runtime.sys, "stderr", io.StringIO()):
+            with self.assertRaises(DaocError) as cm:
+                client_runtime.start(self.checkout, retries=3)
+        self.assertIn("password", cm.exception.msg)
+        self.assertEqual(len(self.launches), 1)
+
+    def test_named_character_that_does_not_exist_is_still_an_error(self):
+        with self.assertRaises(DaocError):
+            client_runtime.start(self.checkout, character="Nobody", retries=1)
+        self.assertEqual(self.launches, [])
+
+    def test_dry_run_prints_nothing_on_stdout(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(client_runtime.sys, "stdout", out), \
+                mock.patch.object(client_runtime.sys, "stderr", err):
+            code = client_runtime._start(
+                mock.Mock(character=None, dry_run=True, retries=3), self.checkout)
+        self.assertEqual((code, out.getvalue()), (0, ""))
+        self.assertIn("no character yet", err.getvalue())
 
 
 class LoginTest(unittest.TestCase):

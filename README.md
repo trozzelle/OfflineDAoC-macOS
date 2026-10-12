@@ -92,7 +92,9 @@ daoc client start
 (read from the server database; `--dry-run` prints it and exits), connects to
 the `<Port>` in the server's `config/serverconfig.xml` (`DAOC_PORT` overrides),
 and relaunches a client that hangs before entering the world (`--retries N`,
-default 3).
+default 3). An account with no character yet is logged in to character select
+instead, where you create one; the next `daoc client start` enters the world
+with it.
 
 Over SSH, the login Keychain is locked for that session even while you are
 logged in at the Mac, because macOS unlocks it only for the session you logged
