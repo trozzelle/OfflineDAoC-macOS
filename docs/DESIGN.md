@@ -250,6 +250,35 @@ user, the linkdead wait after a kill), is in `docs/CLIENT-NOTES.md`.
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
 
+## Client start
+
+`daoc client start` takes the Game account from the login Keychain (service
+`daoc-offline`) and opens `dist/DAoCLauncher.app` with
+`wine game.dll 127.0.0.1 <port> 42 <account> <password> [<character> <realm>]`.
+
+- **Keychain**: macOS unlocks the login keychain only for the session you logged
+  in to, so in an SSH session `security` reports it locked ("User interaction is
+  not allowed", exit 36) rather than the item missing (exit 44). daoc tells the two
+  apart. When it's locked and stdin is a terminal, it runs `security unlock-keychain`,
+  which asks for the macOS login password itself. With no terminal it stops with
+  exit 2 and says how to unlock. It offers to save a new account only when none
+  is saved, never after a failed unlock.
+- **Character**: `--character NAME` or `DAOC_CHARACTER` (which must exist),
+  else the account's most recently played character from the server database.
+  With a character, the client logs straight into the world, and a start
+  succeeds on a new `WorldInitRequestHandler` line in `server.log`.
+- **No character yet**: without the character arguments the client logs in and
+  stops at character select. That start succeeds once the server accepts the
+  login (`User <account> logging on!`), so the watchdog never kills a client in
+  the middle of character creation. The server writes that line before it checks
+  the password, so a `Wrong password` after it fails the start at once, with no
+  retry.
+- **Watchdog**: until the success line appears, a client is hung when its wine
+  log has been static for 60 s while the game used under 0.5 s of CPU in 10 s, or
+  after 240 s in all. A hung client is killed (only processes mapping this
+  checkout's Wine: `dist/wine`, or `DAOC_WINE_HOME`) and relaunched, up to
+  `--retries` (default 3).
+
 ## Benchmark gate
 
 `daoc client bench` measures the client the player gets, not a synthetic scene:

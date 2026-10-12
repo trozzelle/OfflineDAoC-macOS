@@ -57,6 +57,19 @@ logged out from linkdeath" and the client sits at the login, which looks like a
 hang. The server logs `Linkdead player` when the connection drops and
 `<account> just disconnected` once the character is gone. `daoc client stop`
 waits for that line in the server log (only the bytes written after the kill) before
-returning, and `daoc client start` counts a login as successful only on a new world
-entry, not on the `LoginRequestHandler` line the server writes even for a refused
-login.
+returning. `daoc client start` counts a login into the world as successful only
+on a new world entry, not on the `LoginRequestHandler` line the server writes
+even for a refused login. For an account with no character, which stops at
+character select, it counts the `User <account> logging on!` line and treats a
+`Wrong password` after it as a failure.
+
+## Over SSH the login Keychain is locked
+
+macOS unlocks the login keychain only for the session you logged in to. In an
+SSH session `security find-generic-password … -w` fails with "User interaction is
+not allowed" (exit 36) even while the GUI session has it unlocked. Item
+attributes are still readable, so the account looks saved but its password can't
+be read. `daoc client login`, `client start` and `client bench` run
+`security unlock-keychain` on a terminal, and otherwise stop and say to run it
+first. git's osxkeychain credential helper hits the same lock
+(`failed to store: -25308` after a push over SSH); the push itself succeeds.
