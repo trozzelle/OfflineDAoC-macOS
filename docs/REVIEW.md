@@ -5,19 +5,22 @@ launcher wrapper, the server port overlay, and the install/e2e scripts. Findings
 marked **fixed** were corrected during the build; **noted** items are deliberate
 and documented here.
 
-## client/apply_game_patch.py — client byte-patcher
+## client/apply_game_patch.py (now `daoc_cli/client_patch.py`) — client byte-patcher
 
 - **Fixed** — runs under the stock Xcode CLT Python 3.9 (`from __future__ import
   annotations`; the `Path | None` unions otherwise raise TypeError at import on
   a stock Mac with no pyenv/Homebrew Python).
-- **Fixed** — original version hardcoded an absolute home path; now takes the
+- **Fixed** — original version hardcoded an absolute home path; it then took the
   DLL path as an argument and the expected pristine hash from the repo's
-  `manifest.json` (`client.game_dll_sha256`), passed explicitly by the install
-  script. The pin is the single source of truth — `update.sh client` clearing it
-  genuinely forces re-derivation.
-- **Fixed** — a `.orig` that already exists is trusted as the pristine base (it
-  was hash-verified when created); an unpatched DLL with no `.orig` and no pin is
-  refused; an already-patched DLL with no `.orig` is reported as "nothing to do"
+  `manifest.json` (`client.game_dll_sha256`). `daoc_cli/client_patch.py` now
+  checks the pristine hash against its `PROVEN_BUILDS` table instead, and
+  `daoc client update` (formerly `update.sh client`) moves to a release only
+  when its pristine `game.dll` hash is a Proven build, recording that measured
+  hash in the Local pin.
+- **Fixed** — an existing `.orig` is used as the pristine base only when its
+  sha256 is a Proven build, and refused otherwise; a DLL with no `.orig` whose
+  hash is not a Proven build is refused; a DLL with no `.orig` whose bytes
+  already match a Proven build's patched output is reported as already patched
   rather than an error.
 - Verified: output is byte-identical to the client variant that was played and
   confirmed working end-to-end (login → world → combat → quit).
@@ -52,7 +55,7 @@ and documented here.
   project graph under two path roots (cloning to a symlinked path such as
   `/tmp` → `/private/tmp` reproduced this).
 
-## install-server.sh
+## install-server.sh (now daoc server install)
 
 - **Fixed** — originally fetched a codeload tarball and verified a recorded
   archive hash; now clones the upstream, checks out the pinned ref, verifies
@@ -68,7 +71,7 @@ and documented here.
   `fetch-upstream-db.sh` default to that same `upstream/server` clone instead of a
   sibling `../daoc-offline-linux-server-bots` checkout.
 
-## install-client.sh
+## install-client.sh (now daoc client install)
 
 - **Fixed** — requirements checks (macOS, Rosetta 2, python3) are explicit and
   fail with actionable messages. Rosetta is probed functionally
@@ -97,7 +100,7 @@ and documented here.
   → per-part SHA-256 → whole-archive SHA-256 → zip-slip-checked extraction,
   with every part hash also pinned in `manifest.json` as a second check.
 
-## e2e-test.sh
+## e2e-test.sh (now daoc dev e2e)
 
 - **Fixed** — boots the server detached (`nohup … --console`); without a TTY the
   launcher script execs the console in the foreground and dies when the caller's
@@ -125,14 +128,15 @@ and documented here.
   logging on!` in bytes logged after the launch snapshot only; the aliveness
   window is 120 s on the exact pid from this launch.
 
-## update.sh
+## update.sh (now daoc server|client|graphics update and daoc dev ship-pins)
 
-- **Noted** — `update.sh server` clones the new upstream HEAD into a temp dir
+- **Noted** — `update.sh server` (now `daoc server update`) clones the new upstream HEAD into a temp dir
   and runs `git apply --check` over the port patches *before* touching the pin;
   a breaking upstream change leaves the pin untouched and exits non-zero.
-- **Noted** — `update.sh client` clears `game_dll_sha256` on a version bump so
-  the patcher cannot silently accept an unknown base; re-deriving the hash is a
-  deliberate manual step.
+- **Noted** — `daoc client update` (formerly `update.sh client`) hashes the new
+  release's `game.dll` before any change and stops unless it is a Proven build
+  ("needs a shipped update"); on success it records the measured hash as
+  `game_dll_sha256` in the Local pin.
 
 ## server/tools/build-release.sh — rebuilds and the release zip
 
@@ -167,21 +171,21 @@ and documented here.
 ## client/tools and the benchmark
 
 - **Noted** — the game account lives only in the login Keychain (service
-  `daoc-offline`). On first use `launch-client.sh` reads the account name and lets
+  `daoc-offline`). On first use `launch-client.sh` (now `daoc client login`) reads the account name and lets
   `security add-generic-password -w` prompt for the password itself, so it is
   neither echoed nor on a command line; without a TTY it aborts instead of asking.
 - **Noted** — database lookups (character for the launch, character position and
   NPC for the bench's movement check) open the server DB read-only with
   parameterized queries.
-- **Noted** — teardown is scoped to this install: `kill-client.sh` signals only
+- **Noted** — teardown is scoped to this install: `kill-client.sh` (now `daoc client kill`) signals only
   this bundle's launcher and the `game.dll`/x87sidecar processes mapping files from
   this install's wine, so another checkout's client is never touched. Scripts call
   `/bin/ps`, `/usr/bin/pgrep` and `/usr/sbin/lsof` by absolute path (a shell
   builtin `ps` misreported the translated client's CPU).
-- **Noted** — `launch-client.sh` counts a login only on a new
+- **Noted** — `launch-client.sh` (now `daoc client start`) counts a login only on a new
   `WorldInitRequestHandler` line: the server logs `LoginRequestHandler` even for a
   login refused because the character is still linkdead.
-- **Noted** — `bench-run.sh` writes its output to a `mktemp -d` directory
+- **Noted** — `bench-run.sh` (now `daoc client bench`) writes its output to a `mktemp -d` directory
   (`DAOC_BENCH_OUT` overrides) and restores the account role on exit and on
   INT/TERM/HUP; a marker file in the server's `run/` carries an unfinished restore
   to the next run.

@@ -1,0 +1,37 @@
+#!/bin/sh
+# daoc - one command for the Offline DAoC server, client and graphics on macOS.
+#
+# Resolves this Checkout's real directory (following symlinks to this file)
+# without changing the caller's directory, refuses when the Xcode Command Line
+# Tools are missing (that would pop the CLT install dialog), then runs the
+# stdlib-only daoc_cli package on the CLT's /usr/bin/python3.
+#
+# Python runs isolated (-I) and imports daoc_cli from this Checkout by path:
+# `python3 -m daoc_cli` would put the caller's directory first on sys.path and
+# import another checkout's daoc_cli when run from inside one, and -I also keeps
+# PYTHONPATH and user site-packages out. The environment is left untouched, so
+# children see exactly the caller's PYTHONPATH.
+#
+# DAOC_XCODE_SELECT overrides the xcode-select binary (tests only).
+
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink -- "$self") || exit 1
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname -- "$self")/$link ;;
+  esac
+done
+root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P) || exit 1
+
+xcode_select=${DAOC_XCODE_SELECT:-/usr/bin/xcode-select}
+if ! clt=$("$xcode_select" -p 2>/dev/null) || [ -z "$clt" ] || [ ! -d "$clt" ]; then
+  echo "daoc: the Xcode Command Line Tools are not installed; run: xcode-select --install" >&2
+  exit 1
+fi
+
+exec /usr/bin/python3 -I -c '
+import runpy, sys
+sys.path.insert(0, sys.argv.pop(1))
+runpy.run_module("daoc_cli", run_name="__main__", alter_sys=True)
+' "$root" "$@"

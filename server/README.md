@@ -6,7 +6,7 @@ world, autonomous gamebots, and the admin TUI/CLI.
 
 The Linux repo is the **read-only parity baseline**. This repo contains only the macOS-specific
 build pipeline, launcher scripts and documentation; the server source itself is compiled from a
-snapshot of the pinned Linux repo clone (`upstream/server`, made by `install-server.sh`) with
+snapshot of the pinned Linux repo clone (`upstream/server`, made by `daoc server install`) with
 macOS patches from `patches/`.
 
 ## Requirements

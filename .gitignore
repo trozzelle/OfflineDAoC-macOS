@@ -11,13 +11,16 @@ prefix*/
 *.exe
 *.log
 
-# Run evidence and local working notes (regenerable via e2e-test.sh)
+# Run evidence and local working notes (regenerable via daoc dev e2e)
 evidence/
 evidence-fresh/
 .e2e.lock
 *.sampler
 HANDOFF.md
 client/SESSION-STATE.md
+
+# daoc's per-Checkout state (Local pins); never committed
+.daoc/
 
 # Internal development material (planning, research, agent notes) — never shipped to users
 dev/
