@@ -26,8 +26,9 @@ support the upstream projects:
 - [athei/wine-build](https://github.com/athei/wine-build): the CrossOver-based
   macOS Wine, with [x87sidecar](https://github.com/athei/x87sidecar) (fast x87
   math on ARM64) and [mtld3d](https://github.com/athei/mtld3d) (Direct3D 9 on Metal)
-- [Hadron](https://github.com/Broyojo/hadron): the arm64 Wine with
-  [FEX](https://github.com/FEX-Emu/FEX) behind `--wine arm64`
+- [Hadron](https://github.com/Broyojo/hadron): the arm64 Wine behind `--wine arm64`,
+  with [FEX](https://github.com/FEX-Emu/FEX) (x86 emulation, including the client's
+  x87 math) and mtld3d
 
 ## Requirements
 
@@ -66,6 +67,25 @@ daoc client start        # launch into the world
 
 Exit with `/quit` in chat; stop with `daoc client stop` and `daoc server stop`.
 Run `daoc` with no arguments for an overview of your installs.
+
+## Without Rosetta: the arm64 Wine
+
+Apple keeps Rosetta 2 fully working only through macOS 27. On macOS 27 or later
+you can already run the client without it:
+
+```bash
+daoc client install --wine arm64     # Hadron's arm64 Wine, next to the default one
+daoc client start
+```
+
+- It's opt-in while it is being measured; `daoc client install --wine rosetta`
+  switches back, and both installs are kept.
+- On first start macOS asks whether "wine" may use the local network. Allow it,
+  or every start waits ~35 s (System Settings > Privacy & Security > Local Network).
+- `daoc` runs it with FEX's reduced-precision x87 (`FEX_X87REDUCEDPRECISION=1`):
+  about 120 FPS in world, against ~10–15 FPS at FEX's default full precision.
+
+Details: [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta).
 
 ## Documentation
 
