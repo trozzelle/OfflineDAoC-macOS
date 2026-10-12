@@ -61,11 +61,11 @@ class HelpAndUsageTest(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertIn("usage: daoc", err)
 
-    def test_bare_group_is_usage_error(self):
+    def test_group_without_action_is_usage_error(self):
         code, out, err = run_cli(["server"])
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
-        self.assertIn("daoc server: error: the server group is not available yet", err)
+        self.assertIn("daoc server: error: an action is required", err)
 
     def test_dev_is_hidden_but_parses(self):
         code, out, _ = run_cli(["dev", "--help"])

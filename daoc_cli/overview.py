@@ -14,7 +14,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from daoc_cli import pins, proc
+from daoc_cli import pins, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -56,20 +56,11 @@ def _server_install(checkout: Checkout) -> str:
 
 
 def _server_running(checkout: Checkout) -> str:
-    """daoc-server.sh status exits 0 either way and prints `running (pid N)` or
-    `stopped`; any other exit means it could not tell."""
-    script = checkout.server_dir / "daoc-server.sh"
-    if not script.is_file():
-        return "no"
-    try:
-        result = proc.run([script, "status"], cwd=checkout.server_dir, check=False)
-    except DaocError:
-        return UNKNOWN
-    if result.returncode != 0:
-        return f"{UNKNOWN} (daoc-server.sh status exit {result.returncode})"
-    out = result.stdout.strip()
-    if out.startswith("running"):
-        return "yes" + out[len("running"):]
+    state, detail = server.status(checkout)
+    if state is None:
+        return f"{UNKNOWN} ({detail})"
+    if state:
+        return "yes" + detail[len("running"):]
     return "no"
 
 

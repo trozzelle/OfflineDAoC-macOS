@@ -1,0 +1,253 @@
+"""daoc client install: release fetch/verify/extract and the install steps,
+with synthetic files, a fake downloader and stub wine binaries (no network)."""
+import io
+import json
+import shutil
+import tempfile
+import time
+import unittest
+import zipfile
+from contextlib import redirect_stderr
+from pathlib import Path
+from unittest import mock
+
+from tests.support import make_checkout, path_stubs, run_cli, stub_calls
+from tests.test_client_patch import SPEC, patched_bytes, pristine_bytes, sha
+
+from daoc_cli import client, client_patch, release
+from daoc_cli.checkout import Checkout
+from daoc_cli.errors import DaocError
+
+URL = "https://example.invalid/rel/"
+ROOT_FOLDER = "OfflineDAoC-vT"
+
+
+def make_release(entries=None):
+    """(pin, {url: bytes}) for a zip of entries split into 3 parts."""
+    if entries is None:
+        entries = {f"{ROOT_FOLDER}/runtime/client-opendaoc/app/game.dll": b"dll",
+                   f"{ROOT_FOLDER}/readme.txt": b"hello"}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    archive = buf.getvalue()
+    third = len(archive) // 3 + 1
+    chunks = [archive[i:i + third] for i in range(0, len(archive), third)]
+    parts = [{"name": f"OfflineDAoC-vT.zip.{i + 1:03d}", "bytes": len(c), "sha256": sha(c)}
+             for i, c in enumerate(chunks)]
+    pin = {"release_url": URL, "version": "T", "manifest_asset": "download-manifest.json",
+           "root_folder": ROOT_FOLDER, "archive_sha256": sha(archive),
+           "archive_bytes": len(archive), "parts": parts}
+    manifest = {"Version": "T", "RootFolder": ROOT_FOLDER, "ArchiveSHA256": sha(archive),
+                "ArchiveBytes": len(archive),
+                "Parts": [{"Name": p["name"], "Bytes": p["bytes"], "SHA256": p["sha256"]}
+                          for p in parts]}
+    served = {URL + "download-manifest.json": json.dumps(manifest).encode()}
+    served.update({URL + p["name"]: c for p, c in zip(parts, chunks)})
+    return pin, served
+
+
+class FakeDownloads:
+    def __init__(self, served):
+        self.served = served
+        self.urls = []
+
+    def __call__(self, url, dest):
+        self.urls.append(url)
+        dest.write_bytes(self.served[url])
+
+
+class ReleaseTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cache = Path(self.tmp.name) / "downloads" / "vT"
+        self.dist = Path(self.tmp.name) / "dist"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fetch(self, pin, fake):
+        with redirect_stderr(io.StringIO()):
+            return release.fetch(pin, self.cache, self.dist, fetch_url=fake)
+
+    def test_fetch_verifies_joins_and_extracts(self):
+        pin, served = make_release()
+        fake = FakeDownloads(served)
+        target = self.fetch(pin, fake)
+        self.assertEqual(target, self.dist / ROOT_FOLDER)
+        self.assertEqual((target / "readme.txt").read_bytes(), b"hello")
+        self.assertEqual(len(fake.urls), 4)
+        # A second run reuses the verified cache.
+        shutil.rmtree(target)
+        again = FakeDownloads(served)
+        self.fetch(pin, again)
+        self.assertEqual(again.urls, [])
+
+    def test_corrupted_part_is_rejected(self):
+        pin, served = make_release()
+        bad = URL + pin["parts"][1]["name"]
+        served[bad] = bytes([served[bad][0] ^ 0xFF]) + served[bad][1:]
+        with self.assertRaises(DaocError) as cm:
+            self.fetch(pin, FakeDownloads(served))
+        self.assertIn(pin["parts"][1]["name"], cm.exception.msg)
+        self.assertIn("SHA-256", cm.exception.msg)
+        self.assertFalse((self.dist / ROOT_FOLDER).exists())
+        self.assertFalse((self.cache / "OfflineDAoC-vT.zip").exists())
+
+    def test_corrupted_cached_part_is_downloaded_again(self):
+        pin, served = make_release()
+        self.cache.mkdir(parents=True)
+        name = pin["parts"][0]["name"]
+        (self.cache / name).write_bytes(b"\x00" * pin["parts"][0]["bytes"])
+        fake = FakeDownloads(served)
+        self.fetch(pin, fake)
+        self.assertIn(URL + name, fake.urls)
+        self.assertEqual((self.cache / name).read_bytes(), served[URL + name])
+
+    def test_release_manifest_differing_from_pin_is_fatal(self):
+        pin, served = make_release()
+        pin = dict(pin, archive_sha256="0" * 64)
+        fake = FakeDownloads(served)
+        with self.assertRaises(DaocError) as cm:
+            self.fetch(pin, fake)
+        self.assertIn("ArchiveSHA256", cm.exception.msg)
+        self.assertEqual(fake.urls, [URL + "download-manifest.json"])
+
+    def test_entry_outside_root_folder_is_refused(self):
+        pin, served = make_release({f"{ROOT_FOLDER}/a": b"a", "elsewhere/b": b"b"})
+        with self.assertRaises(DaocError) as cm:
+            self.fetch(pin, FakeDownloads(served))
+        self.assertIn("unexpected zip entry", cm.exception.msg)
+        self.assertFalse((self.dist / "elsewhere").exists())
+
+    def test_existing_destination_is_refused(self):
+        pin, served = make_release()
+        (self.dist / ROOT_FOLDER).mkdir(parents=True)
+        with self.assertRaises(DaocError) as cm:
+            self.fetch(pin, FakeDownloads(served))
+        self.assertIn("already exists", cm.exception.msg)
+
+    def test_install_extracts_into_the_client_root(self):
+        pin, served = make_release()
+        co = Checkout(make_checkout(self.tmp.name))
+        with mock.patch.object(release.pins, "effective", return_value=pin), \
+                redirect_stderr(io.StringIO()):
+            release.install(co, fetch_url=FakeDownloads(served))
+        self.assertEqual((co.client_root / "readme.txt").read_bytes(), b"hello")
+        self.assertTrue((co.downloads / "vT" / "OfflineDAoC-vT.zip").is_file())
+
+
+WINE_STUB = """\
+echo "$WINEPREFIX" >> "$(dirname "$0")/prefix.log"
+case "$1 $2" in
+  "wineboot -i")
+    mkdir -p "$WINEPREFIX/drive_c/users/crossover"
+    touch "$WINEPREFIX/system.reg"
+    ln -s /tmp "$WINEPREFIX/drive_c/users/crossover/Documents" ;;
+  "wineboot -u")
+    [ -z "$WINE_FAIL" ] || { echo "wine says boom"; exit 3; }
+    # Like wineserver: a child that outlives wineboot with its stdout.
+    [ -z "$WINE_LINGER" ] || sleep 20 & ;;
+esac
+"""
+
+
+class InstallTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = make_checkout(self.tmp.name)
+        self.wine_home = Path(self.tmp.name) / "wine"
+        self.stubs = path_stubs(self.wine_home, {"wine": WINE_STUB, "wineserver": ""})
+        (self.wine_home / "bin").symlink_to("stubs")
+        self.prefix = Path(self.tmp.name) / "prefix"
+        launcher = self.root / "client" / "DAoCLauncher.app" / "Contents" / "MacOS"
+        launcher.mkdir(parents=True)
+        (launcher / "launch").write_text("#!/bin/sh\n")
+        self.co = Checkout(self.root)
+        self.co.app_dir.mkdir(parents=True)
+        self.env = {"DAOC_WINE_HOME": str(self.wine_home), "DAOC_WINEPREFIX": str(self.prefix),
+                    "USER": "olduser", "WINE_FAIL": None, "WINE_LINGER": None}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def install(self, **env):
+        with mock.patch.object(client, "_requirements"):
+            return run_cli(["client", "install"], self.root, dict(self.env, **env))
+
+    def test_fresh_prefix_patch_and_launcher(self):
+        dll = self.co.app_dir / "game.dll"
+        dll.write_bytes(pristine_bytes())
+        with mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}):
+            code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertIn("wine already installed", err)
+        self.assertIn("OfflineDAoC already installed", err)
+        self.assertEqual(dll.read_bytes(), patched_bytes())
+        self.assertEqual((self.co.app_dir / "game.dll.orig").read_bytes(), pristine_bytes())
+        calls = [c[:3] for c in stub_calls(self.stubs)]
+        self.assertEqual(calls, [["wine", "wineboot", "-i"], ["wine", "reg", "add"],
+                                 ["wineserver", "-w"], ["wine", "wineboot", "-u"],
+                                 ["wineserver", "-w"]])
+        self.assertEqual(stub_calls(self.stubs)[1][3:],
+                         ["HKCU\\Software\\Wine", "/v", "Version", "/d", "win10", "/f"])
+        prefixes = set((self.stubs / "prefix.log").read_text().split())
+        self.assertEqual(prefixes, {str(self.prefix)})
+        documents = self.prefix / "drive_c/users/crossover/Documents"
+        self.assertTrue(documents.is_dir() and not documents.is_symlink())
+        self.assertTrue((self.co.launcher_app / "Contents/MacOS/launch").is_file())
+
+    def test_rerun_skips_finished_steps_and_carries_settings_over(self):
+        (self.co.app_dir / "game.dll").write_bytes(b"patched")
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"pristine")
+        (self.prefix).mkdir()
+        (self.prefix / "system.reg").touch()
+        ea = Path("drive_c/users/olduser/AppData/Roaming/Electronic Arts")
+        (self.prefix / ea).mkdir(parents=True)
+        (self.prefix / ea / "settings.ini").write_text("x=1\n")
+        self.co.launcher_app.mkdir(parents=True)
+        (self.co.launcher_app / "stale").touch()
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        for line in ("wine already installed", "OfflineDAoC already installed",
+                     "client already patched", "wine prefix already initialized"):
+            self.assertIn(line, err)
+        self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), b"patched")
+        self.assertEqual([c[:3] for c in stub_calls(self.stubs)],
+                         [["wine", "wineboot", "-u"], ["wineserver", "-w"]])
+        copied = self.prefix / "drive_c/users/crossover/AppData/Roaming/Electronic Arts"
+        self.assertEqual((copied / "settings.ini").read_text(), "x=1\n")
+        self.assertFalse((self.co.launcher_app / "stale").exists())
+        self.assertEqual(out, "")
+
+    def test_wine_failure_replays_its_output(self):
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"pristine")
+        self.prefix.mkdir()
+        (self.prefix / "system.reg").touch()
+        code, out, err = self.install(WINE_FAIL="1")
+        self.assertEqual(code, 1)
+        self.assertIn("wine says boom", err)
+        self.assertIn("daoc: wine wineboot failed (exit 3)", err)
+
+    def test_wineboot_output_goes_to_a_file_not_a_pipe(self):
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"pristine")
+        self.prefix.mkdir()
+        (self.prefix / "system.reg").touch()
+        started = time.monotonic()
+        code, out, err = self.install(WINE_LINGER="1")
+        self.assertEqual(code, 0, err)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_unproven_client_stops_the_install(self):
+        dll = self.co.app_dir / "game.dll"
+        dll.write_bytes(pristine_bytes())
+        code, out, err = self.install()
+        self.assertEqual(code, 2)
+        self.assertIn("not a Proven build", err)
+        self.assertEqual(dll.read_bytes(), pristine_bytes())
+        self.assertEqual(stub_calls(self.stubs), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
