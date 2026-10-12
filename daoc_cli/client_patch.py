@@ -64,13 +64,11 @@ def _restore_pristine(data: bytes, proven: Mapping[str, PatchSpec]) -> Optional[
     was patched, or the result is not Proven)."""
     for digest, spec in proven.items():
         restored = bytearray(data)
-        reverted = False
         for e in spec:
             end = e.offset + len(e.patched)
             if restored[e.offset:end] == e.patched:
                 restored[e.offset:end] = e.original
-                reverted = True
-        if reverted and hashlib.sha256(restored).hexdigest() == digest:
+        if restored != data and hashlib.sha256(restored).hexdigest() == digest:
             return bytes(restored)
     return None
 

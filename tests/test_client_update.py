@@ -116,7 +116,7 @@ class ClientUpdateTest(unittest.TestCase):
         stack.enter_context(mock.patch.object(graphics, "ensure_checkout",
                                               return_value=self.gfx_src))
         stack.enter_context(mock.patch.object(client_runtime, "game_pids",
-                                              side_effect=lambda co: list(self.pids)))
+                                              side_effect=lambda co, wine_home=None: list(self.pids)))
         stack.enter_context(mock.patch.dict(client_patch.PROVEN_BUILDS,
                                             {sha(pristine_bytes()): SPEC}))
         self.latest = None

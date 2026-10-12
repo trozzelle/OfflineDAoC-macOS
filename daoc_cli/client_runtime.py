@@ -269,14 +269,15 @@ def _pgrep(pattern: str) -> List[int]:
     return [int(p) for p in (result.stdout or "").split() if p.isdigit()]
 
 
-def game_pids(checkout: Checkout) -> List[int]:
-    """This Checkout's game.dll processes (not the launcher shell or start.exe).
+def game_pids(checkout: Checkout, wine_home: Optional[Path] = None) -> List[int]:
+    """This Checkout's game.dll processes (not the launcher shell or start.exe),
+    under wine_home when given, else under the Checkout's Wine.
 
     CrossOver wine shows only "game.dll <args>" as argv and macOS does not
     expose other processes' environments, so ownership is decided by the files
     a process maps from this Checkout's wine.
     """
-    wine_home = _real_wine_home(checkout)
+    wine_home = os.path.realpath(wine_home or checkout.wine_home)
     result = proc.run([PS, "-Ao", "pid=,args="], check=False)
     pids = []
     for line in (result.stdout or "").splitlines():

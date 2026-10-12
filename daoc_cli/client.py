@@ -1,20 +1,29 @@
 """`daoc client`: install the OfflineDAoC client under Wine on macOS.
 
-install, in order (re-runs skip finished steps):
+install, in order, with the flavour's Wine (--wine rosetta | arm64; re-runs skip
+finished steps, except the Client patch, the prefix upgrade and the Launcher
+copy, which always run):
   1. Requirements: the macOS the flavour's Wine pin needs (manifest.json
-     `min_macos`), and Rosetta 2 on Apple Silicon for the rosetta Wine.
-  2. Wine: fetch and verify athei/wine-build (manifest.json `wine`): CrossOver
-     Wine with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
+     `min_macos`); Apple Silicon for the arm64 Wine, Rosetta 2 on Apple
+     Silicon for the rosetta Wine.
+  2. Wine: rosetta fetches and verifies athei/wine-build (manifest.json
+     `wine`): CrossOver Wine with the x87sidecar Rosetta x87 JIT and mtld3d
+     (D3D9 on Metal). arm64 fetches and verifies Hadron's disk image
+     (manifest.json `wine_arm64`) and copies its arm64 Wine with FEX out
+     unchanged; a new pin replaces it.
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
      (see release) beside the install, then swap it in, as update does: an
      interrupted extraction leaves nothing in the way of a re-run. An existing
      Client install built from another release (the pin it records, see
      pins.INSTALLED) is replaced, graphics carried over; one built from the pin
      is kept.
-  4. Client patch on game.dll (see client_patch).
-  5. Wine prefix (win10 version setting, profile folders kept inside the
-     prefix, settings carried over from an older wine's user, prefix upgrade)
-     and the Launcher bundle.
+  4. Client patch on game.dll (see client_patch); a no-op when current.
+  5. The flavour's Wine prefix (win10 version setting, prefix upgrade, profile
+     folders kept inside the prefix, settings carried over from another user
+     or the other flavour's prefix); for arm64 also Hadron's mtld3d as d3d9
+     and a check that macOS is not holding Wine's Local Network access.
+  6. The Launcher bundle, then the flavour record: daoc client start uses
+     this Wine only after a complete install.
 update moves the Client install to the latest OfflineDAoC release:
   1. Download and verify it (cached), and hash its game.dll inside the archive:
      a build that is not Proven stops here, before any change.
@@ -38,8 +47,9 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
                       updates)
@@ -146,8 +156,8 @@ def _gfx_status(checkout: Checkout, command: str) -> Dict[str, Any]:
     return status
 
 
-def _refuse_running(checkout: Checkout, command: str) -> None:
-    if client_runtime.game_pids(checkout):
+def _refuse_running(checkout: Checkout, command: str, wine_home: Optional[Path] = None) -> None:
+    if client_runtime.game_pids(checkout, wine_home):
         raise DaocError("the client is running; quit the game (or `daoc client stop`) and "
                         f"run `daoc client {command}` again", 2)
 
@@ -470,6 +480,26 @@ def _install_wine(checkout: Checkout, flavour: str, verbose: bool) -> None:
     _unquarantine(wine_home)
 
 
+@contextmanager
+def _attached(image: Path) -> Iterator[Path]:
+    """image attached read-only at a fresh temporary mount point."""
+    mount = Path(tempfile.mkdtemp(prefix="daoc-dmg."))
+    try:
+        proc.run([DISKUTIL, "image", "attach", "--readOnly", "--nobrowse",
+                  "--mountPoint", mount, image])
+        try:
+            yield mount
+        finally:
+            ejected = proc.run([DISKUTIL, "eject", mount], check=False)
+            if ejected.returncode != 0:
+                proc.replay(ejected.stdout, ejected.stderr)
+                say(f"could not eject {image.name}; it is still attached at {mount} "
+                    f"(eject it with: diskutil eject {mount})")
+    finally:
+        with suppress(OSError):
+            mount.rmdir()
+
+
 def _install_wine_arm64(checkout: Checkout, verbose: bool) -> None:
     """Hadron's runtime, copied unchanged out of its release disk image into
     dist/wine-arm64. Its loader (lib/wine/aarch64-unix/wine.app) is signed with
@@ -486,24 +516,21 @@ def _install_wine_arm64(checkout: Checkout, verbose: bool) -> None:
     say("copying the arm64 Wine runtime out of the disk image")
     staging = wine_home.with_name(wine_home.name + ".partial")
     shutil.rmtree(staging, ignore_errors=True)
-    mount = Path(tempfile.mkdtemp(prefix="daoc-dmg."))
-    try:
-        proc.run([DISKUTIL, "image", "attach", "--readOnly", "--nobrowse",
-                  "--mountPoint", mount, image])
-        try:
-            runtime = mount / pin["runtime"]
-            if not (runtime / "bin" / "wine").exists():
-                raise DaocError(f"{pin['image']} has no Wine runtime at {pin['runtime']}")
-            proc.run([DITTO, runtime, staging])
-        finally:
-            proc.run([DISKUTIL, "eject", mount], check=False)
-    finally:
-        try:
-            mount.rmdir()
-        except OSError:
-            pass
+    with _attached(image) as mount:
+        runtime = mount / pin["runtime"]
+        if not (runtime / "bin" / "wine").exists():
+            raise DaocError(f"{pin['image']} has no Wine runtime at {pin['runtime']}")
+        proc.run([DITTO, runtime, staging])
     atomic_write(staging / WINE_RECORD,
                  json.dumps({"image": pin["image"], "sha256": pin["sha256"]}) + "\n")
+    if wine_home.exists():
+        # install() checked only the current Wine, and before the download: a
+        # client may have started since, or be running from this one anyway.
+        try:
+            _refuse_running(checkout, "install", wine_home)
+        except DaocError:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
     shutil.rmtree(wine_home, ignore_errors=True)
     staging.rename(wine_home)
 
@@ -559,18 +586,12 @@ def _keep_profile_folders(users: Path) -> None:
         link.mkdir(parents=True, exist_ok=True)
 
 
-def _prefix_user(flavour: str) -> str:
-    """The Windows user a flavour's Wine creates: CrossOver's is "crossover",
-    upstream Wine (arm64) uses the macOS user name."""
-    return "crossover" if flavour == "rosetta" else os.environ.get("USER", "")
-
-
 def _carry_settings(checkout: Checkout, flavour: str, users: Path) -> None:
     """Copy the client's settings into this prefix's user unless it has its own:
     from another user of this prefix (one made by another wine, e.g. Wine
     Staging), else from the other flavour's prefix, its own Wine's user first
     (a user left there by an older wine holds stale settings)."""
-    owner = _prefix_user(flavour)
+    owner = FLAVOURS[flavour].prefix_user()
     if not owner:
         return
     ea = Path("AppData") / "Roaming" / "Electronic Arts"
@@ -579,13 +600,12 @@ def _carry_settings(checkout: Checkout, flavour: str, users: Path) -> None:
         return
     other = next(f for f in FLAVOURS if f != flavour)
     other_users = checkout.flavour_paths(other)[1] / "drive_c" / "users"
-    names = [n for n in (os.environ.get("USER", ""), "crossover") if n]
-    other_names = [_prefix_user(other)] + [n for n in names if n != _prefix_user(other)]
-    for src in [users / n / ea for n in names] + [other_users / n / ea for n in other_names]:
-        if src != dst and src.is_dir():
-            say(f"copying client settings from {src.parents[2]} to {owner}")
+    theirs = FLAVOURS[other].prefix_user()
+    for src in ([users / theirs, other_users / theirs] if theirs else []) + [other_users / owner]:
+        if (src / ea).is_dir():
+            say(f"copying client settings from {src} to {owner}")
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(src, dst, symlinks=True)
+            shutil.copytree(src / ea, dst, symlinks=True)
             return
 
 
@@ -668,10 +688,6 @@ def _install_launcher(checkout: Checkout) -> None:
     _unquarantine(dst)
 
 
-WINE_NAMES = {"rosetta": "CrossOver Wine (x87sidecar, Rosetta 2)",
-              "arm64": "arm64 Wine with FEX (Hadron, no Rosetta)"}
-
-
 def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = False) -> None:
     """Install or complete the Client install with the flavour's Wine (default:
     the current one); finished steps are skipped. The flavour is recorded last,
@@ -687,7 +703,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
             checkout.assume_flavour(flavour)
             current = flavour
     version = pins.effective(checkout, "client")["version"]
-    say(f"client install: OfflineDAoC v{version} + {WINE_NAMES[flavour]}")
+    say(f"client install: OfflineDAoC v{version} + {FLAVOURS[flavour].title}")
     _requirements(checkout, flavour)
     # Before anything touches Wine or game.dll, and while checkout still names
     # the current Wine: a flavour switch would orphan the running client.

@@ -204,15 +204,17 @@ class InstallBase(unittest.TestCase):
         self.env = {"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None,
                     "USER": "olduser", "WINE_FAIL": None, "WINE_LINGER": None}
         self.pids = []  # the running client's game.dll pids
+        self.pid_home = None  # the Wine the running client maps (None: any)
         self.pid_scopes = []  # the wine_home each running-client check looked under
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def install(self, *args, **env):
-        def game_pids(checkout):
-            self.pid_scopes.append(checkout.wine_home)
-            return list(self.pids)
+        def game_pids(checkout, wine_home=None):
+            scope = wine_home or checkout.wine_home
+            self.pid_scopes.append(scope)
+            return list(self.pids) if self.pid_home in (None, scope) else []
 
         # The synthetic pristine game.dll is a Proven build for every install here.
         with mock.patch.object(client, "_requirements"), \
@@ -230,8 +232,7 @@ class InstallTest(InstallBase):
     def test_fresh_prefix_patch_and_launcher(self):
         dll = self.co.app_dir / "game.dll"
         dll.write_bytes(pristine_bytes())
-        with mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}):
-            code, out, err = self.install()
+        code, out, err = self.install()
         self.assertEqual(code, 0, err)
         self.assertIn("wine already installed", err)
         self.assertIn("OfflineDAoC already installed", err)
@@ -328,8 +329,7 @@ class InstallTest(InstallBase):
         pins.record_installed(self.co, "client", {"version": "0.36"})
         self.prefix.mkdir()
         (self.prefix / "system.reg").touch()
-        with mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}), \
-                mock.patch.object(release, "download", FakeDownloads(served)):
+        with mock.patch.object(release, "download", FakeDownloads(served)):
             code, out, err = self.install()
         self.assertEqual(code, 0, err)
         self.assertIn("replacing OfflineDAoC 0.36 with the pinned vT", err)
@@ -353,8 +353,7 @@ class InstallTest(InstallBase):
             extract(archive, root_folder, dest_dir)
             raise DaocError("killed")  # the extracted tree stays where the kill left it
 
-        with mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}), \
-                mock.patch.object(release, "download", FakeDownloads(served)):
+        with mock.patch.object(release, "download", FakeDownloads(served)):
             with mock.patch.object(release, "extract", killed):
                 code, out, err = self.install()
             self.assertEqual(code, 1)
@@ -419,7 +418,9 @@ case "$1" in
   image)
     while [ $# -gt 1 ]; do [ "$1" = --mountPoint ] && mp="$2"; shift; done
     cp -R "$FAKE_IMAGE/." "$mp" ;;
-  eject) rm -rf "$2"/* ;;
+  eject)
+    [ -z "$EJECT_FAIL" ] || { echo "Resource busy" >&2; exit 1; }
+    rm -rf "$2"/* ;;
 esac
 """
 
@@ -437,7 +438,7 @@ class Arm64InstallTest(InstallBase):
         self.patched_client()
         self.image = Path(self.tmp.name) / "image"
         runtime = self.image / RUNTIME
-        self.arm64_stubs = path_stubs(runtime, {"wine": ARM64_WINE_STUB, "wineserver": ""})
+        path_stubs(runtime, {"wine": ARM64_WINE_STUB, "wineserver": ""})
         (runtime / "bin").symlink_to("stubs")
         (runtime / "lib" / "wine" / "aarch64-unix").mkdir(parents=True)
         for rel, data in MTLD3D.items():
@@ -467,7 +468,7 @@ class Arm64InstallTest(InstallBase):
         path.write_text(json.dumps(manifest))
 
     def install(self, *args, **env):
-        env = dict({"FAKE_IMAGE": str(self.image), "LN_HELD": None}, **env)
+        env = dict({"FAKE_IMAGE": str(self.image), "LN_HELD": None, "EJECT_FAIL": None}, **env)
         with mock.patch.object(client, "DISKUTIL", str(self.tools / "diskutil")):
             return super().install(*args, **env)
 
@@ -530,6 +531,44 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual(self.co.flavour, "rosetta")
         self.assertEqual(Checkout(self.root).wine_home, self.wine_home)
         self.assertFalse(self.wine_arm64.exists())
+        # The image is ejected and its mount point removed all the same.
+        calls = stub_calls(self.tools)
+        attach = next(c for c in calls if c[1] == "image")
+        mount = attach[attach.index("--mountPoint") + 1]
+        self.assertIn(["diskutil", "eject", mount], calls)
+        self.assertFalse(Path(mount).exists())
+
+    def test_image_left_attached_is_reported(self):
+        code, out, err = self.install("--wine", "arm64", EJECT_FAIL="1")
+        self.assertEqual(code, 0, err)
+        attach = next(c for c in stub_calls(self.tools) if c[1] == "image")
+        mount = attach[attach.index("--mountPoint") + 1]
+        self.assertIn("Resource busy", err)
+        self.assertIn(f"could not eject Hadron-test.dmg; it is still attached at {mount}", err)
+
+    def test_image_checksum_mismatch_stops_before_attaching_it(self):
+        (self.co.downloads / "Hadron-test.dmg").write_bytes(b"tampered")
+        code, out, err = self.install("--wine", "arm64")
+        self.assertEqual(code, 1)
+        self.assertIn("Hadron-test.dmg checksum mismatch", err)
+        self.assertEqual(stub_calls(self.tools), [])
+        self.assertFalse(self.wine_arm64.exists())
+        self.assertEqual(self.co.flavour, "rosetta")
+
+    def test_runtime_missing_mtld3d_fails_and_says_how_to_reinstall(self):
+        (self.image / RUNTIME / "lib/hadron/d3d9/markers/system32/mtld3d.dll").unlink()
+        code, out, err = self.install("--wine", "arm64")
+        self.assertEqual(code, 1)
+        self.assertIn("has no lib/hadron/d3d9/markers/system32/mtld3d.dll", err)
+        self.assertIn("rm -rf dist/wine-arm64 && daoc client install --wine arm64", err)
+        self.assertEqual(self.co.flavour, "rosetta")
+
+    def test_unknown_macos_user_gets_no_settings_carried_over(self):
+        # The arm64 Wine's user is $USER: unset, there is no user to copy to.
+        code, out, err = self.install("--wine", "arm64", USER=None)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(list((self.prefix_arm64 / "drive_c" / "users").iterdir()), [])
+        self.assertNotIn("copying client settings", err)
 
     def test_flavour_switch_refused_while_the_current_client_runs(self):
         dll = self.co.app_dir / "game.dll"
@@ -550,6 +589,22 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual(code, 2)
         self.assertEqual(self.pid_scopes, [self.wine_arm64])
         self.assertEqual(self.co.flavour, "arm64")
+
+    def test_new_pin_refused_while_a_client_runs_from_the_arm64_wine(self):
+        # The current Wine is rosetta, but a client (started with DAOC_WINE_HOME)
+        # runs from the installed arm64 one: the replacement must not delete it.
+        self.assertEqual(self.install("--wine", "arm64")[0], 0)
+        self.assertEqual(self.install("--wine", "rosetta")[0], 0)
+        self.pids, self.pid_home, self.pid_scopes = [4242], self.wine_arm64, []
+        self.set_image(b"hadron v2")
+        code, out, err = self.install("--wine", "arm64")
+        self.assertEqual(code, 2)
+        self.assertIn("the client is running", err)
+        self.assertEqual(self.pid_scopes, [self.wine_home, self.wine_arm64])
+        record = json.loads((self.wine_arm64 / client.WINE_RECORD).read_text())
+        self.assertEqual(record["sha256"], sha(b"hadron v1"))
+        self.assertFalse(self.wine_arm64.with_name("wine-arm64.partial").exists())
+        self.assertEqual(self.co.flavour, "rosetta")
 
     def test_explicit_wine_replaces_a_bad_record(self):
         self.co.flavour_file.parent.mkdir(exist_ok=True)

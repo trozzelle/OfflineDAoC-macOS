@@ -285,6 +285,10 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
      in the tree is touched. Requirements: Apple Silicon, macOS 27 or later (its
      `wine`, `wineserver`, `ntdll.so` and loader are built with minos 27.0), no
      Rosetta.
+     Security: curl sets no quarantine flag, so Gatekeeper never assesses the
+     image or the copied `wine.app` (no notarization or Developer ID check). Trust in
+     the runtime rests entirely on the `wine_arm64` SHA-256 pin: review a new pin
+     (its release, its source and its signer) as you would new code.
 2. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.

@@ -8,18 +8,33 @@ import json
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, NamedTuple, Optional, Tuple, Union
 
 from daoc_cli.errors import DaocError
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
+class Flavour(NamedTuple):
+    """A Wine `daoc client install --wine` installs side by side with the others."""
+    title: str                   # what install calls it
+    wine_dir: str                # its Wine, under dist/
+    prefix_dir: str              # its prefix, under dist/
+    windows_user: Optional[str]  # the user its Wine creates; None: the macOS user name
+
+    def prefix_user(self) -> str:
+        return self.windows_user or os.environ.get("USER", "")
+
+
 # Wine flavours `daoc client install --wine` installs side by side:
 #   rosetta: athei/wine-build (manifest `wine`, x86_64 under Rosetta 2)
 #   arm64:   Hadron's runtime (manifest `wine_arm64`, arm64 with FEX, no Rosetta)
-FLAVOURS = ("rosetta", "arm64")
+FLAVOURS: Dict[str, Flavour] = {
+    "rosetta": Flavour("CrossOver Wine (x87sidecar, Rosetta 2)", "wine", "prefix", "crossover"),
+    "arm64": Flavour("arm64 Wine with FEX (Hadron, no Rosetta)", "wine-arm64", "prefix-arm64",
+                     None),
+}
 DEFAULT_FLAVOUR = "rosetta"
-_DIRS = {"rosetta": ("wine", "prefix"), "arm64": ("wine-arm64", "prefix-arm64")}
 
 
 def _env_path(name: str) -> Optional[Path]:
@@ -84,9 +99,9 @@ class Checkout:
 
     def flavour_paths(self, flavour: str) -> Tuple[Path, Path]:
         """(wine home, prefix) a flavour installs into under dist/."""
-        wine, prefix = _DIRS[flavour]
+        f = FLAVOURS[flavour]
         dist = self.root / "dist"
-        return dist / wine, dist / prefix
+        return dist / f.wine_dir, dist / f.prefix_dir
 
     @cached_property
     def wine_home(self) -> Path:
