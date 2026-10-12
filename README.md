@@ -136,12 +136,56 @@ the client connects to the `<Port>` in the server's `config/serverconfig.xml`
 (10300 by default; set `DAOC_PORT` to override). It needs `brew install mingw-w64`
 for its input helper.
 
+## Graphics (optional)
+
+`./graphics.sh` lets you pick which optional graphical patches from
+[OfflineDAoC-macOS-graphics](https://github.com/trozzelle/OfflineDAoC-macOS-graphics)
+are on for this install's client. Nothing is fetched until you run it: the first
+call clones the commit pinned in `manifest.json` into `upstream/graphics/`. Quit
+the client first; changes take effect at the next launch.
+
+Run it with no arguments for a checklist: toggle patches by number, press Enter
+to apply. Only the patches you toggled change.
+
+```
+  1. [x] Native resolution (Wine Retina mode)
+  2. [ ] Colour-managed output (sRGB)
+  3. [ ] Texture pack  (not installed)
+  4. [ ] Anisotropic filtering
+Toggle by number (e.g. 1 3), Enter to apply, q to quit:
+```
+
+Turning anisotropic filtering on asks for its level (2x, 4x, 8x or 16x; Enter
+keeps the current one, 16x the first time).
+
+| Patch | On | Off |
+|---|---|---|
+| `retina` | Wine's Retina mode: the client renders at the panel's physical resolution (3840x2160 on a 4K panel instead of 1920x1080 upscaled by macOS); the interface looks half as large | The prefix's Retina setting from before |
+| `srgb` | `color.space = accurate` in `mtld3d.conf`: colour-managed sRGB output instead of the panel's native gamut | The setting removed |
+| `textures` | A texture pack you downloaded (for example [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2), whose installer is Windows-only) over the client's folders; the first time, it asks for the archives | Original files back, the pack kept aside (APFS clones) |
+| `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed `dist/DAoCLauncher.app` set to load it (`d3d9=n,b`); ground, roads and walls stay sharp at a distance. After `install-client.sh` copies a fresh launcher it shows `partly on`; enable it again | Proxy removed, the launcher's line back as it was |
+
+Without the checklist, for scripts:
+
+```bash
+./graphics.sh status                       # each patch and whether it is on
+./graphics.sh enable retina srgb
+./graphics.sh enable anisotropy --level 8  # or 2, 4, 16; changes the level while on
+./graphics.sh enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
+./graphics.sh disable textures
+./graphics.sh textures uninstall           # delete the pack files for good
+```
+
+The graphics project's README lists every command and how each change is
+recorded and undone.
+
 ## Update
 
 ```bash
 ./update.sh check    # report what moved upstream
 ./update.sh server   # bump the server pin (patches are re-checked first)
 ./update.sh client   # bump the client pin
+./update.sh graphics # bump the graphics pin (its tests are run first)
 ```
 
 After `update.sh server`, stop the server and rerun `./install-server.sh`. The

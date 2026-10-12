@@ -25,5 +25,10 @@
     "tarball": "wine-cx-26.3.0-8-macos-x86_64.tar.xz",
     "sha256": "1976c3310a1f8be2f8e9a46fcb524f77b4316df3d281d94af2c8542bef60456d",
     "note": "athei/wine-build cx-26.3.0-8: CrossOver 26.3 Wine (x86_64, Rosetta 2) with i386 support, the bundled x87sidecar (Rosetta x87 JIT, cooperative attach) and mtld3d (D3D9 on Metal). x87sidecar is what lifts the client from ~7 to 60+ FPS: the game thread is otherwise CPU-bound in Rosetta's x87 emulation."
+  },
+  "graphics": {
+    "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
+    "ref": "7b407473c569ee4e8d5128ad3ebfd40b660a718b",
+    "note": "Optional graphical patches the user turns on one by one (retina, srgb, textures, anisotropy). Only graphics.sh pulls it: the first call clones this commit into upstream/graphics/, and every call refuses to run unless HEAD is this commit and git status shows no local changes; install-client.sh never fetches it."
   }
 }
