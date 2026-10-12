@@ -5,9 +5,8 @@
 > original client and game data remain their property.
 
 Run the [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) server and game
-client on Apple Silicon: the server builds natively for arm64, the original
-1.127 Windows client runs under Wine, by default an x86_64 Wine under Rosetta 2;
-`daoc client install --wine arm64` uses an arm64 Wine with FEX instead, which needs
+client on Apple Silicon. The server builds natively for arm64 and the original
+1.127 Windows client runs under Wine, by default an x86_64 Wine under Rosetta 2 or an arm64 Wine with FEX instead, which needs
 no Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)).
 
 <p align="center">
