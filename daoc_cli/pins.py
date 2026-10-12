@@ -2,13 +2,14 @@
 
 A Shipped pin is a group's entry in the tracked manifest.json, minus its
 `note`. A user update records a Local pin instead of editing the manifest, so
-an updated Checkout stays clean and the next `git pull` never conflicts on it.
+an updated Checkout stays clean and checking out the next release never
+conflicts on it.
 Local pins live in the gitignored <checkout>/.daoc/pins.json, one entry per
 group:
 
     {"group": "server", "pin": {...}, "replaces": {...}, "at": "2026-10-11T12:00:00Z"}
 
-`replaces` is the Shipped pin the Local pin was made against. Once a pull
+`replaces` is the Shipped pin the Local pin was made against. Once a release
 changes that Shipped pin, the Local pin lapses: it is dropped with a one-line
 notice and the new Shipped pin applies. Only ship() writes the manifest, for a
 maintainer to commit.

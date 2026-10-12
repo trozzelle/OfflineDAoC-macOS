@@ -1,10 +1,28 @@
 # Updating and saved progress
 
-How to move the server, client and graphics patches to newer upstream versions,
-and how to carry your progress (accounts, characters, bots) across world updates
-or from another save.
+How to move daoc to a newer release, the server, client and graphics patches to
+newer upstream versions, and how to carry your progress (accounts, characters,
+bots) across world updates or from another save.
 
-## Updating
+## daoc itself
+
+Each daoc release is a git tag (`v0.1.0`, `v0.2.0`, …); [CHANGELOG.md](../CHANGELOG.md)
+lists what each one changed. After a fetch has seen a newer release, `daoc` shows
+it on the `Checkout:` line. To move to it:
+
+```bash
+git fetch --tags
+daoc                      # Checkout: v0.2.0 available …
+git checkout v0.2.0       # the release daoc named
+daoc --version
+```
+
+A checkout cloned from `main` before releases existed moves onto them the same
+way. Your installs, saves and Local pins are not tracked by git, so the checkout
+change leaves them alone; if the new release ships new pins, `daoc` shows
+"rebuild due" (see [Pins](#pins)).
+
+## Server, client and graphics
 
 Each part has its own update:
 
@@ -21,8 +39,8 @@ daoc graphics update           # move the Graphics project to its latest commit
 
 The versions this repo was tested with are its Shipped pins, in `manifest.json`.
 An update records your newer version as a Local pin in `.daoc/pins.json` (not
-tracked by git), so it applies only to this checkout. When a `git pull` brings a
-new Shipped pin for that part, your Local pin lapses and the shipped version
+tracked by git), so it applies only to this checkout. When a newer release brings
+a new Shipped pin for that part, your Local pin lapses and the shipped version
 applies again.
 
 `daoc` shows both pins, what each install was built from, and "rebuild due" when

@@ -41,6 +41,32 @@ The `dev` group is left out of `daoc --help`.
 - `daoc dev e2e` runs the end-to-end check on its own server on ports
   20300/20400, putting the config back when it's done.
 
+## Releases
+
+[release-please](https://github.com/googleapis/release-please-action) versions
+the repo (`.github/workflows/release-please.yml`). Every push to `main` updates
+a release PR that bumps `version.txt` and `CHANGELOG.md`; merging it tags
+`vX.Y.Z` and publishes the GitHub Release. The next version comes from the
+[Conventional Commits](https://www.conventionalcommits.org/) on `main`, so with
+squash merges the PR title is what counts:
+
+| Commit | Bump (before 1.0) | Use for |
+|---|---|---|
+| `fix(client): …` | patch | bug fixes, corrected pins or hashes |
+| `feat(server): …` | minor | new commands, new Shipped pins |
+| `feat!: …` | minor (major from 1.0) | removed or renamed commands, changed behavior users rely on |
+| `docs:`, `test:`, `ci:`, `chore:` | none | everything else |
+
+Users run release tags, not `main`: the release PR also rewrites the
+`git clone --branch vX.Y.Z` lines in the README and [PLAY.md](PLAY.md) (between
+the `x-release-please-start-version` markers), so they always name the latest
+release. A fix reaches users only once its release PR is merged.
+
+The workflow runs as a GitHub App, not `GITHUB_TOKEN`, so the release PR gets
+the `tests.yml` checks. The App's client ID (`RELEASE_APP_CLIENT_ID`, a
+variable) and private key (`RELEASE_APP_PRIVATE_KEY`, a secret) belong to the
+repository's `main` environment.
+
 ## Design and notes
 
 - [DESIGN.md](DESIGN.md) — repo layout, manifest schema, install flows, server

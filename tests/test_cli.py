@@ -99,6 +99,24 @@ class DispatchTest(unittest.TestCase):
             code, out, err = run_cli(["probe"])
         self.assertEqual((code, out, err), (2, "", "daoc: refused\n"))
 
+    def test_version_prints_the_checkouts_release_and_runs_no_group(self):
+        ran = []
+        with tempfile.TemporaryDirectory() as tmp, \
+                with_group("probe", fake_group("probe", lambda args, checkout: ran.append(1) or 0)):
+            root = make_checkout(tmp)
+            (root / "version.txt").write_text("1.2.3\n")
+            self.assertEqual(run_cli(["--version"], root), (0, "daoc 1.2.3\n", ""))
+            self.assertEqual(run_cli(["--version", "probe"], root), (0, "daoc 1.2.3\n", ""))
+        self.assertEqual(ran, [])
+
+    def test_version_without_version_txt_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_checkout(tmp)
+            (root / "version.txt").unlink()
+            code, out, err = run_cli(["--version"], root)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("version.txt is missing", err)
+
     def test_keyboard_interrupt_exits_130(self):
         def handler(args, checkout):
             raise KeyboardInterrupt

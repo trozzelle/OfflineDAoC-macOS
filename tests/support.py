@@ -35,13 +35,14 @@ def git(*args: str, cwd: Optional[Union[str, Path]] = None) -> str:
 
 
 def make_checkout(tmp: Union[str, Path]) -> Path:
-    """Copy daoc, daoc_cli/ and manifest.json into <tmp>/checkout; no installs."""
+    """Copy daoc, daoc_cli/, manifest.json and version.txt into <tmp>/checkout; no installs."""
     root = Path(tmp) / "checkout"
     root.mkdir(parents=True)
     shutil.copy2(ROOT / "daoc", root / "daoc")
     shutil.copytree(ROOT / "daoc_cli", root / "daoc_cli",
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy2(ROOT / "manifest.json", root / "manifest.json")
+    shutil.copy2(ROOT / "version.txt", root / "version.txt")
     return root
 
 

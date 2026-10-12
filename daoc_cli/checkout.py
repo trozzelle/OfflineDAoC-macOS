@@ -46,3 +46,14 @@ class Checkout:
             raise DaocError(f"{path} is missing") from None
         except (OSError, ValueError) as e:
             raise DaocError(f"cannot read {path}: {e}") from None
+
+    @cached_property
+    def version(self) -> str:
+        """version.txt: the daoc release this Checkout is (release-please writes it)."""
+        path = self.root / "version.txt"
+        try:
+            return path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            raise DaocError(f"{path} is missing") from None
+        except (OSError, ValueError) as e:
+            raise DaocError(f"cannot read {path}: {e}") from None

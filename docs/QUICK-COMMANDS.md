@@ -4,7 +4,8 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 
 | Command | What it does |
 |---|---|
-| `daoc` | Overview: checkout, installs, server state, pins |
+| `daoc` | Overview: checkout, newer release, installs, server state, pins |
+| `daoc --version` | Print the daoc release this checkout runs |
 | `daoc self-install` | Write the `~/.local/bin/daoc` wrapper for this checkout |
 | `daoc server install [--verbose]` | Build `server/dist/daoc-server` from the pinned upstream |
 | `daoc server start` | Start the server (holds the terminal with the admin screen) |

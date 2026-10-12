@@ -34,14 +34,20 @@ Everything else is fetched.
 
 ## Quick start
 
+<!-- x-release-please-start-version -->
 ```bash
-git clone <this repo> daoc-macos && cd daoc-macos
+git clone --branch v0.1.0 <this repo> daoc-macos && cd daoc-macos
 ./daoc self-install      # puts `daoc` in ~/.local/bin
 
 daoc server install      # build the server
 daoc client install      # download the client and Wine, set up the prefix
 daoc server start        # holds this terminal with the admin screen
 ```
+<!-- x-release-please-end -->
+
+That clones the latest release. Each release is a git tag with its changes in
+[CHANGELOG.md](CHANGELOG.md); `daoc` says when a newer one is out, and
+[docs/UPDATING.md](docs/UPDATING.md#daoc-itself) moves you to it.
 
 In a **second terminal**:
 
@@ -62,8 +68,8 @@ Run `daoc` with no arguments for an overview of your installs.
   troubleshooting
 - [docs/GRAPHICS.md](docs/GRAPHICS.md): optional graphics patches (Retina, sRGB,
   texture packs, anisotropic filtering)
-- [docs/UPDATING.md](docs/UPDATING.md): updates, pins, and moving or importing
-  saved progress
+- [docs/UPDATING.md](docs/UPDATING.md): new releases, updates, pins, and moving
+  or importing saved progress
 - [docs/QUICK-COMMANDS.md](docs/QUICK-COMMANDS.md): every command, and the old
   script names they replace
 

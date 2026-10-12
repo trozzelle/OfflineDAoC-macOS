@@ -16,6 +16,9 @@ and the rest arrives as `args.passthrough` (a list; None for every other group).
 Exit codes: 0 ok; DaocError prints `daoc: <msg>` on stderr and exits with its
 code (1 failure, 2 usage or refused); argparse usage errors exit 2;
 KeyboardInterrupt exits 130.
+
+`daoc --version` prints the Checkout's release (version.txt) and runs no group,
+even when one follows it.
 """
 import argparse
 import sys
@@ -45,6 +48,8 @@ def build_parser() -> Tuple[argparse.ArgumentParser, "argparse._SubParsersAction
         prog="daoc",
         description="Offline DAoC on macOS: the server, the client and its graphics patches.",
     )
+    parser.add_argument("--version", action="store_true",
+                        help="print the daoc release of this checkout and exit")
     groups = parser.add_subparsers(dest="group", title="groups")
     for _, module in GROUPS:
         module.register(groups)
@@ -75,6 +80,9 @@ def _dispatch(argv: Sequence[str], root: Optional[Union[str, Path]]) -> int:
         argv, passthrough = argv[:1], argv[1:]
     args = parser.parse_args(argv)
     args.passthrough = passthrough
+    if args.version:
+        print(f"daoc {Checkout(root).version}")
+        return 0
     if args.group is None:
         parser.error("a group is required")
     func = getattr(args, "func", None)

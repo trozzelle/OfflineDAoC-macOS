@@ -17,10 +17,15 @@ client, playing, stopping, and what to do when something goes wrong. The
 
 ## Set up the `daoc` command
 
+<!-- x-release-please-start-version -->
 ```bash
-git clone <this repo> daoc-macos && cd daoc-macos
+git clone --branch v0.1.0 <this repo> daoc-macos && cd daoc-macos
 ./daoc self-install
 ```
+<!-- x-release-please-end -->
+
+That is the latest release; [UPDATING.md](UPDATING.md#daoc-itself) moves the
+checkout to a newer one.
 
 `self-install` writes `~/.local/bin/daoc`, a small wrapper that runs this
 checkout's `./daoc`. If `~/.local/bin` is not on your PATH it offers to add this
@@ -31,8 +36,9 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Run `daoc` with no arguments for an overview: where the checkout is, whether the
-Server install and Client install are present, whether the server runs, and each
-pin. `daoc <group> --help` lists a group's actions. `admin`, `progress` and
+Server install and Client install are present, whether the server runs, each
+pin, and whether a newer release is out. `daoc --version` prints the release
+you run. `daoc <group> --help` lists a group's actions. `admin`, `progress` and
 `graphics` hand `--help` to their tool instead, so it works only once the Server
 install (`admin`, `progress`) or Client install (`graphics`) exists.
 

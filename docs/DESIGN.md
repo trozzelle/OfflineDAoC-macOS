@@ -11,6 +11,7 @@ daoc-macos/
 ├── daoc                     # sh launcher: CLT check, then daoc_cli on /usr/bin/python3
 ├── daoc_cli/                # the `daoc` command (Python 3.9 stdlib only)
 ├── manifest.json            # Shipped pins: upstream versions + hashes
+├── version.txt              # this release of daoc (written by release-please)
 ├── server/                  # macOS server port overlay, vendored from the port work
 │   ├── patches/             #   source patches applied to the upstream snapshot
 │   ├── vendor/              #   arm64-safe System.Data.SQLite (SQLITE_STANDARD build)
@@ -50,6 +51,10 @@ written at install time, never committed.
   manifest, the Server install (`server/dist/daoc-server/`), the Client install
   (`dist/`), the clones and the download caches. There is no separate home
   directory and no option to pick one.
+- **Releases are tags.** Users clone and check out a release tag (`vX.Y.Z`), not
+  `main`. `daoc --version` prints `version.txt`; the overview's `Checkout:` line
+  names the newest local `v*` tag when HEAD does not contain it, so a checkout on
+  `main` past the last release shows nothing.
 - **`daoc self-install`** writes `~/.local/bin/daoc`, a short sh wrapper with the
   Checkout path baked in. It is a file, not a symlink, so that when the Checkout
   moves or is deleted the wrapper says so, names the fix (run `./daoc self-install`
@@ -120,17 +125,18 @@ by `daoc graphics`.
 
 A user update never edits `manifest.json`. `daoc server|client|graphics update`
 records a Local pin in `.daoc/pins.json` (gitignored), one entry per group, along
-with the Shipped pin it replaced. The Checkout stays clean, so the next `git pull`
-never conflicts on the manifest. When a pull changes that group's Shipped pin, the
-Local pin lapses: it is dropped with a one-line notice and the new Shipped pin
-applies. The Server and Client installs record the pin they were built from
-(`.daoc-pin.json` in the install folder), and every "already up to date" decision
-reads that record, never the pin: after a pull moves the pin, `daoc server
-install` and `daoc client install` bring the install to it, and `daoc server|client
-update` still moves it to the latest. A client install made before the record
-came from the old tooling, which only installed OfflineDAoC 0.35b: it is
-identified by that release's pristine `game.dll` hash alone (every Proven release
-shares it, so the hash names no other version), and the record is written then.
+with the Shipped pin it replaced. The Checkout stays clean, so checking out the
+next release never conflicts on the manifest. When a release changes that group's
+Shipped pin, the Local pin lapses: it is dropped with a one-line notice and the
+new Shipped pin applies. The Server and Client installs record the pin they were
+built from (`.daoc-pin.json` in the install folder), and every "already up to
+date" decision reads that record, never the pin: after a release moves the pin,
+`daoc server install` and `daoc client install` bring the install to it, and
+`daoc server|client update` still moves it to the latest. A client install made
+before the record came from the old tooling, which only installed OfflineDAoC
+0.35b: it is identified by that release's pristine `game.dll` hash alone (every
+Proven release shares it, so the hash names no other version), and the record is
+written then.
 `daoc <group> update --check` only reports what is available.
 `daoc dev ship-pins` is the maintainer step: it writes the effective pins into
 `manifest.json` for a commit.

@@ -1,4 +1,4 @@
-"""`daoc` with no arguments: installs, server state, pins, behind, commands."""
+"""`daoc` with no arguments: installs, server state, pins, newer release, commands."""
 import hashlib
 import os
 import re
@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import make_checkout, path_stubs, run_cli, stub_calls
+from tests.support import GIT_ENV, git, make_checkout, path_stubs, run_cli, stub_calls
 
 from daoc_cli import pins
 from daoc_cli.checkout import Checkout
@@ -54,7 +54,7 @@ class OverviewTest(unittest.TestCase):
         self.assertRegex(line(out, "Server install:"), r"not installed$")
         self.assertRegex(line(out, "Server running:"), r"no$")
         self.assertRegex(line(out, "Client install:"), r"not installed$")
-        self.assertNotIn("behind", out)
+        self.assertNotIn("Checkout:", out)
         for group in pins.GROUPS:
             row = pin_row(out, group)
             self.assertEqual(row[1], pins.short(group, pins.shipped(self.co, group)))
@@ -126,21 +126,18 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(pin_row(out, "client")[2:], ["0.36", "0.35b", "rebuild", "due"])
         self.assertEqual(pins.installed(self.co, "client"), legacy)
 
-    def test_git_records_behind_and_graphics_head(self):
+    def test_git_records_graphics_head(self):
         (self.root / ".git").mkdir()
         (self.co.graphics_src / ".git").mkdir(parents=True)
         stubs = path_stubs(self.tmp, {"git": "\n".join((
             '[ "$1" = -C ] && shift 2',
             'case "$*" in',
-            '  "rev-list --count HEAD..@{u}") echo 3 ;;',
-            '  "rev-parse --abbrev-ref @{u}") echo origin/main ;;',
             f'  "rev-parse HEAD") echo {NEW_REF} ;;',
             '  *) exit 1 ;;',
             'esac',
         ))})
         env = {"PATH": f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}"}
         out, _ = self.overview(env)
-        self.assertRegex(line(out, "Checkout:"), r"3 commits behind origin/main")
         self.assertEqual(pin_row(out, "graphics")[3:], [NEW_REF[:12], "rebuild", "due"])
 
         pins.set_local(self.co, "graphics", dict(pins.shipped(self.co, "graphics"), ref=NEW_REF))
@@ -148,12 +145,32 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(pin_row(out, "graphics")[2:], [NEW_REF[:12], NEW_REF[:12]])
         self.assertTrue(all(c[0] == "git" for c in stub_calls(stubs)))
 
-    def test_no_upstream_omits_the_behind_line(self):
+    def test_failing_git_omits_the_checkout_line(self):
         (self.root / ".git").mkdir()
         stubs = path_stubs(self.tmp, {"git": "exit 128"})
         out, _ = self.overview({"PATH": f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}"})
         self.assertNotIn("Checkout:", out)
         self.assertTrue(stub_calls(stubs))
+
+    def test_checkout_line_names_the_newest_release_head_lacks(self):
+        def commit_tagged(tag=None):
+            git("commit", "-q", "--allow-empty", "-m", tag or "next", cwd=self.root)
+            if tag:
+                git("tag", tag, cwd=self.root)
+
+        git("init", "-q", "-b", "main", cwd=self.root)
+        commit_tagged("v0.9.0")
+        commit_tagged("v0.10.0")  # newer by version, older by name
+        commit_tagged()  # main past the last release
+
+        git("checkout", "-q", "v0.9.0", cwd=self.root)
+        out, _ = self.overview(GIT_ENV)
+        self.assertEqual(line(out, "Checkout:").split(None, 1)[1],
+                         "v0.10.0 available (as of the last fetch): git checkout v0.10.0")
+        for ref in ("v0.10.0", "main"):
+            git("checkout", "-q", ref, cwd=self.root)
+            out, _ = self.overview(GIT_ENV)
+            self.assertNotIn("Checkout:", out, ref)
 
     def test_lapsed_local_pin_prints_notice_and_shows_shipped(self):
         pins.set_local(self.co, "graphics", dict(pins.shipped(self.co, "graphics"), ref=NEW_REF))

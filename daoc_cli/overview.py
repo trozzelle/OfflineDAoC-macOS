@@ -8,6 +8,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from daoc_cli import pins, proc, server
 from daoc_cli.checkout import Checkout
+from daoc_cli.errors import DaocError
 
 
 def _server_install(checkout: Checkout) -> str:
@@ -29,14 +30,19 @@ def _server_running(checkout: Checkout) -> str:
     return "no"
 
 
-def _behind(checkout: Checkout) -> Optional[str]:
-    """Commits on the upstream branch not in HEAD, as of the last fetch."""
-    count = proc.git_out(checkout.root, "rev-list", "--count", "HEAD..@{u}")
-    if count is None or not count.isdigit():
+def _newer_release(checkout: Checkout) -> Optional[str]:
+    """The newest release tag, as of the last fetch, when HEAD does not contain it."""
+    tags = proc.git_out(checkout.root, "tag", "--list", "v[0-9]*", "--sort=-v:refname")
+    if not tags:
         return None
-    upstream = proc.git_out(checkout.root, "rev-parse", "--abbrev-ref", "@{u}") or "upstream"
-    n = int(count)
-    return f"{n} commit{'' if n == 1 else 's'} behind {upstream} (as of the last fetch)"
+    tag = tags.splitlines()[0]
+    try:
+        contained = proc.git(checkout.root, "merge-base", "--is-ancestor", tag, "HEAD", check=False)
+    except DaocError:
+        return None
+    if contained.returncode != 1:  # 0: HEAD has it; anything else: git could not tell
+        return None
+    return f"{tag} available (as of the last fetch): git checkout {tag}"
 
 
 def _table(rows: List[Sequence[str]]) -> List[str]:
@@ -58,9 +64,9 @@ def show(checkout: Checkout) -> int:
         ("Server running:", _server_running(checkout)),
         ("Client install:", pins.NOT_INSTALLED if not checkout.client_root.is_dir() else "present"),
     ]
-    behind = _behind(checkout)
-    if behind is not None:
-        status.append(("Checkout:", behind))
+    newer = _newer_release(checkout)
+    if newer is not None:
+        status.append(("Checkout:", newer))
     width = max(len(k) for k, _ in status)
     lines += [f"{k.ljust(width)}  {v}" for k, v in status]
 
