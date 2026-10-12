@@ -75,6 +75,16 @@ setting is "wine" under System Settings > Privacy & Security > Local Network.
 `daoc client install --wine arm64` checks for the warning after setting the
 prefix up and says so.
 
+## ~10–15 FPS under FEX is full-precision x87
+
+On the arm64 Wine the client ran at ~10–15 FPS in world, the FEX version of the
+Rosetta x87 problem above. FEX emulates x87 at its full 80-bit precision in
+software by default; `FEX_X87REDUCEDPRECISION=1` makes it compute x87 as 64-bit
+doubles on the host FPU, and the same scene then runs at ~120 FPS (Metal HUD, M5
+Mac). Hadron does not set it (its games are not x87-heavy), so `daoc` sends it
+for the arm64 Wine (`client_runtime.ARM64_ENV`). Hardware TSO (`HADRON_HARDWARE_TSO=1`)
+was not needed and stays off, as Hadron ships it.
+
 ## A killed client leaves the character linkdead for 60 s
 
 When the client is killed instead of quitting with `/quit`, the server keeps the

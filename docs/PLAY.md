@@ -161,8 +161,10 @@ emulates slowly: under plain Wine the game thread is CPU-bound at about 7 FPS.
 The bundled x87sidecar translates that code to native ARM64 and mtld3d renders
 on Metal; together they run the client at 90–105 FPS average in the
 [benchmark](DEVELOPMENT.md#benchmark) (vsync off, uncapped). The arm64 Wine
-translates it with FEX instead; at character select both reach the client's own
-~125 FPS limit, and the in-world benchmark for it is still to be run.
+translates it with FEX instead, which does x87 at full 80-bit precision in
+software unless told otherwise: in world that is ~10–15 FPS. `daoc` therefore
+runs it with `FEX_X87REDUCEDPRECISION=1` (x87 as 64-bit doubles), which gives
+~120 FPS in world; the benchmark gate has not been run on it yet.
 
 To show Apple's Metal Performance HUD (FPS and a frame-time graph, top right of
 the game window), launch with `DAOC_FPS_OVERLAY=1`:
@@ -181,7 +183,7 @@ Set in the environment; `daoc client start` forwards them.
 | `DAOC_WINEPREFIX` | `dist/prefix` (`dist/prefix-arm64`) | Wine prefix |
 | `DAOC_DLL_OVERRIDES` | `d3d9,dxgi=b` (arm64: `mscoree,mshtml=;d3d9=n,b`) | Replaces the DLL overrides |
 | `WINE_COMPATDB` | — | Rosetta Wine: renderer choice, e.g. `$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` for wined3d instead of mtld3d |
-| `MTLD3D_*`, `FEX_*` | arm64: `MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off`, `MTLD3D_NO_CRASH_HANDLER=1`, `FEX_DISKCACHE=1` | mtld3d and FEX settings |
+| `MTLD3D_*`, `FEX_*` | arm64: `MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off`, `MTLD3D_NO_CRASH_HANDLER=1`, `FEX_DISKCACHE=1`, `FEX_X87REDUCEDPRECISION=1` | mtld3d and FEX settings; `FEX_X87REDUCEDPRECISION=0` brings back full x87 precision (and ~10–15 FPS) |
 | `WINE_LARGE_ADDRESS_AWARE` | arm64: `1` | 4 GB address space for the 32-bit client |
 
 ## Troubleshooting

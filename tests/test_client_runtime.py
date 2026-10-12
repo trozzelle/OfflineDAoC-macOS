@@ -184,6 +184,8 @@ class CharacterAndLaunchTest(unittest.TestCase):
         envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
         self.assertIn("DAOC_DLL_OVERRIDES=mscoree,mshtml=;d3d9=n,b", envs)
         self.assertIn("MTLD3D_NO_CRASH_HANDLER=1", envs)
+        # Without it the client runs at ~10-15 FPS in world on the arm64 Wine.
+        self.assertIn("FEX_X87REDUCEDPRECISION=1", envs)
         self.assertIn("WINE_LARGE_ADDRESS_AWARE=1", envs)
         self.assertIn("FEX_DISKCACHE=0", envs)
         self.assertIn("MTLD3D_CONFIG=present.vsync=on", envs)

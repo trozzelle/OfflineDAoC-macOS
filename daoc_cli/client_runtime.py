@@ -51,10 +51,14 @@ FORWARD_PREFIXES = ("X87_", "MTL_", "MTLD3D_", "FEX_")
 # launcher does; a caller's value wins. mtld3d is a native d3d9.dll in the arm64
 # prefix, so d3d9 is native first (the graphics anisotropy proxy, when on, is
 # found first in the client folder). vsync off matches athei's mtld3d in the
-# rosetta Wine.
+# rosetta Wine. FEX_X87REDUCEDPRECISION: the client does its 3D math in x87,
+# which FEX otherwise emulates at full 80-bit precision in software; in world
+# that held it at ~10-15 FPS, with f64 x87 it runs at ~120 (the 7 FPS Rosetta
+# problem x87sidecar solves, in FEX's form).
 ARM64_ENV = {
     "DAOC_DLL_OVERRIDES": "mscoree,mshtml=;d3d9=n,b",
     "FEX_DISKCACHE": "1",
+    "FEX_X87REDUCEDPRECISION": "1",
     "MTLD3D_NO_CRASH_HANDLER": "1",
     "MTLD3D_CONFIG": "color.hdr.enable=false;present.vsync=off",
     "WINE_LARGE_ADDRESS_AWARE": "1",

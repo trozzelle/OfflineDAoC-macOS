@@ -302,8 +302,8 @@ Why the rosetta wine: the 1.127 client's game thread spends ~70% of its time in
 Rosetta's x87 emulation (libRosettaRuntime) under stock Wine, which caps it at ~7 FPS.
 x87sidecar removes that cost; mtld3d replaces wined3d's GL path with Metal.
 Why the arm64 wine: Rosetta is general-purpose only through macOS 27. The launch
-settings it needs (`client_runtime.ARM64_ENV`: `d3d9=n,b`, FEX disk cache, mtld3d
-config, large-address-aware) ride on `--env` when `wine_home` has an
+settings it needs (`client_runtime.ARM64_ENV`: `d3d9=n,b`, FEX disk cache, FEX x87
+reduced precision, mtld3d config, large-address-aware) ride on `--env` when `wine_home` has an
 `lib/wine/aarch64-unix`, and the Launcher exports `DYLD_FALLBACK_LIBRARY_PATH` to
 its `ext/lib` (FreeType). The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal
 Performance HUD. The evidence behind this, and the other client pitfalls (TCC
