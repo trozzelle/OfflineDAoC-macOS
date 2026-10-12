@@ -112,7 +112,7 @@ def _table(rows: List[Sequence[str]]) -> List[str]:
 def _commands() -> List[Tuple[str, str]]:
     from daoc_cli import cli  # cli imports this module
 
-    _, groups, _ = cli.build_parser()
+    _, groups = cli.build_parser()
     return [(a.dest, a.help or "") for a in groups._choices_actions if a.dest != "dev"]
 
 

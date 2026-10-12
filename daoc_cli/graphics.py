@@ -18,7 +18,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from daoc_cli import pins, proc
+from daoc_cli import pins, proc, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -79,6 +79,10 @@ def gfx_argv(checkout: Checkout, src: Path, args: list) -> list:
 def handle(args: argparse.Namespace, checkout: Checkout) -> int:
     passthrough = list(args.passthrough or [])
     if passthrough[:1] == ["update"]:
+        if passthrough[1:] == ["--check"]:
+            return updates.check(checkout, "graphics")
+        if passthrough[1:]:
+            raise DaocError("usage: daoc graphics update [--check]", 2)
         raise DaocError("graphics update is not available yet", 2)
     if not (checkout.app_dir / "game.dll").is_file():
         raise DaocError(f"no client in {checkout.app_dir} — run daoc client install")

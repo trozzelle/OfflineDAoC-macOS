@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Mapping
 
-from daoc_cli import client_patch, client_runtime, pins, proc, release
+from daoc_cli import bench, client_patch, client_runtime, pins, proc, release, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -53,12 +53,28 @@ def register(groups: "argparse._SubParsersAction") -> None:
                    help="show download progress and Wine's prefix setup logging "
                         "(default: errors only)")
     a.set_defaults(func=_install)
+    a = actions.add_parser(
+        "update",
+        help="move the client to the latest OfflineDAoC release (Local pin)",
+        description="Move the Client install to the latest OfflineDAoC release, recorded "
+                    "as a Local pin. --check reports without changing anything.",
+    )
+    a.add_argument("--check", action="store_true",
+                   help="report Shipped, Local, built-from and latest; change nothing")
+    a.set_defaults(func=_update)
     client_runtime.register(actions)
+    bench.register(actions)
 
 
 def _install(args: argparse.Namespace, checkout: Checkout) -> int:
     install(checkout, verbose=args.verbose)
     return 0
+
+
+def _update(args: argparse.Namespace, checkout: Checkout) -> int:
+    if args.check:
+        return updates.check(checkout, "client")
+    raise DaocError("client update is not available yet", 2)
 
 
 def _wine(argv: List[str], env: Mapping[str, str], verbose: bool, check: bool = True) -> None:

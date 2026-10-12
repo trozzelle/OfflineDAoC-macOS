@@ -8,20 +8,29 @@ install ports the old install-server.sh step for step:
      the macOS patches from server/patches/ and builds server/dist/daoc-server.
 
 start/stop/status exec the install's own daoc-server.sh, which stays shell.
+
+update ports update.sh server, then rebuilds (see update()).
 """
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from daoc_cli import pins, proc
+from daoc_cli import pins, proc, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
 NO_INSTALL = "no Server install; run daoc server install"
+
+# The World data a build ships: build-release.sh's WorldBuilder writes it to
+# <server_dir>/defaults/world.sqlite, and daoc-server.sh copies it into data/
+# only on the first start, so an existing save keeps the world it was made with.
+WORLD_DATA = Path("defaults") / "world.sqlite"
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
@@ -35,6 +44,15 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show git progress and the build's warnings and tool output")
     a.set_defaults(func=_handle_install)
+    a = actions.add_parser(
+        "update",
+        help="move the server to its upstream's latest commit and rebuild (Local pin)",
+        description="Resolve the upstream's latest main commit, pre-check the port patches "
+                    "against it, record it as a Local pin and rebuild the Server install.",
+    )
+    a.add_argument("--check", action="store_true",
+                   help="report Shipped, Local, built-from and latest; change nothing")
+    a.set_defaults(func=_handle_update)
     a = actions.add_parser("start", help="start the server (daoc-server.sh start)")
     a.add_argument("--console", action="store_true", help="run in the foreground with its console")
     a.set_defaults(func=_handle_script)
@@ -45,6 +63,12 @@ def register(groups: "argparse._SubParsersAction") -> None:
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
     install(checkout, verbose=args.verbose)
     return 0
+
+
+def _handle_update(args: argparse.Namespace, checkout: Checkout) -> int:
+    if args.check:
+        return updates.check(checkout, "server")
+    return update(checkout)
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
@@ -134,7 +158,7 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
         raise DaocError(f"upstream HEAD {actual[:12]} != pinned {ref[:12]}")
 
     # Pre-check the macOS patches apply cleanly to this snapshot.
-    patches = sorted(str(p) for p in (root / "server" / "patches").glob("*.patch"))
+    patches = [str(p) for p in _patches(root)]
     if _git(["apply", "--check", *patches], src, True, check=False).returncode != 0:
         raise DaocError("patches no longer apply to the pinned upstream — re-derive them")
     print("== patches apply cleanly", file=sys.stderr)
@@ -155,3 +179,125 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
 
     print("== install-server: done — server/dist/daoc-server", file=sys.stderr)
     print("   start it:  daoc server start", file=sys.stderr)
+
+
+def _patches(root: Path) -> List[Path]:
+    """server/patches/*.patch in the order build-release.sh applies them."""
+    return sorted((root / "server" / "patches").glob("*.patch"))
+
+
+def _ask(question: str) -> bool:
+    """A y/N question on the terminal; anything but y/yes (or EOF) is no."""
+    sys.stderr.flush()
+    try:
+        answer = input(f"{question} [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _world_hash(checkout: Checkout) -> Optional[str]:
+    path = checkout.server_dir / WORLD_DATA
+    if not path.is_file():
+        return None
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _precheck(url: str, ref: str, patches: List[Path], current: str) -> None:
+    """Clone ref into a temp dir and prove every port patch still applies, in
+    build order, each on top of the ones before it. Nothing outside the temp
+    dir is touched, so a failure leaves the pin where it was."""
+    with tempfile.TemporaryDirectory(prefix="daoc-server-update-") as tmp:
+        src = Path(tmp) / "upstream"
+        print(f"== cloning upstream at {ref[:12]} to pre-check the port patches", file=sys.stderr)
+        if proc.run(["git", "clone", "--quiet", "--filter=blob:none", url, str(src)],
+                    check=False).returncode != 0:
+            raise DaocError("upstream clone failed")
+        _git(["checkout", "--quiet", "--detach", ref], src, False)
+        for patch in patches:
+            if _git(["apply", "--check", str(patch)], src, False, check=False).returncode != 0:
+                raise DaocError(
+                    f"{patch.name} no longer applies to {ref[:12]}; re-derive it against the "
+                    f"new source (pin not changed: still {current[:12]})"
+                )
+            _git(["apply", str(patch)], src, False)
+    print(f"== patches apply cleanly to {ref[:12]}", file=sys.stderr)
+
+
+def _stop_first(checkout: Checkout) -> None:
+    """The build refuses to replace bin/ under a live server: stop it, but
+    only after asking on a terminal. Off a terminal, refuse."""
+    state, detail = status(checkout)
+    if state is False:
+        return
+    if state is None:
+        raise DaocError(f"cannot tell whether the server is running ({detail}); "
+                        "stop it first (daoc server stop)", 2)
+    if not sys.stdin.isatty():
+        raise DaocError("the server is running; stop it first (daoc server stop)", 2)
+    if not _ask(f"The server is {detail}. Stop it to update?"):
+        raise DaocError("server update refused: the server is running", 2)
+    proc.run([script(checkout), "stop"], cwd=checkout.server_dir, verbose=True)
+    if running(checkout) is not False:
+        raise DaocError("the server is still running after daoc-server.sh stop")
+
+
+PROGRESS_UPGRADE = """\
+The new build ships different World data ({world}).
+Your save in data/ keeps the world it was created with until a Progress upgrade
+moves your progress into the new world. It carries over the player-owned
+things: accounts (roles kept), characters, items, money, houses, guilds and
+bots, plus this install's settings (edition, population, daoc-admin options,
+XP rates). Realm-wide world state such as keep and relic ownership starts
+fresh. The previous save is backed up to data/progress-backups/<time>/."""
+
+
+def update(checkout: Checkout) -> int:
+    """Move the Server install to the upstream's latest main as a Local pin and
+    rebuild it. Exit 0 (updated, or already at latest); DaocError 1 on a
+    failing patch or build, 2 when stopping the server is refused."""
+    root = Path(os.path.realpath(checkout.root))
+
+    # 1. Resolve the upstream's latest main.
+    print("== resolving upstream main", file=sys.stderr)
+    current = pins.effective(checkout, "server")
+    latest = updates.resolve_latest(checkout, "server")
+    if updates.same("server", current, latest):
+        print(f"server already at {latest['ref'][:12]}", file=sys.stderr)
+        return 0
+
+    # 2. Clone the new commit shallowly and prove the port patches still apply to
+    #    it BEFORE moving the pin: an upstream change that breaks a patch fails
+    #    here, loudly, and the pin stays put.
+    _precheck(latest["upstream"], latest["ref"], _patches(root), current["ref"])
+
+    # 3. Never rebuild under a live server.
+    _stop_first(checkout)
+
+    # 4. Record the Local pin, then rebuild against it.
+    before = _world_hash(checkout)
+    pins.set_local(checkout, "server", latest)
+    print(f"== server Local pin -> {latest['ref'][:12]}", file=sys.stderr)
+    install(checkout)
+
+    # 5. New World data does not reach an existing save on its own: offer a
+    #    Progress upgrade, never run one unasked.
+    after = _world_hash(checkout)
+    if before is None or after == before:
+        return 0
+    if not sys.stdin.isatty():
+        print("World data changed; to move your progress into the new world, run:  "
+              "daoc progress upgrade", file=sys.stderr)
+        return 0
+    print(PROGRESS_UPGRADE.format(world=WORLD_DATA), file=sys.stderr)
+    if not _ask("Run the Progress upgrade now?"):
+        print("skipped; run it later with:  daoc progress upgrade", file=sys.stderr)
+        return 0
+    # No chdir: daoc-progress resolves its own directory.
+    proc.run([tool(checkout, "daoc-progress"), "upgrade"], verbose=True)
+    print("== Progress upgrade: done", file=sys.stderr)
+    return 0
