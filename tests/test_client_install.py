@@ -72,7 +72,8 @@ class ReleaseTest(unittest.TestCase):
 
     def fetch(self, pin, fake):
         with redirect_stderr(io.StringIO()):
-            return release.fetch(pin, self.cache, self.dist, fetch_url=fake)
+            archive = release.download_release(pin, self.cache, fetch_url=fake)
+            return release.extract(archive, pin["root_folder"], self.dist)
 
     def test_fetch_verifies_joins_and_extracts(self):
         pin, served = make_release()
@@ -159,15 +160,6 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaises(DaocError) as cm:
             self.fetch(pin, FakeDownloads(served))
         self.assertIn("already exists", cm.exception.msg)
-
-    def test_install_extracts_into_the_client_root(self):
-        pin, served = make_release()
-        co = Checkout(make_checkout(self.tmp.name))
-        with mock.patch.object(release.pins, "effective", return_value=pin), \
-                redirect_stderr(io.StringIO()):
-            release.install(co, fetch_url=FakeDownloads(served))
-        self.assertEqual((co.client_root / "readme.txt").read_bytes(), b"hello")
-        self.assertTrue((co.downloads / "vT" / "OfflineDAoC-vT.zip").is_file())
 
 
 WINE_STUB = """\
@@ -295,9 +287,9 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(dll.read_bytes(), pristine_bytes())
         self.assertEqual(stub_calls(self.stubs), [])
 
-    def test_install_from_another_release_is_replaced_with_the_pin(self):
-        # A Local pin lapsed (or a pull moved the Shipped pin): the install is
-        # still the other release and install brings it back to the pin.
+    def pin_release(self):
+        """Make a release holding a pristine game.dll the Shipped client pin;
+        returns its served files."""
         pin, served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": pristine_bytes(),
                                     f"{ROOT_FOLDER}/readme.txt": b"pinned"})
         pin = dict(pin, game_dll_sha256=sha(pristine_bytes()))
@@ -305,7 +297,13 @@ class InstallTest(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         manifest["client"] = pin
         manifest_path.write_text(json.dumps(manifest))
-        (self.co.app_dir / "game.dll.orig").write_bytes(b"lapsed pristine")
+        return served
+
+    def test_install_from_another_release_is_replaced_with_the_pin(self):
+        # A pull moved the Shipped pin: the install is still the other release
+        # and install brings it back to the pin.
+        served = self.pin_release()
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"other pristine")
         pins.record_installed(self.co, "client", {"version": "0.36"})
         self.prefix.mkdir()
         (self.prefix / "system.reg").touch()
@@ -322,6 +320,31 @@ class InstallTest(unittest.TestCase):
         code, out, err = self.install()
         self.assertEqual(code, 0, err)
         self.assertIn("OfflineDAoC already installed", err)
+
+    def test_fresh_install_killed_while_extracting_recovers_on_rerun(self):
+        served = self.pin_release()
+        shutil.rmtree(self.co.client_root)
+        self.prefix.mkdir()
+        (self.prefix / "system.reg").touch()
+        extract = release.extract
+
+        def killed(archive, root_folder, dest_dir):
+            extract(archive, root_folder, dest_dir)
+            raise DaocError("killed")  # the extracted tree stays where the kill left it
+
+        with mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}), \
+                mock.patch.object(release, "download", FakeDownloads(served)):
+            with mock.patch.object(release, "extract", killed):
+                code, out, err = self.install()
+            self.assertEqual(code, 1)
+            self.assertFalse(self.co.client_root.exists())
+            code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"pinned")
+        self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), patched_bytes())
+        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
+        self.assertEqual(sorted(p.name for p in self.co.client_root.parent.iterdir()),
+                         ["DAoCLauncher.app", "OfflineDAoC", "prefix", "wine"])
 
     def test_wine_and_prefix_overrides_are_never_install_targets(self):
         shutil.rmtree(self.wine_home)  # no Wine installed yet

@@ -29,6 +29,7 @@ class Checkout:
         self.app_dir = self.client_root / "runtime" / "client-opendaoc" / "app"
         self.wine_home = _env_path("DAOC_WINE_HOME", self.root / "dist" / "wine")
         self.prefix = _env_path("DAOC_WINEPREFIX", self.root / "dist" / "prefix")
+        self.launcher_src = self.root / "client" / "DAoCLauncher.app"
         self.launcher_app = self.root / "dist" / "DAoCLauncher.app"
         self.graphics_src = self.root / "upstream" / "graphics"
         self.downloads = self.root / "downloads"

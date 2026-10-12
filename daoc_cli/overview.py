@@ -1,49 +1,18 @@
 """`daoc` with no arguments: what is installed, what is pinned, what to run.
 
 Offline only: nothing here touches the network. "Built from" is read from what
-each install records about itself, and shows `unknown` when it records nothing
-usable:
-  - Server: the pin `daoc server install` records in the install
-    (pins.INSTALLED) once a build succeeds. An install built before that record
-    existed names no upstream ref, so built-from is unknown.
-  - Client: the pin recorded in the install (pins.INSTALLED); an install made
-    before that record falls back to the pristine game.dll, kept as game.dll.orig
-    once patched, whose sha256 is compared with the pin's `game_dll_sha256`.
-  - Graphics: the HEAD commit of the upstream/graphics clone.
+each install records about itself (see pins.built_from), and shows `unknown`
+when it records nothing usable.
 """
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
-from daoc_cli import files, pins, proc, server, updates
+from daoc_cli import pins, proc, server
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
-
-NOT_INSTALLED = "not installed"
-UNKNOWN = "unknown"
-
-
-def _git(args: Sequence[str], cwd: Path) -> Optional[str]:
-    """`git <args>` in cwd, stdout stripped; None when cwd is not a git
-    checkout of its own (never a parent's) or git fails."""
-    if not (cwd / ".git").exists():
-        return None
-    try:
-        result = proc.git(cwd, *args, check=False)
-    except DaocError:
-        return None
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _sha256(path: Path) -> Optional[str]:
-    try:
-        return files.sha256(path)
-    except OSError:
-        return None
 
 
 def _server_install(checkout: Checkout) -> str:
     if not checkout.server_dir.is_dir():
-        return NOT_INSTALLED
+        return pins.NOT_INSTALLED
     try:
         version = (checkout.server_dir / "VERSION").read_text(encoding="utf-8").strip()
     except OSError:
@@ -54,54 +23,18 @@ def _server_install(checkout: Checkout) -> str:
 def _server_running(checkout: Checkout) -> str:
     state, detail = server.status(checkout)
     if state is None:
-        return f"{UNKNOWN} ({detail})"
+        return f"{pins.UNKNOWN} ({detail})"
     if state:
         return "yes" + detail[len("running"):]
     return "no"
 
 
-def _built_from(checkout: Checkout, group: str, pin: Dict[str, Any]) -> Tuple[str, Optional[bool]]:
-    """(label, the install was built from pin); matches is None when unknown."""
-    if group == "server":
-        if not checkout.server_dir.is_dir():
-            return NOT_INSTALLED, None
-        record = pins.installed(checkout, group)
-        if record is None:
-            return UNKNOWN, None
-        return pins.short(group, record), updates.same(group, record, pin)
-    if group == "client":
-        if not checkout.app_dir.is_dir():
-            return NOT_INSTALLED, None
-        record = pins.installed(checkout, group)
-        if record is not None:
-            return pins.short(group, record), updates.same(group, record, pin)
-        dll = checkout.app_dir / "game.dll.orig"
-        if not dll.is_file():
-            dll = checkout.app_dir / "game.dll"
-        sha = _sha256(dll) if dll.is_file() else None
-        want = pin.get("game_dll_sha256")
-        if sha is None or not want:
-            return UNKNOWN, None
-        if sha == want:
-            return pins.short(group, pin), True
-        shipped = pins.shipped(checkout, group)
-        if sha == shipped.get("game_dll_sha256"):
-            return pins.short(group, shipped), False
-        return f"game.dll {sha[:12]}", False
-    if not checkout.graphics_src.is_dir():
-        return NOT_INSTALLED, None
-    head = _git(["rev-parse", "HEAD"], checkout.graphics_src)
-    if not head:
-        return UNKNOWN, None
-    return head[:12], head == pin.get("ref")
-
-
 def _behind(checkout: Checkout) -> Optional[str]:
     """Commits on the upstream branch not in HEAD, as of the last fetch."""
-    count = _git(["rev-list", "--count", "HEAD..@{u}"], checkout.root)
+    count = proc.git_out(checkout.root, "rev-list", "--count", "HEAD..@{u}")
     if count is None or not count.isdigit():
         return None
-    upstream = _git(["rev-parse", "--abbrev-ref", "@{u}"], checkout.root) or "upstream"
+    upstream = proc.git_out(checkout.root, "rev-parse", "--abbrev-ref", "@{u}") or "upstream"
     n = int(count)
     return f"{n} commit{'' if n == 1 else 's'} behind {upstream} (as of the last fetch)"
 
@@ -123,7 +56,7 @@ def show(checkout: Checkout) -> int:
     status = [
         ("Server install:", _server_install(checkout)),
         ("Server running:", _server_running(checkout)),
-        ("Client install:", NOT_INSTALLED if not checkout.client_root.is_dir() else "present"),
+        ("Client install:", pins.NOT_INSTALLED if not checkout.client_root.is_dir() else "present"),
     ]
     behind = _behind(checkout)
     if behind is not None:
@@ -135,7 +68,7 @@ def show(checkout: Checkout) -> int:
     for group in pins.GROUPS:
         pin = pins.effective(checkout, group)
         local = pins.local(checkout, group)
-        built, matches = _built_from(checkout, group, pin)
+        built, matches = pins.built_from(checkout, group, pin)
         rows.append((
             group,
             pins.short(group, pins.shipped(checkout, group)),

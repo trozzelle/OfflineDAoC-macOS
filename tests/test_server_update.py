@@ -98,6 +98,18 @@ class ServerUpdateTest(unittest.TestCase):
         self.assertIn(f"server already at {self.latest['ref'][:12]}", err)
         self.assertEqual((self.calls, self.installs), ([], []))
 
+    def test_already_at_latest_behind_a_lapsed_local_pin_repins_without_a_rebuild(self) -> None:
+        pins.set_local(self.co, "server", self.latest)
+        pins.record_installed(self.co, "server", self.latest)
+        manifest = json.loads(self.manifest)
+        manifest["server"]["ref"] = "b" * 40
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+        code, _, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"server already at {NEW_SHA[:12]}", err)
+        self.assertEqual((self.calls, self.installs), ([], []))
+        self.assertEqual(pins.effective(Checkout(self.root), "server"), self.latest)
+
     def test_install_behind_a_newer_shipped_pin_is_rebuilt(self) -> None:
         # A pull brought a Shipped pin naming upstream's latest; the install is older.
         manifest = json.loads(self.manifest)

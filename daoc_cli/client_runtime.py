@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from daoc_cli import keychain, proc, watchdog
+from daoc_cli import files, keychain, proc, watchdog
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, say
 
@@ -40,7 +40,10 @@ DEFAULT_PORT = 10300
 # LaunchServices drops the caller's environment, so wine/x87sidecar/Metal HUD
 # knobs must ride on --env. Forward them only when set: an empty
 # ROSETTA_X87_PATH would disable the sidecar instead of selecting the bundled one.
-FORWARD_ENV = ("DAOC_WINE_HOME", "DAOC_WINEPREFIX", "DAOC_DLL_OVERRIDES", "WINE_COMPATDB",
+# DAOC_WINE_HOME / DAOC_WINEPREFIX are not forwarded raw: the Launcher runs with
+# cwd /, so launch_argv sends the Checkout's resolved paths, the same wine that
+# kill and game_pids look for the client under.
+FORWARD_ENV = ("DAOC_DLL_OVERRIDES", "WINE_COMPATDB",
                "ROSETTA_X87_PATH", "DAOC_FTLOG_DIR", "DAOC_FPS_OVERLAY")
 FORWARD_PREFIXES = ("X87_", "MTL_")
 
@@ -49,13 +52,6 @@ REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}
 
 def _server_log(checkout: Checkout) -> Path:
     return checkout.server_dir / "logs" / "server.log"
-
-
-def _size(path: Path) -> int:
-    try:
-        return path.stat().st_size
-    except OSError:
-        return 0
 
 
 def _world_entries(checkout: Checkout) -> int:
@@ -83,7 +79,7 @@ def default_port(checkout: Checkout) -> int:
         raise DaocError(f"DAOC_PORT is not a number: {value}", 2) from None
 
 
-def _credentials() -> Tuple[str, str]:
+def credentials() -> Tuple[str, str]:
     """The saved Game account; on first run in a terminal, ask once and save it."""
     try:
         return keychain.read()
@@ -121,7 +117,7 @@ def _load_character(checkout: Checkout, account: str) -> Optional[Tuple[str, int
 
 def character(checkout: Checkout) -> Optional[str]:
     """The character a start would enter the world as; None: character select."""
-    account, _ = _credentials()
+    account, _ = credentials()
     chosen = _load_character(checkout, account)
     return chosen[0] if chosen else None
 
@@ -145,6 +141,8 @@ def launch_argv(checkout: Checkout, account: str, password: str,
         OPEN, "-n", str(checkout.launcher_app),
         "--env", "WINEDEBUG=" + (environ.get("DAOC_WINEDEBUG") or "trace+frametime"),
         "--env", "DAOC_LAUNCHER_RETRIES=8",
+        "--env", f"DAOC_WINE_HOME={checkout.wine_home}",
+        "--env", f"DAOC_WINEPREFIX={checkout.prefix}",
         *_forwarded_env(environ),
         "--args", "wine", "game.dll", "127.0.0.1", str(game_port), "42",
         account, password, *tail,
@@ -182,16 +180,14 @@ def _logins(checkout: Checkout, account: str) -> int:
     return len(re.findall(r"User " + re.escape(account) + r" logging on!", text, re.IGNORECASE))
 
 
-def start(checkout: Checkout, *, character: Optional[str] = None, retries: int = 1) -> None:
+def start(checkout: Checkout, *, retries: int = 1) -> None:
     """Launch until the client enters the world; DaocError when it never does.
 
     An account without a character is launched to character select instead, and
     succeeds once the server accepts the login: waiting for a world entry would
     kill the client while the character is being created."""
-    if character is not None:
-        os.environ["DAOC_CHARACTER"] = character
     game_port = default_port(checkout)
-    account, password = _credentials()
+    account, password = credentials()
     chosen = _load_character(checkout, account)
 
     def progress() -> int:
@@ -200,16 +196,16 @@ def start(checkout: Checkout, *, character: Optional[str] = None, retries: int =
     tries = 0
     while tries < retries:
         tries += 1
-        before, log_offset = progress(), _size(_server_log(checkout))
+        before, log_offset = progress(), files.size(_server_log(checkout))
         _launch_once(checkout, game_port, account, password, chosen)
-        watch = watchdog.start(before, _size(WINE_LOG), _game_cputime_cs())
+        watch = watchdog.start(before, files.size(WINE_LOG), _game_cputime_cs())
         while True:
             time.sleep(watchdog.POLL)
-            sample = watchdog.Sample(progress(), _size(WINE_LOG), _game_cputime_cs())
+            sample = watchdog.Sample(progress(), files.size(WINE_LOG), _game_cputime_cs())
             verdict, watch = watchdog.step(watch, sample)
             if verdict == watchdog.IN_WORLD:
                 if not chosen:
-                    if "Wrong password" in _log_tail(_server_log(checkout), log_offset):
+                    if "Wrong password" in files.tail(_server_log(checkout), log_offset):
                         raise DaocError(f"the server rejected the password for {account}; "
                                         "run daoc client login to save the right one", 2)
                     say(f"logged in after {watch.waited}s; create your character at "
@@ -292,28 +288,19 @@ def kill(checkout: Checkout) -> None:
         proc.run([wineserver, "-w"], env=env, check=False)
 
 
-def _log_tail(path: Path, offset: int) -> str:
-    try:
-        with path.open("rb") as f:
-            f.seek(offset)
-            return f.read().decode(errors="replace")
-    except OSError:
-        return ""
-
-
 def stop(checkout: Checkout) -> None:
     """kill, then wait until the server has dropped the Linkdead character (60 s
     after a kill), so the next login is not refused with "still being logged out
     from linkdeath"."""
     slog = _server_log(checkout)
-    before = _size(slog)
+    before = files.size(slog)
     kill(checkout)
     say(f"{time.strftime('%H:%M:%S')} client stopped")
     time.sleep(3)
-    if watchdog.linkdead_pending(_log_tail(slog, before)):
+    if watchdog.linkdead_pending(files.tail(slog, before)):
         for _ in range(45):
             time.sleep(2)
-            if not watchdog.linkdead_pending(_log_tail(slog, before)):
+            if not watchdog.linkdead_pending(files.tail(slog, before)):
                 say(f"{time.strftime('%H:%M:%S')} server dropped the character")
                 break
     # Anything wine-related still alive is a leak (e.g. another prefix's wineserver).

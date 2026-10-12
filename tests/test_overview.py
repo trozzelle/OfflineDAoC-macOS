@@ -5,6 +5,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
@@ -104,7 +105,7 @@ class OverviewTest(unittest.TestCase):
         out, _ = self.overview()
         self.assertEqual(pin_row(out, "server")[3:], [NEW_REF[:12], "rebuild", "due"])
 
-    def test_client_built_from_game_dll_orig(self):
+    def test_client_without_a_record_is_only_ever_the_legacy_release(self):
         self.co.client_root.mkdir(parents=True)
         self.co.app_dir.mkdir(parents=True)
         dll = self.co.app_dir / "game.dll.orig"
@@ -113,11 +114,17 @@ class OverviewTest(unittest.TestCase):
         out, _ = self.overview()
         self.assertRegex(line(out, "Client install:"), r"present$")
         self.assertEqual(pin_row(out, "client")[3:], ["game.dll", sha[:12], "rebuild", "due"])
+        self.assertIsNone(pins.installed(self.co, "client"))
 
+        # Every Proven release shares the legacy game.dll: a newer pin with that
+        # hash must not pass for the 0.35b files on disk.
+        legacy = dict(pins.LEGACY_CLIENT, game_dll_sha256=sha)
         pins.set_local(self.co, "client", dict(pins.shipped(self.co, "client"),
                                                 version="0.36", game_dll_sha256=sha))
-        out, _ = self.overview()
-        self.assertEqual(pin_row(out, "client")[2:], ["0.36", "0.36"])
+        with mock.patch.object(pins, "LEGACY_CLIENT", legacy):
+            out, _ = self.overview()
+        self.assertEqual(pin_row(out, "client")[2:], ["0.36", "0.35b", "rebuild", "due"])
+        self.assertEqual(pins.installed(self.co, "client"), legacy)
 
     def test_git_records_behind_and_graphics_head(self):
         (self.root / ".git").mkdir()

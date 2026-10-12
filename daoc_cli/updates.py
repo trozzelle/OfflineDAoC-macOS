@@ -17,22 +17,18 @@ Local pin file is written.
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from daoc_cli import pins, release
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
 API = "https://api.github.com/repos"
-USER_AGENT = "daoc-macos-installer/1.0"
-
-# The pin field that says whether two pins are the same upstream state.
-_KEY = {"server": "ref", "client": "version", "graphics": "ref"}
 
 
 def _get_json(url: str) -> Any:
     req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT,
+        "User-Agent": release.USER_AGENT,
         "Accept": "application/vnd.github+json",
     })
     try:
@@ -115,22 +111,15 @@ def resolve_latest(checkout: Checkout, group: str) -> Dict[str, Any]:
     raise DaocError(f"no pin group {group!r} (expected one of: {', '.join(pins.GROUPS)})")
 
 
-def same(group: str, a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
-    """Whether two pins name the same upstream state (ref, or client version)."""
-    return bool(a and b) and a.get(_KEY[group]) == b.get(_KEY[group])
-
-
 def check(checkout: Checkout, group: str) -> int:
     """Print `<group>  Shipped … Local … built from … latest … <verdict>`; exit 0."""
-    from daoc_cli import overview  # overview imports server, which imports this module
-
     shipped = pins.shipped(checkout, group)
     # pins.local, not pins.effective: a lapsed Local pin is reported, never dropped here.
     local = pins.local(checkout, group)
     pin = local if local is not None else shipped
-    built, _ = overview._built_from(checkout, group, pin)
+    built, _ = pins.built_from(checkout, group, pin)
     latest = resolve_latest(checkout, group)
-    verdict = "up to date" if same(group, pin, latest) else "UPDATE AVAILABLE"
+    verdict = "up to date" if pins.same(group, pin, latest) else "UPDATE AVAILABLE"
     print(
         f"{group:<8}  Shipped {pins.short(group, shipped)}  "
         f"Local {pins.short(group, local) if local is not None else '-'}  "

@@ -74,6 +74,7 @@ class GraphicsTest(unittest.TestCase):
             "--app", str(self.app),
             "--wine", str(self.root / "dist" / "wine"),
             "--prefix", str(self.root / "dist" / "prefix"),
+            "--launcher", str(self.root / "dist" / "DAoCLauncher.app"),
             "select",
         ])
         self.assertNotIn("cwd", self.exec_kwargs)

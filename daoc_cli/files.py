@@ -1,4 +1,4 @@
-"""File helpers: chunked SHA-256 and atomic replacement."""
+"""File helpers: chunked SHA-256, atomic replacement, and reading a growing log."""
 import hashlib
 import os
 import tempfile
@@ -17,6 +17,24 @@ def sha256_of(stream: BinaryIO) -> str:
 def sha256(path: Path) -> str:
     with path.open("rb") as f:
         return sha256_of(f)
+
+
+def size(path: Path) -> int:
+    """path's size in bytes; 0 when it cannot be read (e.g. no log yet)."""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def tail(path: Path, offset: int) -> str:
+    """path's text from byte offset on; "" when it cannot be read."""
+    try:
+        with path.open("rb") as f:
+            f.seek(offset)
+            return f.read().decode(errors="replace")
+    except OSError:
+        return ""
 
 
 def atomic_write(path: Path, text: str, mode: Optional[int] = None) -> None:

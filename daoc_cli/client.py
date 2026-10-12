@@ -5,9 +5,11 @@ install, in order (re-runs skip finished steps):
   2. Wine: fetch and verify athei/wine-build (manifest.json `wine`): CrossOver
      Wine with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
-     (see release). An existing Client install built from another release (the
-     pin it records, see pins.INSTALLED) is replaced the way update replaces
-     it, graphics carried over; one built from the pin is kept.
+     (see release) beside the install, then swap it in, as update does: an
+     interrupted extraction leaves nothing in the way of a re-run. An existing
+     Client install built from another release (the pin it records, see
+     pins.INSTALLED) is replaced, graphics carried over; one built from the pin
+     is kept.
   4. Client patch on game.dll (see client_patch).
   5. Wine prefix (win10 version setting, profile folders kept inside the
      prefix, settings carried over from an older wine's user, prefix upgrade)
@@ -38,8 +40,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, graphics, overview, pins, proc,
-                      release, updates)
+from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
+                      updates)
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -323,14 +325,23 @@ def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -
     current = pins.effective(checkout, "client")
     version = latest["version"]
     # Read from the install, not the pin: a pull can move the pin alone.
-    built, matches = overview._built_from(checkout, "client", latest)
+    built, matches = pins.built_from(checkout, "client", latest)
     if matches:
         say(f"client already at {version}")
+        # The pin can lag the install (a lapsed Local pin); a lapsed pin also
+        # drops latest's game.dll hash, so take it from the install's record.
+        if not pins.same("client", current, latest):
+            record = pins.installed(checkout, "client") or {}
+            pins.set_local(checkout, "client", dict(
+                latest, game_dll_sha256=record.get("game_dll_sha256")
+                or latest.get("game_dll_sha256")))
+            say(f"OfflineDAoC {version} is the Local client pin "
+                "(`daoc dev ship-pins` makes it Shipped)")
         return 0
     say(f"client update: OfflineDAoC {built} -> {version}")
     # The pin is set with the replace, so a failed restore resumes against the
     # right pin.
-    local = not updates.same("client", current, latest)
+    local = not pins.same("client", current, latest)
     saved = _replace(checkout, latest, fetch_url or release.download, "update", local)
     if saved is not None:
         restore(checkout, saved, "update")
@@ -419,21 +430,20 @@ def _install_wine(checkout: Checkout, verbose: bool) -> None:
 
 
 def _install_release(checkout: Checkout) -> None:
-    _recover_swap(checkout)
     pin = pins.effective(checkout, "client")
     version = pin["version"]
+    _recover_swap(checkout)
     if not checkout.client_root.is_dir():
         say(f"fetching OfflineDAoC v{version} (this is a ~5 GB download)")
-        release.install(checkout)
-        return
-    _resume(checkout, "install")
-    # Read from the install, not the pin: a pull can move the pin alone.
-    built, matches = overview._built_from(checkout, "client", pin)
-    if matches is not False:
-        say("OfflineDAoC already installed")
-        return
-    say(f"replacing OfflineDAoC {built} with the pinned v{version} "
-         "(this is a ~5 GB download)")
+    else:
+        _resume(checkout, "install")
+        # Read from the install, not the pin: a pull can move the pin alone.
+        built, matches = pins.built_from(checkout, "client", pin)
+        if matches is not False:
+            say("OfflineDAoC already installed")
+            return
+        say(f"replacing OfflineDAoC {built} with the pinned v{version} "
+             "(this is a ~5 GB download)")
     saved = _replace(checkout, pin, release.download, "install")
     if saved is not None:
         restore(checkout, saved, "install")
@@ -507,7 +517,7 @@ def _install_launcher(checkout: Checkout) -> None:
         dst.unlink()
     elif dst.exists():
         shutil.rmtree(dst)
-    shutil.copytree(checkout.root / "client" / "DAoCLauncher.app", dst, symlinks=True)
+    shutil.copytree(checkout.launcher_src, dst, symlinks=True)
     _unquarantine(dst)
 
 

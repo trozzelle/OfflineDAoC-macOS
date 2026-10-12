@@ -6,10 +6,10 @@ arguments means `select` (the checklist). Nothing here runs unless called:
 client install never pulls the graphics project. The first call clones the
 pinned commit into upstream/graphics/; every call checks that checkout is at
 the pin with no local changes (its d3d9.dll ends up loaded by the game), then
-runs its daoc-gfx against this Checkout's client, wine and prefix
-(DAOC_WINE_HOME / DAOC_WINEPREFIX override the last two, as they do for the
-launcher). Each patch, and what turning it off restores, is in the graphics
-project's README.
+runs its daoc-gfx against this Checkout's client, wine, prefix and installed
+launcher (DAOC_WINE_HOME / DAOC_WINEPREFIX override wine and prefix, as they
+do for the launcher). Each patch, and what turning it off restores, is in the
+graphics project's README.
 
 `graphics update` is daoc's own action and never reaches daoc-gfx: it moves
 the Local graphics pin to the project's `main` once that commit passes the
@@ -27,13 +27,13 @@ from pathlib import Path
 
 from daoc_cli import pins, proc, updates
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
 
 PYTHON = "/usr/bin/python3"
 
-# The source launcher whose WINEDLLOVERRIDES line the anisotropy patch rewrites
-# (in its installed copy) only if that line equals its STOCK_LINE exactly once.
-SOURCE_LAUNCHER = Path("client") / "DAoCLauncher.app"
+# The anisotropy patch rewrites the WINEDLLOVERRIDES line of the installed
+# launcher only if that line equals its STOCK_LINE exactly once; checked against
+# the source launcher (Checkout.launcher_src).
 LAUNCH_SCRIPT = Path("Contents") / "MacOS" / "launch"
 # daoc-gfx `status --json` keys this Checkout reads (schema 1).
 STATUS_SCHEMA = 1
@@ -57,7 +57,7 @@ def ensure_checkout(checkout: Checkout) -> Path:
     repo, ref = pin["repo"], pin["ref"]
     src = checkout.graphics_src
     if not (src / ".git").is_dir():
-        print(f"== graphics: cloning {repo.rstrip('/').rsplit('/', 1)[-1]} at {ref[:12]}", file=sys.stderr)
+        say(f"graphics: cloning {repo.rstrip('/').rsplit('/', 1)[-1]} at {ref[:12]}")
         src.parent.mkdir(parents=True, exist_ok=True)
         proc.run(["git", "clone", "--quiet", repo, str(src)])
     # Refuse edited or untracked files: they would run (or, for d3d9.dll, be
@@ -68,7 +68,7 @@ def ensure_checkout(checkout: Checkout) -> Path:
             "remove that folder to re-clone the pinned commit"
         )
     if proc.head(src) != ref:
-        print(f"== graphics: checking out pinned {ref[:12]}", file=sys.stderr)
+        say(f"graphics: checking out pinned {ref[:12]}")
         proc.git(src, "fetch", "--quiet", "origin")
         proc.git(src, "checkout", "--quiet", "--detach", ref)
     actual = proc.head(src)
@@ -78,27 +78,22 @@ def ensure_checkout(checkout: Checkout) -> Path:
 
 
 def gfx_argv(checkout: Checkout, src: Path, args: list) -> list:
+    """The daoc-gfx at src against this Checkout's client, wine, prefix and
+    launcher; no args means `select`."""
     return [
         PYTHON, str(src / "daoc-gfx"),
         "--app", str(checkout.app_dir),
         "--wine", str(checkout.wine_home),
         "--prefix", str(checkout.prefix),
+        "--launcher", str(checkout.launcher_app),
         *(args or ["select"]),
     ]
 
 
 def gfx(checkout: Checkout, args: list) -> "subprocess.CompletedProcess[str]":
-    """Run the pinned daoc-gfx with args against this Checkout's client and
-    launcher; stdout and stderr are captured and the caller judges the exit."""
-    src = ensure_checkout(checkout)
-    return proc.run([
-        PYTHON, str(src / "daoc-gfx"),
-        "--app", str(checkout.app_dir),
-        "--wine", str(checkout.wine_home),
-        "--prefix", str(checkout.prefix),
-        "--launcher", str(checkout.launcher_app),
-        *args,
-    ], check=False)
+    """Run the pinned daoc-gfx with args (see gfx_argv); stdout and stderr are
+    captured and the caller judges the exit."""
+    return proc.run(gfx_argv(checkout, ensure_checkout(checkout), args), check=False)
 
 
 def _lists(help_text: str, word: str) -> bool:
@@ -133,11 +128,11 @@ def contract_check(src: Path, checkout: Checkout) -> None:
     for line in (r.stdout + r.stderr).splitlines():
         if "... skipped" in line:
             print(line, file=sys.stderr)
-    print(f"== graphics tests pass at {at}", file=sys.stderr)
+    say(f"graphics tests pass at {at}")
 
     # 2. The options and default command gfx_argv passes.
     top = _help(src)
-    for word in ("--app", "--wine", "--prefix", "select"):
+    for word in ("--app", "--wine", "--prefix", "--launcher", "select"):
         if not _lists(top, word):
             raise broken("daoc-gfx --help", f"it no longer lists {word}")
 
@@ -147,7 +142,7 @@ def contract_check(src: Path, checkout: Checkout) -> None:
                   str(src)], check=False)
     if r.returncode != 0:
         raise broken("STOCK_LINE", f"cannot read daoc_gfx.anisotropy.STOCK_LINE: {_last_line(r.stderr)}")
-    script = checkout.root / SOURCE_LAUNCHER / LAUNCH_SCRIPT
+    script = checkout.launcher_src / LAUNCH_SCRIPT
     try:
         lines = [line.strip() for line in script.read_text(encoding="utf-8").splitlines()]
     except OSError as e:
@@ -156,14 +151,14 @@ def contract_check(src: Path, checkout: Checkout) -> None:
     if count != 1:
         raise broken("STOCK_LINE", f"daoc_gfx.anisotropy.STOCK_LINE occurs {count} times in "
                      f"{script}, not once ({r.stdout})")
-    print(f"== daoc-gfx options and launcher line match at {at}", file=sys.stderr)
+    say(f"daoc-gfx options and launcher line match at {at}")
 
     with tempfile.TemporaryDirectory(prefix="daoc-gfx-check-") as tmp:
         app = Path(tmp) / "app"
         app.mkdir()
         (app / "game.dll").write_bytes(b"")
-        launcher = Path(tmp) / SOURCE_LAUNCHER.name
-        shutil.copytree(checkout.root / SOURCE_LAUNCHER, launcher, symlinks=True)
+        launcher = Path(tmp) / checkout.launcher_src.name
+        shutil.copytree(checkout.launcher_src, launcher, symlinks=True)
 
         # 4. The machine-readable status a client update carries over.
         r = proc.run([PYTHON, str(src / "daoc-gfx"), "--app", str(app), "--launcher", str(launcher),
@@ -186,7 +181,7 @@ def contract_check(src: Path, checkout: Checkout) -> None:
             raise broken("textures --help", "it no longer lists export")
         if not _lists(_help(src, "--app", str(app), "textures", "install"), "--from-dir"):
             raise broken("textures install --help", "it no longer lists --from-dir")
-    print(f"== daoc-gfx machine interface matches at {at}", file=sys.stderr)
+    say(f"daoc-gfx machine interface matches at {at}")
 
 
 def update(checkout: Checkout) -> int:
@@ -196,11 +191,11 @@ def update(checkout: Checkout) -> int:
     latest = updates.resolve_latest(checkout, "graphics")
     sha = latest["ref"]
     if sha == current.get("ref"):
-        print(f"graphics already at {sha[:12]}", file=sys.stderr)
+        say(f"graphics already at {sha[:12]}")
         return 0
     with tempfile.TemporaryDirectory(prefix="daoc-graphics-") as tmp:
         src = Path(tmp) / "graphics"
-        print(f"== graphics: checking main at {sha[:12]} in a temp clone", file=sys.stderr)
+        say(f"graphics: checking main at {sha[:12]} in a temp clone")
         proc.run(["git", "clone", "--quiet", latest["repo"], str(src)])
         proc.git(src, "checkout", "--quiet", "--detach", sha)
         contract_check(src, checkout)

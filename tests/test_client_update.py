@@ -236,6 +236,21 @@ class ClientUpdateTest(unittest.TestCase):
         self.assert_old_client_untouched()
         self.assertEqual(self.gfx_calls(), [])
 
+    def test_already_at_latest_behind_a_lapsed_local_pin_repins_without_a_download(self):
+        pin = dict(pins.shipped(self.co, "client"), version="T", game_dll_sha256="ab" * 32)
+        pins.set_local(self.co, "client", pin)
+        pins.record_installed(self.co, "client", pin)
+        manifest = json.loads((self.root / "manifest.json").read_text())
+        manifest["client"]["version"] = "S"
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+        # A lapsed Local pin no longer supplies the latest release's game.dll hash.
+        self.latest, self.served = dict(pin, game_dll_sha256=None), {}
+        code, out, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertIn("daoc: client already at T", err)
+        self.assertEqual(self.downloads.urls, [])
+        self.assertEqual(pins.effective(Checkout(self.root), "client"), pin)
+
     def test_install_behind_a_newer_shipped_pin_catches_up(self):
         # A pull brought a Shipped pin naming the latest release; the install is older.
         pin, self.served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": self.dll,

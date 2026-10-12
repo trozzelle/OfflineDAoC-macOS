@@ -25,7 +25,7 @@ from typing import Optional, Sequence, Tuple, Union
 from daoc_cli.checkout import Checkout
 from daoc_cli import client, dev, graphics, overview, self_install, server
 from daoc_cli.server_tools import admin, progress
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
 
 GROUPS = (
     ("server", server),
@@ -89,7 +89,7 @@ def main(argv: Optional[Sequence[str]] = None, *, root: Optional[Union[str, Path
     try:
         return _dispatch(sys.argv[1:] if argv is None else argv, root)
     except DaocError as e:
-        print(f"daoc: {e.msg}", file=sys.stderr)
+        say(e.msg)
         return e.code
     except SystemExit as e:
         return _exit_code(e)

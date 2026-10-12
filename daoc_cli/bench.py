@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
 
-from daoc_cli import client_runtime, keychain, proc, server
+from daoc_cli import client_runtime, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, say
 
@@ -322,7 +322,8 @@ def _bench(checkout: Checkout, seconds: int, tag: str, account: str, out: Path,
 def run(checkout: Checkout, seconds: int, tag: str) -> int:
     """0 pass, 1 fail, 2 invalid. The gm raise is restored on return, on an
     error, and on SIGINT/SIGTERM/SIGHUP."""
-    account = os.environ.get("DAOC_BENCH_ACCOUNT") or keychain.read()[0]
+    # Like client start: on a terminal, a missing Game account is asked for once.
+    account = os.environ.get("DAOC_BENCH_ACCOUNT") or client_runtime.credentials()[0]
     out = Path(os.environ.get("DAOC_BENCH_OUT") or tempfile.mkdtemp(prefix=f"daoc-bench-{tag}."))
 
     def on_signal(signum: int, _frame: object) -> None:

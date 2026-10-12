@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from daoc_cli import client, client_runtime, proc, server
+from daoc_cli import client, client_runtime, files, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -190,7 +190,7 @@ class _Run:
         server_log = self.server_dir / "logs" / "server.log"
         logging_on = re.compile(r"LoginRequestHandler.*User " + re.escape(self.account)
                                 + r" logging on!")
-        offset = _size(server_log)
+        offset = files.size(server_log)
         # Observed: every "died" attempt crashed at the same GL-init point
         # (wined3d select_card_handler → err:seh:NtRaiseException, verified via the
         # per-attempt wine logs in evidence/). The crash is probabilistic at that
@@ -222,7 +222,7 @@ class _Run:
                 # World entry ("WorldInitRequestHandler … entering Region") can't be the
                 # gate: a brand-new account has no character, and the automated launch
                 # stops at character select.
-                new = _tail(server_log, offset)
+                new = files.tail(server_log, offset)
                 if "Wrong password" in new:
                     self.fail("server rejected the login (Wrong password) — account/password mismatch")
                     rejected = True
@@ -371,25 +371,9 @@ def _alive(pid: int) -> bool:
     return True
 
 
-def _size(path: Path) -> int:
-    try:
-        return path.stat().st_size
-    except OSError:
-        return 0
-
-
 def _read(path: Path) -> str:
     try:
         return path.read_text(errors="replace")
-    except OSError:
-        return ""
-
-
-def _tail(path: Path, offset: int) -> str:
-    try:
-        with path.open("rb") as f:
-            f.seek(offset)
-            return f.read().decode(errors="replace")
     except OSError:
         return ""
 

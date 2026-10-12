@@ -15,7 +15,7 @@ import sys
 from typing import Tuple
 
 from daoc_cli import proc
-from daoc_cli.errors import DaocError
+from daoc_cli.errors import DaocError, say
 
 SECURITY = "/usr/bin/security"
 SERVICE = "daoc-offline"
@@ -45,9 +45,8 @@ def unlock() -> None:
         raise DaocError("the login keychain is locked in this session (an SSH login does not "
                         "share the GUI's unlocked keychain); run `security unlock-keychain` "
                         "first, or run daoc from a Terminal on the Mac", 2)
-    print("daoc: the login keychain is locked in this session (SSH logins don't share the "
-          "GUI's unlocked keychain); unlocking it with your macOS login password",
-          file=sys.stderr, flush=True)
+    say("the login keychain is locked in this session (SSH logins don't share the "
+        "GUI's unlocked keychain); unlocking it with your macOS login password")
     if proc.run([SECURITY, "unlock-keychain"], verbose=True, check=False).returncode != 0:
         raise DaocError("could not unlock the login keychain", 2)
 

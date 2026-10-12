@@ -1,4 +1,5 @@
 """client bench: the frame-time verdict and the gm-raise marker lifecycle."""
+import io
 import os
 import signal
 import subprocess
@@ -9,7 +10,7 @@ from unittest import mock
 
 from tests.support import ROOT  # noqa: F401  (puts the Checkout on sys.path)
 
-from daoc_cli import bench
+from daoc_cli import bench, keychain
 from daoc_cli.checkout import Checkout
 
 
@@ -67,6 +68,10 @@ class MarkerTest(unittest.TestCase):
         patcher = mock.patch.object(bench, "_admin", side_effect=self.admin)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.err = io.StringIO()
+        patcher = mock.patch("sys.stderr", self.err)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def admin(self, checkout, *args):
         self.calls.append(args)
@@ -78,6 +83,7 @@ class MarkerTest(unittest.TestCase):
         bench.restore_leftover(self.checkout)
         self.assertEqual(self.calls, [("accounts", "set-role", "alice", "player")])
         self.assertFalse(bench.marker(self.checkout).exists())
+        self.assertIn("daoc: restored alice to player", self.err.getvalue())
 
     def test_failed_leftover_restore_is_invalid_and_keeps_marker(self):
         bench.marker(self.checkout).write_text("alice\n")
@@ -97,8 +103,7 @@ class MarkerTest(unittest.TestCase):
     def test_failed_restore_keeps_marker_for_next_run(self):
         bench.raise_gm(self.checkout, "bob")
         self.ok = False
-        with mock.patch.object(bench.server, "tool", return_value=Path("/x/daoc-admin")), \
-                mock.patch("sys.stderr"):
+        with mock.patch.object(bench.server, "tool", return_value=Path("/x/daoc-admin")):
             bench.restore(self.checkout)
         self.assertTrue(bench.marker(self.checkout).exists())
         self.ok = True
@@ -123,14 +128,35 @@ class MarkerTest(unittest.TestCase):
                 mock.patch.object(bench, "_build"), \
                 mock.patch.object(bench, "_server_up", return_value=True), \
                 mock.patch.object(bench.client_runtime, "character", return_value="Hero"), \
-                mock.patch.object(bench.client_runtime, "stop", side_effect=interrupt), \
-                mock.patch("sys.stderr"):
+                mock.patch.object(bench.client_runtime, "stop", side_effect=interrupt):
             with self.assertRaises(SystemExit) as cm:
                 bench.run(self.checkout, 10, "t")
         self.assertEqual(cm.exception.code, 130)
         self.assertEqual(self.calls, [("accounts", "set-role", "alice", "player")])
         self.assertFalse(bench.marker(self.checkout).exists())
         self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler)
+
+
+class AccountTest(unittest.TestCase):
+    def test_missing_account_is_asked_for_on_a_terminal(self):
+        saved = []
+
+        def read():
+            if not saved:
+                raise keychain.NotSaved()
+            return saved[0]
+
+        stdin = mock.Mock(isatty=mock.Mock(return_value=True))
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"DAOC_BENCH_OUT": tmp}) as env, \
+                mock.patch.object(keychain, "read", side_effect=read), \
+                mock.patch.object(keychain, "save_interactive",
+                                  side_effect=lambda: saved.append(("acct", "pw"))), \
+                mock.patch.object(bench.client_runtime.sys, "stdin", stdin), \
+                mock.patch.object(bench, "_bench", return_value=0) as run:
+            env.pop("DAOC_BENCH_ACCOUNT", None)
+            self.assertEqual(bench.run(Checkout(Path(tmp)), 10, "t"), 0)
+        self.assertEqual(run.call_args.args[3], "acct")
 
 
 if __name__ == "__main__":

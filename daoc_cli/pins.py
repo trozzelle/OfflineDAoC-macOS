@@ -15,22 +15,33 @@ maintainer to commit.
 
 The Server and Client installs record the pin they were built from in their
 own folder (INSTALLED), so whether an install is up to date is read from the
-install, never inferred from the pin.
+install, never inferred from the pin (built_from).
 """
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from daoc_cli import proc
 from daoc_cli.checkout import Checkout
-from daoc_cli.files import atomic_write
-from daoc_cli.errors import DaocError
+from daoc_cli.files import atomic_write, sha256
+from daoc_cli.errors import DaocError, say
 
 GROUPS = ("server", "client", "graphics")
 
-# The field that names a pin in messages; refs are shortened to 12 hex chars.
-_SHORT_FIELD = {"server": "ref", "client": "version", "graphics": "ref"}
+# The field that names a pin: two pins with the same value are the same
+# upstream state. In messages, refs are shortened to 12 hex chars.
+_KEY = {"server": "ref", "client": "version", "graphics": "ref"}
+
+NOT_INSTALLED = "not installed"
+UNKNOWN = "unknown"
+
+# The one client main's tooling installed before the install record existed.
+# Every Proven release shares its game.dll, so the hash names no other version.
+LEGACY_CLIENT = {
+    "version": "0.35b",
+    "game_dll_sha256": "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b",
+}
 
 STORE = "pins.json"
 # In the Server and Client install folders: the pin the install was built from.
@@ -45,11 +56,16 @@ def _check_group(group: str) -> None:
 def short(group: str, fields: Optional[Dict[str, Any]]) -> str:
     """The pin's name for messages: 12 chars of `ref`, or the client `version`."""
     _check_group(group)
-    value = (fields or {}).get(_SHORT_FIELD[group])
+    value = (fields or {}).get(_KEY[group])
     if value is None:
-        return "unknown"
+        return UNKNOWN
     value = str(value)
-    return value[:12] if _SHORT_FIELD[group] == "ref" else value
+    return value[:12] if _KEY[group] == "ref" else value
+
+
+def same(group: str, a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
+    """Whether two pins name the same upstream state (ref, or client version)."""
+    return bool(a and b) and a.get(_KEY[group]) == b.get(_KEY[group])
 
 
 def shipped(checkout: Checkout, group: str) -> Dict[str, Any]:
@@ -127,11 +143,8 @@ def effective(checkout: Checkout, group: str) -> Dict[str, Any]:
     if entry["replaces"] == current:
         return dict(entry["pin"])
     _save(checkout, [e for e in entries if e is not entry])
-    print(
-        f"daoc: Local {group} pin {short(group, entry['pin'])} lapsed; "
-        f"Shipped pin {short(group, current)} applies",
-        file=sys.stderr,
-    )
+    say(f"Local {group} pin {short(group, entry['pin'])} lapsed; "
+        f"Shipped pin {short(group, current)} applies")
     return current
 
 
@@ -185,6 +198,47 @@ def forget_installed(checkout: Checkout, group: str) -> None:
         _installed_path(checkout, group).unlink()
     except FileNotFoundError:
         pass
+
+
+def built_from(checkout: Checkout, group: str, pin: Dict[str, Any]) -> Tuple[str, Optional[bool]]:
+    """(label, whether the install was built from pin), read from the install
+    itself and offline; matches is None when unknown.
+
+      - server: the pin `daoc server install` records in the install
+        (INSTALLED) once a build succeeds. An install built before that record
+        existed names no upstream ref, so built-from is unknown.
+      - client: the pin recorded in the install (INSTALLED). An install made
+        before that record came from the old tooling, which only installed
+        LEGACY_CLIENT: its pristine game.dll (game.dll.orig once patched) is
+        matched against that pin alone, and the record is written once it matches.
+      - graphics: the HEAD commit of the upstream/graphics clone.
+    """
+    _check_group(group)
+    if group == "graphics":
+        if not checkout.graphics_src.is_dir():
+            return NOT_INSTALLED, None
+        head = proc.git_out(checkout.graphics_src, "rev-parse", "HEAD")
+        if not head:
+            return UNKNOWN, None
+        return head[:12], head == pin.get("ref")
+    if not (checkout.server_dir if group == "server" else checkout.app_dir).is_dir():
+        return NOT_INSTALLED, None
+    record = installed(checkout, group)
+    if record is None and group == "client":
+        dll = checkout.app_dir / "game.dll.orig"
+        if not dll.is_file():
+            dll = checkout.app_dir / "game.dll"
+        try:
+            sha = sha256(dll)
+        except OSError:
+            return UNKNOWN, None
+        if sha != LEGACY_CLIENT["game_dll_sha256"]:
+            return f"game.dll {sha[:12]}", False
+        record_installed(checkout, group, LEGACY_CLIENT)
+        record = LEGACY_CLIENT
+    if record is None:
+        return UNKNOWN, None
+    return short(group, record), same(group, record, pin)
 
 
 def _merge(entry: Dict[str, Any], pin: Dict[str, Any]) -> Dict[str, Any]:

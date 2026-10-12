@@ -128,7 +128,9 @@ applies. The Server and Client installs record the pin they were built from
 reads that record, never the pin: after a pull moves the pin, `daoc server
 install` and `daoc client install` bring the install to it, and `daoc server|client
 update` still moves it to the latest. A client install made before the record
-falls back to the hash of its pristine `game.dll`.
+came from the old tooling, which only installed OfflineDAoC 0.35b: it is
+identified by that release's pristine `game.dll` hash alone (every Proven release
+shares it, so the hash names no other version), and the record is written then.
 `daoc <group> update --check` only reports what is available.
 `daoc dev ship-pins` is the maintainer step: it writes the effective pins into
 `manifest.json` for a commit.
@@ -244,7 +246,8 @@ It is published into `bin/` and links the vendored System.Data.SQLite:
    x87sidecar Rosetta x87 JIT and mtld3d; its `compatdb.so` attaches x87sidecar
    to every i386 process and picks mtld3d as D3D9.
 2. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
-   join, extract with zip-slip validation.
+   join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
+   in, as an update does: an install killed mid-extraction re-runs cleanly.
 3. Apply the client encryption-bypass patch to `game.dll` (byte-verified against
    the recorded pristine hash).
 4. Initialize/update the prefix (win10), replace the profile-folder symlinks with

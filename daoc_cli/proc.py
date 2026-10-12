@@ -79,6 +79,18 @@ def head(repo: StrPath) -> str:
     return git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
+def git_out(repo: Path, *args: str) -> Optional[str]:
+    """stdout of `git -C repo args`, stripped; None when repo is not a git
+    checkout of its own (never a parent's) or git fails."""
+    if not (repo / ".git").exists():
+        return None
+    try:
+        result = git(repo, *args, check=False)
+    except DaocError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def execv(
     argv: Sequence[StrPath],
     *,

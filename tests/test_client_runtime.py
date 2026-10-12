@@ -158,12 +158,19 @@ class CharacterAndLaunchTest(unittest.TestCase):
     def test_launch_argv_forwards_only_set_env(self):
         argv = client_runtime.launch_argv(
             self.checkout, "acct", "pw", ("Recent", 2), 10300,
-            {"ROSETTA_X87_PATH": "", "MTL_HUD_ENABLED": "1", "OTHER": "x"})
+            {"ROSETTA_X87_PATH": "", "MTL_HUD_ENABLED": "1", "OTHER": "x",
+             "DAOC_WINE_HOME": "rel/wine", "DAOC_WINEPREFIX": "rel/prefix"})
         self.assertEqual(argv[:3], [client_runtime.OPEN, "-n", str(self.checkout.launcher_app)])
         self.assertIn("WINEDEBUG=trace+frametime", argv)
         self.assertIn("ROSETTA_X87_PATH=", argv)
         self.assertIn("MTL_HUD_ENABLED=1", argv)
         self.assertNotIn("OTHER=x", argv)
+        # The Launcher runs with cwd /: wine and prefix are the Checkout's
+        # resolved paths, never the raw (possibly relative) environment values.
+        envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
+        self.assertEqual([e for e in envs if e.startswith(("DAOC_WINE_HOME=", "DAOC_WINEPREFIX="))],
+                         [f"DAOC_WINE_HOME={self.checkout.wine_home}",
+                          f"DAOC_WINEPREFIX={self.checkout.prefix}"])
         self.assertEqual(argv[argv.index("--args"):],
                          ["--args", "wine", "game.dll", "127.0.0.1", "10300", "42",
                           "acct", "pw", "Recent", "2"])
@@ -226,8 +233,8 @@ class NoCharacterTest(unittest.TestCase):
         self.assertEqual(len(self.launches), 1)
 
     def test_named_character_that_does_not_exist_is_still_an_error(self):
-        with self.assertRaises(DaocError):
-            client_runtime.start(self.checkout, character="Nobody", retries=1)
+        with self.assertRaises(DaocError), mock.patch.dict(os.environ, {"DAOC_CHARACTER": "Nobody"}):
+            client_runtime.start(self.checkout, retries=1)
         self.assertEqual(self.launches, [])
 
     def test_dry_run_prints_nothing_on_stdout(self):
@@ -330,7 +337,7 @@ class KeychainLockTest(unittest.TestCase):
                 mock.patch.object(keychain.sys, "stderr", io.StringIO()), \
                 mock.patch("builtins.input", side_effect=AssertionError("asked for an account")):
             with self.assertRaises(DaocError) as cm:
-                client_runtime._credentials()
+                client_runtime.credentials()
         self.assertIn("unlock", cm.exception.msg)
         self.assertFalse(any(c[1] == "add-generic-password" for c in security.calls))
 
