@@ -175,6 +175,27 @@ class CharacterAndLaunchTest(unittest.TestCase):
                          ["--args", "wine", "game.dll", "127.0.0.1", "10300", "42",
                           "acct", "pw", "Recent", "2"])
 
+    def test_arm64_wine_gets_its_launch_settings_and_the_caller_wins(self):
+        self.checkout.wine_home = Path(self.tmp.name) / "dist" / "wine-arm64"
+        (self.checkout.wine_home / "lib" / "wine" / "aarch64-unix").mkdir(parents=True)
+        argv = client_runtime.launch_argv(
+            self.checkout, "acct", "pw", None, 10300,
+            {"FEX_DISKCACHE": "0", "MTLD3D_CONFIG": "present.vsync=on"})
+        envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
+        self.assertIn("DAOC_DLL_OVERRIDES=mscoree,mshtml=;d3d9=n,b", envs)
+        self.assertIn("MTLD3D_NO_CRASH_HANDLER=1", envs)
+        # Without it the client runs at ~10-15 FPS in world on the arm64 Wine.
+        self.assertIn("FEX_X87REDUCEDPRECISION=1", envs)
+        self.assertIn("WINE_LARGE_ADDRESS_AWARE=1", envs)
+        self.assertIn("FEX_DISKCACHE=0", envs)
+        self.assertIn("MTLD3D_CONFIG=present.vsync=on", envs)
+        self.assertNotIn("FEX_DISKCACHE=1", envs)
+
+    def test_rosetta_wine_gets_no_arm64_settings(self):
+        argv = client_runtime.launch_argv(self.checkout, "acct", "pw", None, 10300, {})
+        envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
+        self.assertFalse([e for e in envs if e.startswith(("FEX_", "MTLD3D_", "DAOC_DLL"))])
+
 
 class NoCharacterTest(unittest.TestCase):
     """An account without a character starts at character select."""

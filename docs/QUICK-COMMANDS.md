@@ -12,7 +12,7 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 | `daoc server stop` | Save and stop the server |
 | `daoc server status` | Print `running (pid N)` or `stopped` |
 | `daoc server update [--check]` | Move the server to its upstream's latest commit and rebuild |
-| `daoc client install [--verbose]` | Install Wine, the client, the Client patch and the Wine prefix |
+| `daoc client install [--wine rosetta\|arm64] [--verbose]` | Install Wine, the client, the Client patch and the Wine prefix; `--wine` picks and switches the Wine (default: the current one, else rosetta) |
 | `daoc client login` | Save or replace the Game account in the Keychain |
 | `daoc client start [--character NAME] [--retries N] [--dry-run]` | Launch the client into the world |
 | `daoc client stop` | Stop the client and wait out Linkdead |

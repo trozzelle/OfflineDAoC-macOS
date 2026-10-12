@@ -352,11 +352,13 @@ def _launch(checkout: Checkout, account: str, password: str) -> None:
     on the argv the Launcher requires and is never printed. LaunchServices drops
     the caller's environment, so the Checkout's wine and prefix (DAOC_WINE_HOME /
     DAOC_WINEPREFIX, resolved) ride on --env: game_pids and kill look for the
-    client under the same wine."""
+    client under the same wine. So do the settings that wine needs
+    (client_runtime.wine_defaults); the caller's other knobs are not forwarded."""
     proc.run([client_runtime.OPEN, "-n", checkout.launcher_app,
               "--env", "DAOC_LAUNCHER_RETRIES=1",
               "--env", f"DAOC_WINE_HOME={checkout.wine_home}",
               "--env", f"DAOC_WINEPREFIX={checkout.prefix}",
+              *client_runtime.forwarded_env(client_runtime.wine_defaults(checkout)),
               "--args", "wine", "game.dll", "127.0.0.1", str(GAME_PORT), "42", account, password],
              check=False)
 

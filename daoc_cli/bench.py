@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
 
 from daoc_cli import client_runtime, proc, server
-from daoc_cli.checkout import Checkout
+from daoc_cli.checkout import Checkout, wine_env
 from daoc_cli.errors import DaocError, say
 
 MAKE = "/usr/bin/make"
@@ -162,7 +162,7 @@ def drive(checkout: Checkout, seconds: int, state: Path) -> None:
     # Input must come from the game's own wineserver: follow DAOC_WINE_HOME /
     # DAOC_WINEPREFIX (the Checkout does).
     wine = checkout.wine_home / "bin" / "wine"
-    env = dict(os.environ, WINEPREFIX=str(checkout.prefix))
+    env = wine_env(checkout.wine_home, checkout.prefix)
     npcs = (os.environ.get("DAOC_BENCH_NPCS") or DEFAULT_NPCS).split()
 
     def si(*args: str) -> None:

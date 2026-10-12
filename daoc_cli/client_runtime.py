@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from daoc_cli import files, keychain, proc, watchdog
-from daoc_cli.checkout import Checkout
+from daoc_cli.checkout import Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 
 PS = "/bin/ps"
@@ -37,15 +37,38 @@ WINE_LOG = Path("/tmp/daoc-wine.log")
 DEFAULT_RETRIES = 3
 DEFAULT_PORT = 10300
 
-# LaunchServices drops the caller's environment, so wine/x87sidecar/Metal HUD
-# knobs must ride on --env. Forward them only when set: an empty
+# LaunchServices drops the caller's environment, so wine/x87sidecar/FEX/mtld3d/
+# Metal HUD knobs must ride on --env. Forward them only when set: an empty
 # ROSETTA_X87_PATH would disable the sidecar instead of selecting the bundled one.
 # DAOC_WINE_HOME / DAOC_WINEPREFIX are not forwarded raw: the Launcher runs with
 # cwd /, so launch_argv sends the Checkout's resolved paths, the same wine that
 # kill and game_pids look for the client under.
-FORWARD_ENV = ("DAOC_DLL_OVERRIDES", "WINE_COMPATDB",
+FORWARD_ENV = ("DAOC_DLL_OVERRIDES", "WINE_COMPATDB", "WINE_LARGE_ADDRESS_AWARE",
                "ROSETTA_X87_PATH", "DAOC_FTLOG_DIR", "DAOC_FPS_OVERLAY")
-FORWARD_PREFIXES = ("X87_", "MTL_")
+FORWARD_PREFIXES = ("X87_", "MTL_", "MTLD3D_", "FEX_")
+
+# What the arm64 Wine (Hadron's runtime) runs the client with, as Hadron's own
+# launcher does; a caller's value wins. mtld3d is a native d3d9.dll in the arm64
+# prefix, so d3d9 is native first (the graphics anisotropy proxy, when on, is
+# found first in the client folder). vsync off matches athei's mtld3d in the
+# rosetta Wine. FEX_X87REDUCEDPRECISION: the client does its 3D math in x87,
+# which FEX otherwise emulates at full 80-bit precision in software; in world
+# that held it at ~10-15 FPS, with f64 x87 it runs at ~120 (the 7 FPS Rosetta
+# problem x87sidecar solves, in FEX's form).
+ARM64_ENV = {
+    "DAOC_DLL_OVERRIDES": "mscoree,mshtml=;d3d9=n,b",
+    "FEX_DISKCACHE": "1",
+    "FEX_X87REDUCEDPRECISION": "1",
+    "MTLD3D_NO_CRASH_HANDLER": "1",
+    "MTLD3D_CONFIG": "color.hdr.enable=false;present.vsync=off",
+    "WINE_LARGE_ADDRESS_AWARE": "1",
+}
+
+
+def wine_defaults(checkout: Checkout) -> Dict[str, str]:
+    """Launch environment the Checkout's Wine needs unless the caller sets it."""
+    return dict(ARM64_ENV) if wine_is_arm64(checkout.wine_home) else {}
+
 
 REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}
 
@@ -122,7 +145,7 @@ def character(checkout: Checkout) -> Optional[str]:
     return chosen[0] if chosen else None
 
 
-def _forwarded_env(environ: Dict[str, str]) -> List[str]:
+def forwarded_env(environ: Dict[str, str]) -> List[str]:
     names = list(FORWARD_ENV) + sorted(
         k for k in environ if k.startswith(FORWARD_PREFIXES) and k not in FORWARD_ENV)
     args = []
@@ -143,7 +166,7 @@ def launch_argv(checkout: Checkout, account: str, password: str,
         "--env", "DAOC_LAUNCHER_RETRIES=8",
         "--env", f"DAOC_WINE_HOME={checkout.wine_home}",
         "--env", f"DAOC_WINEPREFIX={checkout.prefix}",
-        *_forwarded_env(environ),
+        *forwarded_env({**wine_defaults(checkout), **environ}),
         "--args", "wine", "game.dll", "127.0.0.1", str(game_port), "42",
         account, password, *tail,
     ]
@@ -246,14 +269,15 @@ def _pgrep(pattern: str) -> List[int]:
     return [int(p) for p in (result.stdout or "").split() if p.isdigit()]
 
 
-def game_pids(checkout: Checkout) -> List[int]:
-    """This Checkout's game.dll processes (not the launcher shell or start.exe).
+def game_pids(checkout: Checkout, wine_home: Optional[Path] = None) -> List[int]:
+    """This Checkout's game.dll processes (not the launcher shell or start.exe),
+    under wine_home when given, else under the Checkout's Wine.
 
     CrossOver wine shows only "game.dll <args>" as argv and macOS does not
     expose other processes' environments, so ownership is decided by the files
     a process maps from this Checkout's wine.
     """
-    wine_home = _real_wine_home(checkout)
+    wine_home = os.path.realpath(wine_home or checkout.wine_home)
     result = proc.run([PS, "-Ao", "pid=,args="], check=False)
     pids = []
     for line in (result.stdout or "").splitlines():
@@ -270,7 +294,7 @@ def kill(checkout: Checkout) -> None:
     so a relaunch never overlaps a previous client."""
     wine_home = _real_wine_home(checkout)
     wineserver = os.path.join(wine_home, "bin", "wineserver")
-    env = dict(os.environ, WINEPREFIX=str(checkout.prefix))
+    env = wine_env(checkout.wine_home, checkout.prefix)
     # The app launcher's relaunch loop first, or it respawns wine in the gap. It
     # is a bash script, so this Checkout's bundle path is in its argv.
     proc.run([PKILL, "-f", str(checkout.launcher_app / "Contents" / "MacOS" / "launch")], check=False)

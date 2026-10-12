@@ -16,7 +16,7 @@ from unittest import mock
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
 from daoc_cli import cli, proc
-from daoc_cli.checkout import Checkout
+from daoc_cli.checkout import Checkout, wine_env
 from daoc_cli.errors import DaocError
 
 VISIBLE_GROUPS = ("server", "client", "admin", "progress", "graphics", "self-install")
@@ -202,6 +202,26 @@ class CheckoutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(DaocError):
                 Checkout(tmp).manifest
+
+    def test_unreadable_flavour_record_is_a_daoc_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            co = Checkout(tmp)
+            co.flavour_file.mkdir(parents=True)  # reading it raises IsADirectoryError
+            with self.assertRaises(DaocError) as cm:
+                co.flavour
+        self.assertIn(f"cannot read {co.flavour_file}", cm.exception.msg)
+        self.assertIn("daoc client install --wine rosetta", cm.exception.msg)
+
+    def test_only_an_arm64_wine_gets_its_library_path(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            os.environ.pop("DYLD_FALLBACK_LIBRARY_PATH", None)
+            arm64, rosetta = Path(tmp) / "arm64", Path(tmp) / "rosetta"
+            (arm64 / "lib" / "wine" / "aarch64-unix").mkdir(parents=True)
+            (rosetta / "lib" / "wine" / "x86_64-unix").mkdir(parents=True)
+            env = wine_env(arm64, Path("/p"))
+            self.assertEqual((env["WINEPREFIX"], env["DYLD_FALLBACK_LIBRARY_PATH"]),
+                             ("/p", str(arm64 / "ext" / "lib")))
+            self.assertNotIn("DYLD_FALLBACK_LIBRARY_PATH", wine_env(rosetta, Path("/p")))
 
 
 class ProcTest(unittest.TestCase):

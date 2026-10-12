@@ -40,14 +40,50 @@ those symlinks with real directories inside the prefix, so the prompt never
 appears. Runs with the Metal Performance HUD (`DAOC_FPS_OVERLAY=1`) have still
 raised a Documents prompt once with the prefix set up this way.
 
-## The prefix's Windows user is `crossover`
+## The prefix's Windows user is `crossover` (rosetta) or you (arm64)
 
 The CrossOver wine names its Windows user `crossover`, not the macOS user name.
 The client's settings live in
 `dist/prefix/drive_c/users/crossover/AppData/Roaming/Electronic Arts/`. When the
 prefix was made by another wine (e.g. Wine Staging, whose user is the macOS user
 name), `daoc client install` copies that user's `Electronic Arts` folder there,
-unless `crossover` already has one.
+unless `crossover` already has one. The arm64 Wine is upstream Wine, whose user is
+the macOS user name; its prefix (`dist/prefix-arm64`) gets the folder from the
+rosetta prefix the same way.
+
+## game.dll's `Shared` section stops an arm64 Wine
+
+game.dll has a 4-byte section named `Shared` flagged `IMAGE_SCN_MEM_SHARED`
+(characteristics `0xd0000040`) at `0x247a000`, 4 KB-aligned. Wine maps a shared
+section as a shared file mapping, which needs host-page alignment; an arm64 Wine
+runs on 16 KB pages, logs `map_file_into_view unaligned shared mapping ... not
+supported` and refuses the image: `wine: failed to start ... c000007b`,
+"Bad EXE format". The Client patch clears the flag (`0xc0000040`); then the 4 bytes
+are private to each client process instead of shared between simultaneous ones.
+The rosetta Wine (x86_64, 4 KB pages) runs the patched game.dll the same as
+before (login 8 s, 125 FPS at character select).
+
+## The arm64 Wine waits 35 s per start until Local Network access is allowed
+
+On each new Wine session `wineboot --init` resolves the Mac's own name
+(`getaddrinfo("<name>.local")` in ws2_32.so). For Hadron's Wine that lookup sat
+in `mdns_addrinfo` for ~35 s and failed ("Failed to resolve your host name IP")
+while macOS held a Local Network permission prompt for it; the same lookup from
+a native process returned at once. Allowing it cut a cold `wine cmd` from 36–45 s
+to 3 s and the client's login from 46 s to 10 s. The prompt is easy to miss; the
+setting is "wine" under System Settings > Privacy & Security > Local Network.
+`daoc client install --wine arm64` checks for the warning after setting the
+prefix up and says so.
+
+## ~10–15 FPS under FEX is full-precision x87
+
+On the arm64 Wine the client ran at ~10–15 FPS in world, the FEX version of the
+Rosetta x87 problem above. FEX emulates x87 at its full 80-bit precision in
+software by default; `FEX_X87REDUCEDPRECISION=1` makes it compute x87 as 64-bit
+doubles on the host FPU, and the same scene then runs at ~120 FPS (Metal HUD, M5
+Mac). Hadron does not set it (its games are not x87-heavy), so `daoc` sends it
+for the arm64 Wine (`client_runtime.ARM64_ENV`). Hardware TSO (`HADRON_HARDWARE_TSO=1`)
+was not needed and stays off, as Hadron ships it.
 
 ## A killed client leaves the character linkdead for 60 s
 

@@ -20,7 +20,7 @@ daoc-macos/
 │   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin /
 │                            #   daoc-progress
 ├── client/
-│   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (mtld3d + x87sidecar)
+│   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (rosetta: mtld3d + x87sidecar; arm64: FEX + mtld3d)
 │   ├── input-helper/        # SendInput helper run inside the prefix (mingw-w64)
 │   └── tools/frametime/     # per-present probe dylib for the benchmark gate
 ├── tests/                   # unit tests for daoc_cli
@@ -85,7 +85,10 @@ written at install time, never committed.
 - Environment overrides: `DAOC_WINE_HOME`, `DAOC_WINEPREFIX` (wine and prefix),
   `DAOC_CHARACTER`, `DAOC_PORT`, `DAOC_FPS_OVERLAY`, `DAOC_WINEDEBUG`,
   `DAOC_DLL_OVERRIDES`, and for the benchmark gate `DAOC_BENCH_ACCOUNT`,
-  `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`.
+  `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`. `FEX_*`, `MTLD3D_*`, `MTL_*` and `X87_*`
+  variables pass through to the client; for the arm64 Wine they override
+  `client_runtime.ARM64_ENV` (e.g. `FEX_X87REDUCEDPRECISION=0` for full x87
+  precision).
 
 ## Manifest
 
@@ -108,6 +111,13 @@ written at install time, never committed.
     "tarball": "wine-cx-26.3.0-8-macos-x86_64.tar.xz",
     "sha256": "<recorded>",
     "min_macos": "26"
+  },
+  "wine_arm64": {
+    "url": "<Broyojo/hadron release disk image url>",
+    "image": "Hadron-0.2.0.dmg",
+    "sha256": "<recorded>",
+    "runtime": "Hadron.app/Contents/SharedSupport/runtime/dist",
+    "min_macos": "27"
   },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
@@ -179,8 +189,9 @@ unless asked for. `daoc graphics` clones the pinned commit into `upstream/graphi
 on first use, refuses to run unless `HEAD` is the pin and `git status` shows no
 local changes (the checkout's `d3d9.dll` is what the game loads), and runs that
 checkout's `daoc-gfx`
-with this install's client app folder, `dist/wine` and `dist/prefix`
-(`DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override the last two, as for the launcher).
+with this install's client app folder and the selected Wine and prefix (`dist/wine`
+and `dist/prefix`, or the arm64 pair; `DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override
+them, as for the launcher).
 With no arguments it opens `daoc-gfx select`, a checklist of the catalog's
 patches (`retina`, `srgb`, `textures`, `anisotropy`) that changes only the
 patches the user toggles; `enable` / `disable <patch>` do the same
@@ -248,27 +259,66 @@ It is published into `bin/` and links the vendored System.Data.SQLite:
 
 ## Client install
 
-1. Verify/fetch athei's wine-build tarball (SHA-256), extract to `dist/wine/`
-   (flat `bin/`, `lib/`). It is CrossOver 26.3 Wine with i386 support, the
-   x87sidecar Rosetta x87 JIT and mtld3d; its `compatdb.so` attaches x87sidecar
-   to every i386 process and picks mtld3d as D3D9. The build needs macOS 26 or
-   later (its `wine`, `wineserver` and `ntdll.so` are built with minos 26.0);
-   the pin records that as `min_macos`, and install checks `sw_vers` against it
-   before downloading anything.
+`daoc client install [--wine rosetta|arm64]` installs one of two Wine flavours;
+no flag keeps the current one (rosetta when none is recorded). Each has its own
+tree and prefix, so both can be installed; the flavour is written to
+`dist/.wine-flavour` only after a complete install, and `Checkout` derives the
+default `wine_home`/`prefix` from it, on first use: a bad record fails only the
+commands that use Wine, and `--wine` replaces it without reading it. Each flavour's
+pin records the macOS its binaries are built for as `min_macos`, and install checks
+`sw_vers` against the selected flavour's before downloading anything.
+
+1. Wine.
+   - **rosetta** (default): verify/fetch athei's wine-build tarball (SHA-256),
+     extract to `dist/wine/` (flat `bin/`, `lib/`). It is CrossOver 26.3 Wine with
+     i386 support, the x87sidecar Rosetta x87 JIT and mtld3d; its `compatdb.so`
+     attaches x87sidecar to every i386 process and picks mtld3d as D3D9.
+     Requirements: macOS 26 or later (its `wine`, `wineserver` and `ntdll.so` are
+     built with minos 26.0) and Rosetta 2 (probed by running an x86_64 binary).
+   - **arm64**: verify/fetch Hadron's release disk image (SHA-256), attach it
+     read-only, `ditto` its `runtime/dist` into `dist/wine-arm64/` unchanged, and
+     record the image hash in `.daoc-wine.json` (a new pin reinstalls). Upstream
+     Wine for arm64 with FEX as its WoW64 (i386) and ARM64EC emulator, and mtld3d.
+     Its loader `lib/wine/aarch64-unix/wine.app` is signed with a provisioning
+     profile granting Apple's cross-architecture entitlement (memory below 4 GB,
+     which a 32-bit program needs); copying keeps that signature valid, so nothing
+     in the tree is touched. Requirements: Apple Silicon, macOS 27 or later (its
+     `wine`, `wineserver`, `ntdll.so` and loader are built with minos 27.0), no
+     Rosetta.
+     Security: curl sets no quarantine flag, so Gatekeeper never assesses the
+     image or the copied `wine.app` (no notarization or Developer ID check). Trust in
+     the runtime rests entirely on the `wine_arm64` SHA-256 pin: review a new pin
+     (its release, its source and its signer) as you would new code.
 2. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.
-3. Apply the client encryption-bypass patch to `game.dll` (byte-verified against
-   the recorded pristine hash).
+3. Apply the Client patch to `game.dll` from `game.dll.orig` (byte-verified against
+   the recorded pristine hash) on every install: the encryption bypass, and
+   clearing `IMAGE_SCN_MEM_SHARED` on the `Shared` section, which an arm64 Wine on
+   16 KB pages cannot map at its 4 KB-aligned address. Both flavours run the same
+   `game.dll`.
 4. Initialize/update the prefix (win10), replace the profile-folder symlinks with
-   real directories (no TCC prompt for ~/Documents), install the launcher wrapper.
+   real directories (no TCC prompt for ~/Documents), copy the client settings from
+   another prefix user or the other flavour's prefix when this prefix's user
+   (`crossover`, or the macOS user name for arm64) has none, install the launcher
+   wrapper. arm64 also copies Hadron's mtld3d into the prefix (native `d3d9.dll` in
+   `syswow64`/`system32` plus the `mtld3d.dll` markers) after `wineboot -u`, and runs
+   `wine cmd /c exit` to check for "Failed to resolve your host name IP": macOS
+   holding the arm64 Wine's Local Network access makes every Wine start wait ~35 s.
 
-Why this wine: the 1.127 client's game thread spends ~70% of its time in Rosetta's
-x87 emulation (libRosettaRuntime) under stock Wine, which caps it at ~7 FPS.
+Why the rosetta wine: the 1.127 client's game thread spends ~70% of its time in
+Rosetta's x87 emulation (libRosettaRuntime) under stock Wine, which caps it at ~7 FPS.
 x87sidecar removes that cost; mtld3d replaces wined3d's GL path with Metal.
-The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal Performance HUD. The evidence
-behind this, and the other client pitfalls (TCC prompt, the `crossover` prefix
-user, the linkdead wait after a kill), is in `docs/CLIENT-NOTES.md`.
+Why the arm64 wine: Rosetta is general-purpose only through macOS 27. The launch
+settings it needs (`client_runtime.ARM64_ENV`: `d3d9=n,b`, FEX disk cache, FEX x87
+reduced precision, mtld3d config, large-address-aware) ride on `--env` when `wine_home` has an
+`lib/wine/aarch64-unix` (`checkout.wine_is_arm64`, the one arm64 test). Every wine
+daoc runs on it, and the Launcher on the same test, gets `DYLD_FALLBACK_LIBRARY_PATH`
+to its `ext/lib` (`checkout.wine_env`): without it Wine runs but finds no FreeType
+("Wine cannot find the FreeType font library"). The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal
+Performance HUD. The evidence behind this, and the other client pitfalls (TCC
+prompt, the `crossover` prefix user, the linkdead wait after a kill), is in
+`docs/CLIENT-NOTES.md`.
 
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
@@ -299,7 +349,7 @@ local OpenDAoC server without breaking on the encryption handshake.
 - **Watchdog**: until the success line appears, a client is hung when its wine
   log has been static for 60 s while the game used under 0.5 s of CPU in 10 s, or
   after 240 s in all. A hung client is killed (only processes mapping this
-  checkout's Wine: `dist/wine`, or `DAOC_WINE_HOME`) and relaunched, up to
+  checkout's Wine: the selected flavour's, or `DAOC_WINE_HOME`) and relaunched, up to
   `--retries` (default 3).
 
 ## Benchmark gate
@@ -317,8 +367,8 @@ local OpenDAoC server without breaking on the encryption handshake.
   `/jump` and `/target` need GM rights: the bench raises a player account to gm
   for the run, records that in `run/bench-gm-raised`, and restores player on exit
   or signal (or at the start of the next run, if the server was gone).
-- **Probe** — `client/tools/frametime/ftlog.dylib` (universal: x86_64 wine and
-  arm64 x87sidecar both load it) swizzles `-[CAMetalLayer nextDrawable]` and logs
+- **Probe** — `client/tools/frametime/ftlog.dylib` (universal: the x86_64 rosetta
+  wine and its arm64 x87sidecar, or the arm64 wine, load it) swizzles `-[CAMetalLayer nextDrawable]` and logs
   one timestamp per presented frame. The launcher injects it with
   `DYLD_INSERT_LIBRARIES` when `DAOC_FTLOG_DIR` is set; it cannot be set by the
   caller because SIP strips `DYLD_*` when the `/bin/bash` launcher starts.
