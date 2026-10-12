@@ -91,7 +91,7 @@ def _credentials() -> Tuple[str, str]:
     """The saved Game account; on first run in a terminal, ask once and save it."""
     try:
         return keychain.read()
-    except DaocError:
+    except keychain.NotSaved:
         if not sys.stdin.isatty():
             raise
     keychain.save_interactive()

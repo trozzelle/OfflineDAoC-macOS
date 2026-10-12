@@ -152,7 +152,8 @@ class PromptTest(unittest.TestCase):
             _, out, err = self.ask(keychain.save_interactive, "alice\n")
         self.assertEqual(out, "")
         self.assertIn("Game account name: ", err)
-        self.assertIn("alice", run.call_args_list[0][0][0])
+        adds = [c[0][0] for c in run.call_args_list if c[0][0][1] == "add-generic-password"]
+        self.assertIn("alice", adds[0])
 
 
 

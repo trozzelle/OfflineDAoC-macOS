@@ -94,6 +94,14 @@ the `<Port>` in the server's `config/serverconfig.xml` (`DAOC_PORT` overrides),
 and relaunches a client that hangs before entering the world (`--retries N`,
 default 3).
 
+Over SSH, the login Keychain is locked for that session even while you are
+logged in at the Mac, because macOS unlocks it only for the session you logged
+in to. `daoc client login`, `client start` and `client bench` then run
+`security unlock-keychain`, which asks for your macOS login password. Without a
+terminal (a script, `ssh host daoc …` with no `-t`), they stop and tell you to run
+`security unlock-keychain` first. The client still opens on the Mac's own screen,
+so someone has to be logged in there.
+
 If the client crashes before the splash, the launcher relaunches it on its own
 (up to 10 tries; each attempt is traced to `/tmp/daoc-launcher.log`). Exit with
 `/quit` in chat. If the client runs longer than ~3 minutes with no login

@@ -190,5 +190,91 @@ class LoginTest(unittest.TestCase):
                 keychain.save_interactive()
 
 
+class FakeSecurity:
+    """proc.run stand-in for /usr/bin/security with a login keychain that may be
+    locked (exit 36, as in an SSH session) and items that may be missing (exit 44)."""
+
+    def __init__(self, locked, items, unlock_ok=True):
+        self.locked, self.items, self.unlock_ok = locked, dict(items), unlock_ok
+        self.calls = []
+
+    def __call__(self, argv, **kwargs):
+        argv = [os.fspath(a) for a in argv]
+        self.calls.append(argv)
+        verb = argv[1]
+        if verb == "unlock-keychain":
+            self.locked = not self.unlock_ok
+            return mock.Mock(returncode=0 if self.unlock_ok else 51, stdout=None, stderr=None)
+        if self.locked:
+            return mock.Mock(returncode=36, stdout="",
+                             stderr="security: User interaction is not allowed.\n")
+        account = argv[argv.index("-a") + 1]
+        if verb == "find-generic-password":
+            if account not in self.items:
+                return mock.Mock(returncode=44, stdout="", stderr="item could not be found\n")
+            return mock.Mock(returncode=0, stdout=self.items[account] + "\n", stderr="")
+        self.items[account] = argv[argv.index("-w") + 1] if argv[-1] != "-w" else "typed"
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+
+class KeychainLockTest(unittest.TestCase):
+    SAVED = {"login_account": "acct", "login_password": "s3cret"}
+
+    def read(self, security, tty):
+        stdin = mock.Mock(isatty=mock.Mock(return_value=tty))
+        err = io.StringIO()
+        with mock.patch.object(keychain.proc, "run", security), \
+                mock.patch.object(keychain.sys, "stdin", stdin), \
+                mock.patch.object(keychain.sys, "stderr", err):
+            return keychain.read(), err.getvalue()
+
+    def test_locked_keychain_on_a_tty_is_unlocked_then_read(self):
+        security = FakeSecurity(locked=True, items=self.SAVED)
+        creds, err = self.read(security, tty=True)
+        self.assertEqual(creds, ("acct", "s3cret"))
+        unlocks = [c for c in security.calls if c[1] == "unlock-keychain"]
+        self.assertEqual(unlocks, [[keychain.SECURITY, "unlock-keychain"]])  # security prompts itself
+        self.assertIn("locked", err)
+
+    def test_locked_keychain_off_a_tty_says_locked_not_missing(self):
+        security = FakeSecurity(locked=True, items=self.SAVED)
+        with self.assertRaises(DaocError) as cm:
+            self.read(security, tty=False)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("locked", cm.exception.msg)
+        self.assertIn("security unlock-keychain", cm.exception.msg)
+        self.assertNotIsInstance(cm.exception, keychain.NotSaved)
+        self.assertFalse(any(c[1] == "unlock-keychain" for c in security.calls))
+
+    def test_missing_item_is_not_saved(self):
+        with self.assertRaises(keychain.NotSaved):
+            self.read(FakeSecurity(locked=False, items={}), tty=True)
+
+    def test_failed_unlock_never_falls_through_to_saving_a_new_account(self):
+        security = FakeSecurity(locked=True, items=self.SAVED, unlock_ok=False)
+        stdin = mock.Mock(isatty=mock.Mock(return_value=True))
+        with mock.patch.object(keychain.proc, "run", security), \
+                mock.patch.object(keychain.sys, "stdin", stdin), \
+                mock.patch.object(client_runtime.sys, "stdin", stdin), \
+                mock.patch.object(keychain.sys, "stderr", io.StringIO()), \
+                mock.patch("builtins.input", side_effect=AssertionError("asked for an account")):
+            with self.assertRaises(DaocError) as cm:
+                client_runtime._credentials()
+        self.assertIn("unlock", cm.exception.msg)
+        self.assertFalse(any(c[1] == "add-generic-password" for c in security.calls))
+
+    def test_login_unlocks_before_saving(self):
+        security = FakeSecurity(locked=True, items={})
+        stdin = mock.Mock(isatty=mock.Mock(return_value=True))
+        with mock.patch.object(keychain.proc, "run", security), \
+                mock.patch.object(keychain.sys, "stdin", stdin), \
+                mock.patch.object(keychain.sys, "stderr", io.StringIO()), \
+                mock.patch("builtins.input", return_value="acct"):
+            keychain.save_interactive()
+        verbs = [c[1] for c in security.calls]
+        self.assertLess(verbs.index("unlock-keychain"), verbs.index("add-generic-password"))
+        self.assertEqual(security.items["login_account"], "acct")
+
+
 if __name__ == "__main__":
     unittest.main()
