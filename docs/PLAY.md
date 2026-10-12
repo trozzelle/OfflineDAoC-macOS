@@ -196,5 +196,12 @@ Set in the environment; `daoc client start` forwards them.
   [CLIENT-NOTES.md](CLIENT-NOTES.md): an unanswered macOS privacy prompt, and a
   login within 60 s of a killed client (the server still holds the character
   linkdead).
+- **arm64 Wine: ~10–15 FPS in world.** `daoc` runs it with
+  `FEX_X87REDUCEDPRECISION=1`; check that your environment does not set it to `0`
+  (see [Performance](#performance-and-the-fps-overlay)). Without it FEX emulates
+  the client's x87 math at full precision in software.
+- **arm64 Wine: every start takes ~35 s longer.** macOS is holding its Local
+  Network access; allow "wine" in System Settings > Privacy & Security > Local
+  Network ([arm64 Wine](#arm64-wine-no-rosetta)).
 - **Port in use.** If another DAoC server is already using port 10300, stop it
   first.

@@ -73,7 +73,8 @@ repository's `main` environment.
   updates and saved progress
 - [REVIEW.md](REVIEW.md) — review of the ported code and scripts
 - [CLIENT-NOTES.md](CLIENT-NOTES.md) — client findings under Wine on Apple
-  silicon (x87 performance, privacy prompt, prefix user, linkdead wait)
+  silicon (x87 performance under Rosetta and FEX, privacy prompts, the Local
+  Network stall, game.dll's `Shared` section, prefix user, linkdead wait)
 - [SERVER-NOTES.md](SERVER-NOTES.md) — upstream server issues documented, not
   patched
 - [server/README.md](../server/README.md) — the macOS server port: build

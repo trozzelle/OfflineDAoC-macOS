@@ -20,7 +20,7 @@ daoc-macos/
 │   └── deploy/              #   server folder templates + daoc-server.sh / daoc-admin /
 │                            #   daoc-progress
 ├── client/
-│   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (mtld3d + x87sidecar)
+│   ├── DAoCLauncher.app/    # Aqua-session wine wrapper (rosetta: mtld3d + x87sidecar; arm64: FEX + mtld3d)
 │   ├── input-helper/        # SendInput helper run inside the prefix (mingw-w64)
 │   └── tools/frametime/     # per-present probe dylib for the benchmark gate
 ├── tests/                   # unit tests for daoc_cli
@@ -85,7 +85,10 @@ written at install time, never committed.
 - Environment overrides: `DAOC_WINE_HOME`, `DAOC_WINEPREFIX` (wine and prefix),
   `DAOC_CHARACTER`, `DAOC_PORT`, `DAOC_FPS_OVERLAY`, `DAOC_WINEDEBUG`,
   `DAOC_DLL_OVERRIDES`, and for the benchmark gate `DAOC_BENCH_ACCOUNT`,
-  `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`.
+  `DAOC_BENCH_NPCS`, `DAOC_BENCH_OUT`. `FEX_*`, `MTLD3D_*`, `MTL_*` and `X87_*`
+  variables pass through to the client; for the arm64 Wine they override
+  `client_runtime.ARM64_ENV` (e.g. `FEX_X87REDUCEDPRECISION=0` for full x87
+  precision).
 
 ## Manifest
 
@@ -357,8 +360,8 @@ local OpenDAoC server without breaking on the encryption handshake.
   `/jump` and `/target` need GM rights: the bench raises a player account to gm
   for the run, records that in `run/bench-gm-raised`, and restores player on exit
   or signal (or at the start of the next run, if the server was gone).
-- **Probe** — `client/tools/frametime/ftlog.dylib` (universal: x86_64 wine and
-  arm64 x87sidecar both load it) swizzles `-[CAMetalLayer nextDrawable]` and logs
+- **Probe** — `client/tools/frametime/ftlog.dylib` (universal: the x86_64 rosetta
+  wine and its arm64 x87sidecar, or the arm64 wine, load it) swizzles `-[CAMetalLayer nextDrawable]` and logs
   one timestamp per presented frame. The launcher injects it with
   `DYLD_INSERT_LIBRARIES` when `DAOC_FTLOG_DIR` is set; it cannot be set by the
   caller because SIP strips `DYLD_*` when the `/bin/bash` launcher starts.
