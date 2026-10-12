@@ -5,9 +5,8 @@
 > original client and game data remain their property.
 
 Run the [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) server and game
-client on an Apple Silicon Mac: the server builds natively for arm64, the original
-1.127 Windows client runs under Wine with Rosetta 2. The `daoc` command installs,
-runs and updates both.
+client on Apple Silicon: the server builds natively for arm64, the original
+1.127 Windows client runs under Wine with Rosetta 2. 
 
 <p align="center">
 <img width="564" height="381" alt="A screenshot of a troll fighting a lync in Dark Age of Camelot" src="https://github.com/user-attachments/assets/112a2ca1-3f2c-48ea-9b6b-fe97f553b535" /></p>
