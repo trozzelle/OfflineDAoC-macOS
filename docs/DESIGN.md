@@ -250,7 +250,9 @@ It is published into `bin/` and links the vendored System.Data.SQLite:
 1. Verify/fetch athei's wine-build tarball (SHA-256), extract to `dist/wine/`
    (flat `bin/`, `lib/`). It is CrossOver 26.3 Wine with i386 support, the
    x87sidecar Rosetta x87 JIT and mtld3d; its `compatdb.so` attaches x87sidecar
-   to every i386 process and picks mtld3d as D3D9.
+   to every i386 process and picks mtld3d as D3D9. The build needs macOS 26 or
+   later (its `wine`, `wineserver` and `ntdll.so` are built with minos 26.0), so
+   install checks `sw_vers` before downloading anything.
 2. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.

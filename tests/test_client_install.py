@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import tarfile
 import tempfile
 import time
@@ -377,6 +378,35 @@ class InstallTest(unittest.TestCase):
         prefixes = set((self.wine_home / "bin" / "prefix.log").read_text().split())
         self.assertEqual(prefixes, {str(self.prefix)})
         self.assertEqual([c[:3] for c in stub_calls(bundled)][0], ["wine", "wineboot", "-i"])
+
+
+class RequirementsTest(unittest.TestCase):
+    def check(self, product_version):
+        def run(argv, **kwargs):
+            out = product_version + "\n" if argv[0] == client.SW_VERS else ""
+            return subprocess.CompletedProcess(argv, 0, out, "")
+        with mock.patch.object(client.platform, "system", return_value="Darwin"), \
+                mock.patch.object(client.platform, "machine", return_value="arm64"), \
+                mock.patch.object(client.proc, "run", side_effect=run), \
+                mock.patch.object(client.shutil, "which", return_value="/usr/bin/curl"):
+            client._requirements()
+
+    def test_macos_older_than_26_is_refused(self):
+        for old in ("15.7.4", "9.9"):
+            with self.assertRaises(DaocError) as cm:
+                self.check(old)
+            self.assertIn("macOS 26 or later required", cm.exception.msg)
+            self.assertIn(old, cm.exception.msg)
+
+    def test_macos_26_and_later_pass(self):
+        for ok in ("26", "26.0", "26.4.1", "27.0.1"):
+            self.check(ok)
+
+    def test_unreadable_version_is_an_error(self):
+        with self.assertRaises(DaocError) as cm:
+            self.check("")
+        self.assertIn("cannot read the macOS version", cm.exception.msg)
+
 
 
 if __name__ == "__main__":

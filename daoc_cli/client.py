@@ -1,7 +1,7 @@
 """`daoc client`: install the OfflineDAoC client under Wine on macOS.
 
 install, in order (re-runs skip finished steps):
-  1. Requirements: macOS, and Rosetta 2 on Apple Silicon.
+  1. Requirements: macOS 26 or later, and Rosetta 2 on Apple Silicon.
   2. Wine: fetch and verify athei/wine-build (manifest.json `wine`): CrossOver
      Wine with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
@@ -48,7 +48,13 @@ from daoc_cli.files import atomic_write, sha256
 
 XATTR = "/usr/bin/xattr"
 ARCH = "/usr/bin/arch"
+SW_VERS = "/usr/bin/sw_vers"
 TAR = "/usr/bin/tar"
+
+# The pinned Wine build (manifest.json `wine`, athei/wine-build cx-26.3.0-8) is
+# built for macOS 26: its wine, wineserver and ntdll.so carry minos 26.0, so dyld
+# refuses to load them on older systems.
+MIN_MACOS = (26,)  # a 1-tuple, so a bare "26" from sw_vers passes too
 
 # game.dll below the Client install (and below the release archive's root folder).
 GAME_DLL = "runtime/client-opendaoc/app/game.dll"
@@ -381,9 +387,23 @@ def _unquarantine(path: Path) -> None:
         pass
 
 
+def _macos_version() -> Tuple[int, ...]:
+    """The running macOS version from sw_vers. Not platform.mac_ver(): a Python
+    linked against an older SDK may be shown a compatibility version."""
+    text = proc.run([SW_VERS, "-productVersion"]).stdout.strip()
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        raise DaocError(f"cannot read the macOS version (sw_vers said {text!r})") from None
+
+
 def _requirements() -> None:
     if platform.system() != "Darwin":
         raise DaocError("macOS required")
+    version = _macos_version()
+    if version < MIN_MACOS:
+        raise DaocError(f"macOS {MIN_MACOS[0]} or later required (this Mac runs "
+                        f"{'.'.join(map(str, version))}): the pinned Wine build needs it")
     if platform.machine() == "arm64":
         # The Wine build is x86_64; Apple Silicon needs Rosetta 2. A functional
         # probe (can we execute an x86_64 binary?) beats checking for the oahd
