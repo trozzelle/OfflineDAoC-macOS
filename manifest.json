@@ -24,7 +24,8 @@
     "url": "https://github.com/athei/wine-build/releases/download/cx-26.3.0-8/wine-cx-26.3.0-8-macos-x86_64.tar.xz",
     "tarball": "wine-cx-26.3.0-8-macos-x86_64.tar.xz",
     "sha256": "1976c3310a1f8be2f8e9a46fcb524f77b4316df3d281d94af2c8542bef60456d",
-    "note": "athei/wine-build cx-26.3.0-8: CrossOver 26.3 Wine (x86_64, Rosetta 2) with i386 support, the bundled x87sidecar (Rosetta x87 JIT, cooperative attach) and mtld3d (D3D9 on Metal). x87sidecar is what lifts the client from ~7 to 60+ FPS: the game thread is otherwise CPU-bound in Rosetta's x87 emulation."
+    "min_macos": "26",
+    "note": "athei/wine-build cx-26.3.0-8: CrossOver 26.3 Wine (x86_64, Rosetta 2) with i386 support, the bundled x87sidecar (Rosetta x87 JIT, cooperative attach) and mtld3d (D3D9 on Metal). x87sidecar is what lifts the client from ~7 to 60+ FPS: the game thread is otherwise CPU-bound in Rosetta's x87 emulation. min_macos: its wine, wineserver, ntdll.so and winemac.so carry minos 26.0, so dyld refuses them on older macOS; client install checks it before downloading. Re-check it whenever this pin changes."
   },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",

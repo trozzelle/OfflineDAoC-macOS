@@ -13,6 +13,7 @@ import unittest
 import zipfile
 from contextlib import redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
@@ -381,32 +382,48 @@ class InstallTest(unittest.TestCase):
 
 
 class RequirementsTest(unittest.TestCase):
-    def check(self, product_version):
-        def run(argv, **kwargs):
-            out = product_version + "\n" if argv[0] == client.SW_VERS else ""
-            return subprocess.CompletedProcess(argv, 0, out, "")
+    def check(self, product_version, minimum="26.0", checkout=None):
+        checkout = checkout or SimpleNamespace(manifest={"wine": {"min_macos": minimum}})
+        sw_vers = subprocess.CompletedProcess([], 0, product_version + "\n", "")
         with mock.patch.object(client.platform, "system", return_value="Darwin"), \
-                mock.patch.object(client.platform, "machine", return_value="arm64"), \
-                mock.patch.object(client.proc, "run", side_effect=run), \
+                mock.patch.object(client.proc, "run", return_value=sw_vers), \
                 mock.patch.object(client.shutil, "which", return_value="/usr/bin/curl"):
-            client._requirements()
+            client._requirements(checkout)
 
-    def test_macos_older_than_26_is_refused(self):
-        for old in ("15.7.4", "9.9"):
-            with self.assertRaises(DaocError) as cm:
-                self.check(old)
-            self.assertIn("macOS 26 or later required", cm.exception.msg)
-            self.assertIn(old, cm.exception.msg)
+    def assertRefused(self, product_version, minimum):
+        with self.assertRaises(DaocError) as cm:
+            self.check(product_version, minimum)
+        self.assertIn(f"macOS {minimum} or later required (this Mac runs {product_version})",
+                      cm.exception.msg)
 
-    def test_macos_26_and_later_pass(self):
-        for ok in ("26", "26.0", "26.4.1", "27.0.1"):
-            self.check(ok)
+    def test_older_macos_is_refused(self):
+        for old in ("25.9", "15.7.4", "9.9"):
+            with self.subTest(old):
+                self.assertRefused(old, "26.0")
+
+    def test_minimum_and_later_pass(self):
+        for ok in ("26", "26.0", "26.0.0", "26.4.1", "27.0.1"):
+            with self.subTest(ok):
+                self.check(ok, "26.0")
+
+    def test_minor_version_minimum(self):
+        self.assertRefused("26.3.9", "26.4")
+        for ok in ("26.4", "26.10"):
+            with self.subTest(ok):
+                self.check(ok, "26.4")
+
+    def test_shipped_wine_pin_has_a_minimum(self):
+        shipped = Checkout()
+        self.check("99.0", checkout=shipped)
+        with self.assertRaises(DaocError):
+            self.check("10.15", checkout=shipped)
 
     def test_unreadable_version_is_an_error(self):
-        with self.assertRaises(DaocError) as cm:
-            self.check("")
-        self.assertIn("cannot read the macOS version", cm.exception.msg)
-
+        for product_version, minimum, source in (("", "26", "sw_vers"),
+                                                 ("26.0", "26.x", "manifest.json wine.min_macos")):
+            with self.subTest(source), self.assertRaises(DaocError) as cm:
+                self.check(product_version, minimum)
+            self.assertIn(f"cannot read the macOS version ({source} said", cm.exception.msg)
 
 
 if __name__ == "__main__":
