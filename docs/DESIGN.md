@@ -82,8 +82,9 @@ on first use, verifies `HEAD` against the pin, and runs that checkout's `daoc-gf
 with this install's client app folder, `dist/wine` and `dist/prefix`
 (`DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override the last two, as for the launcher).
 With no arguments it opens `daoc-gfx select`, a checklist of the catalog's
-patches (`retina`, `srgb`, `textures`) that changes only the patches the user
-toggles; `enable` / `disable <patch>` do the same non-interactively.
+patches (`retina`, `srgb`, `textures`, `anisotropy`) that changes only the
+patches the user toggles; `enable` / `disable <patch>` do the same
+non-interactively.
 `daoc-gfx` keeps its records in `.daoc-gfx/` inside the client app folder and
 refuses to change anything while that client is running. `update.sh graphics`
 runs the new commit's tests before moving the pin.
