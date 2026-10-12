@@ -1,7 +1,8 @@
 """`daoc client`: install the OfflineDAoC client under Wine on macOS.
 
 install, in order (re-runs skip finished steps):
-  1. Requirements: macOS, and Rosetta 2 on Apple Silicon.
+  1. Requirements: the macOS the Wine pin needs (manifest.json `wine.min_macos`),
+     and Rosetta 2 on Apple Silicon.
   2. Wine: fetch and verify athei/wine-build (manifest.json `wine`): CrossOver
      Wine with the x87sidecar Rosetta x87 JIT and mtld3d (D3D9 on Metal).
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
@@ -48,6 +49,7 @@ from daoc_cli.files import atomic_write, sha256
 
 XATTR = "/usr/bin/xattr"
 ARCH = "/usr/bin/arch"
+SW_VERS = "/usr/bin/sw_vers"
 TAR = "/usr/bin/tar"
 
 # game.dll below the Client install (and below the release archive's root folder).
@@ -381,9 +383,26 @@ def _unquarantine(path: Path) -> None:
         pass
 
 
-def _requirements() -> None:
+def _macos_version(text: str, source: str) -> Tuple[int, ...]:
+    """'26' / '26.0' / '26.4.1' as (major, minor, patch), so '26' == '26.0'."""
+    try:
+        parts = [int(part) for part in text.split(".")]
+    except ValueError:
+        raise DaocError(f"cannot read the macOS version ({source} said {text!r})") from None
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def _requirements(checkout: Checkout) -> None:
     if platform.system() != "Darwin":
         raise DaocError("macOS required")
+    # sw_vers, not platform.mac_ver(): a Python linked against an older SDK may
+    # be shown a compatibility version.
+    running = proc.run([SW_VERS, "-productVersion"]).stdout.strip()
+    minimum = checkout.manifest["wine"]["min_macos"]
+    if (_macos_version(running, "sw_vers")
+            < _macos_version(minimum, "manifest.json wine.min_macos")):
+        raise DaocError(f"macOS {minimum} or later required (this Mac runs {running}): "
+                        "the pinned Wine build needs it")
     if platform.machine() == "arm64":
         # The Wine build is x86_64; Apple Silicon needs Rosetta 2. A functional
         # probe (can we execute an x86_64 binary?) beats checking for the oahd
@@ -525,7 +544,7 @@ def install(checkout: Checkout, verbose: bool = False) -> None:
     """Install or complete the Client install; finished steps are skipped."""
     version = pins.effective(checkout, "client")["version"]
     say(f"client install: OfflineDAoC v{version} + CrossOver Wine (x87sidecar)")
-    _requirements()
+    _requirements(checkout)
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
     _install_wine(checkout, verbose)

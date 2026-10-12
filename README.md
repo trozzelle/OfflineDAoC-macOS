@@ -27,7 +27,7 @@ support the upstream projects:
 
 ## Requirements
 
-- A Mac with Apple Silicon and Rosetta 2
+- A Mac with Apple Silicon running macOS 26 or later, and Rosetta 2
 - Xcode Command Line Tools (`xcode-select --install`)
 - cmake (`brew install cmake`)
 - An internet connection for the ≈5 GB client download
