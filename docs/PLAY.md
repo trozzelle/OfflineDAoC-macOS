@@ -66,6 +66,31 @@ Desktop, ...) inside the prefix, so the client never triggers a macOS privacy
 prompt for your home folders. Add `--verbose` to see the Wine download's
 progress bar and wine's prefix setup logging.
 
+### arm64 Wine (no Rosetta)
+
+```bash
+daoc client install --wine arm64
+```
+
+Installs [Hadron](https://github.com/Broyojo/hadron)'s arm64 Wine instead: Wine
+built for Apple Silicon, with FEX translating the 32-bit client's x86 code and
+mtld3d rendering on Metal. It needs macOS 27 or later and no Rosetta 2, which
+Apple stops shipping in full after macOS 27. It is opt-in while it is being
+measured against the default.
+
+- It lives next to the default Wine (`dist/wine-arm64`, `dist/prefix-arm64`), and
+  its prefix gets your client settings copied over from the default one.
+- The last `daoc client install` decides which one `daoc client start`, `stop`,
+  `kill`, `bench` and `daoc graphics` use (recorded in `dist/.wine-flavour`).
+  Switch back with `daoc client install --wine rosetta`; each switch keeps the
+  other Wine and its prefix. Re-apply Retina mode (`daoc graphics`) after a
+  switch: it is a setting of each prefix.
+- **Allow its Local Network access.** On its first start macOS asks whether
+  "wine" may find devices on your local network. Until you allow it, every client
+  start waits about 35 s while Wine looks up the Mac's own name. If you missed
+  or denied the prompt, turn "wine" on in System Settings > Privacy & Security >
+  Local Network; `daoc client install --wine arm64` says when it is still held.
+
 ## Play
 
 Start the server (it holds the terminal with the admin screen):
@@ -135,7 +160,9 @@ The 1.127 client does its 3D math with x87 floating point, which Rosetta 2
 emulates slowly: under plain Wine the game thread is CPU-bound at about 7 FPS.
 The bundled x87sidecar translates that code to native ARM64 and mtld3d renders
 on Metal; together they run the client at 90–105 FPS average in the
-[benchmark](DEVELOPMENT.md#benchmark) (vsync off, uncapped).
+[benchmark](DEVELOPMENT.md#benchmark) (vsync off, uncapped). The arm64 Wine
+translates it with FEX instead; at character select both reach the client's own
+~125 FPS limit, and the in-world benchmark for it is still to be run.
 
 To show Apple's Metal Performance HUD (FPS and a frame-time graph, top right of
 the game window), launch with `DAOC_FPS_OVERLAY=1`:
@@ -150,10 +177,12 @@ Set in the environment; `daoc client start` forwards them.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `DAOC_WINE_HOME` | `dist/wine` | Wine tree |
-| `DAOC_WINEPREFIX` | `dist/prefix` | Wine prefix |
-| `DAOC_DLL_OVERRIDES` | `d3d9,dxgi=b` | Replaces the DLL overrides |
-| `WINE_COMPATDB` | — | Renderer choice, e.g. `$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` for wined3d instead of mtld3d |
+| `DAOC_WINE_HOME` | `dist/wine` (`dist/wine-arm64` with `--wine arm64`) | Wine tree |
+| `DAOC_WINEPREFIX` | `dist/prefix` (`dist/prefix-arm64`) | Wine prefix |
+| `DAOC_DLL_OVERRIDES` | `d3d9,dxgi=b` (arm64: `mscoree,mshtml=;d3d9=n,b`) | Replaces the DLL overrides |
+| `WINE_COMPATDB` | — | Rosetta Wine: renderer choice, e.g. `$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` for wined3d instead of mtld3d |
+| `MTLD3D_*`, `FEX_*` | arm64: `MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off`, `MTLD3D_NO_CRASH_HANDLER=1`, `FEX_DISKCACHE=1` | mtld3d and FEX settings |
+| `WINE_LARGE_ADDRESS_AWARE` | arm64: `1` | 4 GB address space for the 32-bit client |
 
 ## Troubleshooting
 

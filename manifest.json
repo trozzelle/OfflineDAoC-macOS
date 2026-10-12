@@ -27,6 +27,14 @@
     "min_macos": "26",
     "note": "athei/wine-build cx-26.3.0-8: CrossOver 26.3 Wine (x86_64, Rosetta 2) with i386 support, the bundled x87sidecar (Rosetta x87 JIT, cooperative attach) and mtld3d (D3D9 on Metal). x87sidecar is what lifts the client from ~7 to 60+ FPS: the game thread is otherwise CPU-bound in Rosetta's x87 emulation. min_macos: its wine, wineserver, ntdll.so and winemac.so carry minos 26.0, so dyld refuses them on older macOS; client install checks it before downloading. Re-check it whenever this pin changes."
   },
+  "wine_arm64": {
+    "url": "https://github.com/Broyojo/hadron/releases/download/v0.2.0/Hadron-0.2.0.dmg",
+    "image": "Hadron-0.2.0.dmg",
+    "sha256": "02de69e7886e39748595a8ed7e8683d8392e1f7340fa7515bcb72c19f3db5ce6",
+    "runtime": "Hadron.app/Contents/SharedSupport/runtime/dist",
+    "min_macos": "27",
+    "note": "Broyojo/hadron v0.2.0: upstream Wine built for arm64 with FEX as its WoW64 (i386) and ARM64EC (x86_64) emulator and mtld3d (D3D9 on Metal). No Rosetta. Its loader (lib/wine/aarch64-unix/wine.app) carries Apple's cross-architecture entitlement from Hadron's provisioning profile, which 32-bit programs need for memory below 4 GB; the runtime is copied out of the disk image unchanged. min_macos: its wine, wineserver, ntdll.so and loader carry minos 27.0, so dyld refuses them on older macOS; client install checks it before downloading. Re-check it whenever this pin changes. Opt-in: daoc client install --wine arm64."
+  },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
     "ref": "89a10e7498302a306f15b90cd595486d24bab358",

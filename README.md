@@ -6,7 +6,9 @@
 
 Run the [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) server and game
 client on Apple Silicon: the server builds natively for arm64, the original
-1.127 Windows client runs under Wine with Rosetta 2. 
+1.127 Windows client runs under Wine, by default an x86_64 Wine under Rosetta 2;
+`daoc client install --wine arm64` uses an arm64 Wine with FEX instead, which needs
+no Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)).
 
 <p align="center">
 <img width="564" height="381" alt="A screenshot of a troll fighting a lync in Dark Age of Camelot" src="https://github.com/user-attachments/assets/112a2ca1-3f2c-48ea-9b6b-fe97f553b535" /></p>
@@ -24,10 +26,13 @@ support the upstream projects:
 - [athei/wine-build](https://github.com/athei/wine-build): the CrossOver-based
   macOS Wine, with [x87sidecar](https://github.com/athei/x87sidecar) (fast x87
   math on ARM64) and [mtld3d](https://github.com/athei/mtld3d) (Direct3D 9 on Metal)
+- [Hadron](https://github.com/Broyojo/hadron): the arm64 Wine with
+  [FEX](https://github.com/FEX-Emu/FEX) behind `--wine arm64`
 
 ## Requirements
 
-- A Mac with Apple Silicon running macOS 26 or later, and Rosetta 2
+- A Mac with Apple Silicon running macOS 26 or later, and Rosetta 2 (or, for
+  `--wine arm64`, macOS 27 or later and no Rosetta)
 - Xcode Command Line Tools (`xcode-select --install`)
 - cmake (`brew install cmake`)
 - An internet connection for the ≈5 GB client download

@@ -11,7 +11,7 @@ import tests.support  # noqa: F401  (puts the Checkout root on sys.path)
 from daoc_cli import client_patch
 from daoc_cli.errors import DaocError
 
-SPEC = client_patch.NO_ENCRYPTION
+SPEC = client_patch.V0_35B
 
 
 def pristine_bytes() -> bytes:
@@ -102,13 +102,32 @@ class PatchTest(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(self.dll.read_bytes(), patched_bytes())
 
-    def test_patched_without_orig_is_left_alone(self):
+    def test_patched_without_orig_gets_its_pristine_copy_back(self):
         self.dll.write_bytes(patched_bytes())
         changed, err = self.patch()
         self.assertFalse(changed)
         self.assertIn("already patched", err)
-        self.assertFalse(self.orig.exists())
+        self.assertEqual(self.orig.read_bytes(), pristine_bytes())
         self.assertEqual(self.dll.read_bytes(), patched_bytes())
+
+    def test_install_patched_by_an_older_spec_gets_the_new_edits(self):
+        # A game.dll patched before the Shared-section edit existed, no .orig.
+        older = bytearray(pristine_bytes())
+        for e in client_patch.NO_ENCRYPTION:
+            older[e.offset:e.offset + len(e.patched)] = e.patched
+        self.dll.write_bytes(bytes(older))
+        changed, _ = self.patch()
+        self.assertTrue(changed)
+        self.assertEqual(self.orig.read_bytes(), pristine_bytes())
+        self.assertEqual(self.dll.read_bytes(), patched_bytes())
+
+    def test_patched_regions_over_an_unproven_base_are_refused(self):
+        data = patched_bytes() + b"x"
+        self.dll.write_bytes(data)
+        with self.assertRaises(DaocError):
+            self.patch()
+        self.assertEqual(self.dll.read_bytes(), data)
+        self.assertFalse(self.orig.exists())
 
     def test_unexpected_bytes_in_a_proven_hash_are_refused(self):
         data = bytearray(pristine_bytes())

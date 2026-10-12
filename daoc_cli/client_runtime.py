@@ -37,15 +37,34 @@ WINE_LOG = Path("/tmp/daoc-wine.log")
 DEFAULT_RETRIES = 3
 DEFAULT_PORT = 10300
 
-# LaunchServices drops the caller's environment, so wine/x87sidecar/Metal HUD
-# knobs must ride on --env. Forward them only when set: an empty
+# LaunchServices drops the caller's environment, so wine/x87sidecar/FEX/mtld3d/
+# Metal HUD knobs must ride on --env. Forward them only when set: an empty
 # ROSETTA_X87_PATH would disable the sidecar instead of selecting the bundled one.
 # DAOC_WINE_HOME / DAOC_WINEPREFIX are not forwarded raw: the Launcher runs with
 # cwd /, so launch_argv sends the Checkout's resolved paths, the same wine that
 # kill and game_pids look for the client under.
-FORWARD_ENV = ("DAOC_DLL_OVERRIDES", "WINE_COMPATDB",
+FORWARD_ENV = ("DAOC_DLL_OVERRIDES", "WINE_COMPATDB", "WINE_LARGE_ADDRESS_AWARE",
                "ROSETTA_X87_PATH", "DAOC_FTLOG_DIR", "DAOC_FPS_OVERLAY")
-FORWARD_PREFIXES = ("X87_", "MTL_")
+FORWARD_PREFIXES = ("X87_", "MTL_", "MTLD3D_", "FEX_")
+
+# What the arm64 Wine (Hadron's runtime) runs the client with, as Hadron's own
+# launcher does; a caller's value wins. mtld3d is a native d3d9.dll in the arm64
+# prefix, so d3d9 is native first (the graphics anisotropy proxy, when on, is
+# found first in the client folder). vsync off matches athei's mtld3d in the
+# rosetta Wine.
+ARM64_ENV = {
+    "DAOC_DLL_OVERRIDES": "mscoree,mshtml=;d3d9=n,b",
+    "FEX_DISKCACHE": "1",
+    "MTLD3D_NO_CRASH_HANDLER": "1",
+    "MTLD3D_CONFIG": "color.hdr.enable=false;present.vsync=off",
+    "WINE_LARGE_ADDRESS_AWARE": "1",
+}
+
+
+def wine_defaults(checkout: Checkout) -> Dict[str, str]:
+    """Launch environment the Checkout's Wine needs unless the caller sets it."""
+    return dict(ARM64_ENV) if checkout.wine_is_arm64 else {}
+
 
 REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}
 
@@ -122,7 +141,7 @@ def character(checkout: Checkout) -> Optional[str]:
     return chosen[0] if chosen else None
 
 
-def _forwarded_env(environ: Dict[str, str]) -> List[str]:
+def forwarded_env(environ: Dict[str, str]) -> List[str]:
     names = list(FORWARD_ENV) + sorted(
         k for k in environ if k.startswith(FORWARD_PREFIXES) and k not in FORWARD_ENV)
     args = []
@@ -143,7 +162,7 @@ def launch_argv(checkout: Checkout, account: str, password: str,
         "--env", "DAOC_LAUNCHER_RETRIES=8",
         "--env", f"DAOC_WINE_HOME={checkout.wine_home}",
         "--env", f"DAOC_WINEPREFIX={checkout.prefix}",
-        *_forwarded_env(environ),
+        *forwarded_env({**wine_defaults(checkout), **environ}),
         "--args", "wine", "game.dll", "127.0.0.1", str(game_port), "42",
         account, password, *tail,
     ]

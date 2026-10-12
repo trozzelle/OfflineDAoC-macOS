@@ -4,15 +4,17 @@
 #
 #   DAoCLauncher wine <wine-args...>
 #
-# The 'wine' mode runs the client under the CrossOver wine from `daoc client install`:
-# mtld3d renders D3D9 on Metal and x87sidecar runs the game's x87 math as native
-# ARM64 (both chosen per process by the wine build's compatdb). The install sets
-# the WINEPREFIX and client directory up; this wrapper only wires the
-# environment and execs wine.
+# The 'wine' mode runs the client under the Wine `daoc client install` set up
+# (DAOC_WINE_HOME): the rosetta flavour is CrossOver Wine, whose compatdb picks
+# mtld3d (D3D9 on Metal) and x87sidecar (the game's x87 math as native ARM64)
+# per process; the arm64 flavour is Hadron's arm64 Wine with FEX and mtld3d,
+# whose settings `daoc client start` sends on --env. The install sets the
+# WINEPREFIX and client directory up; this wrapper only wires the environment
+# and execs wine.
 set -euo pipefail
 INSTALL_DIR="$(cd "$(dirname "$0")/../../../.." && pwd)"   # .../daoc-macos (bundle sits in dist/)
 CLIENT_ROOT="$INSTALL_DIR/dist/OfflineDAoC"
-WINE_HOME="${DAOC_WINE_HOME:-$INSTALL_DIR/dist/wine}"   # CrossOver wine + x87sidecar (daoc client install)
+WINE_HOME="${DAOC_WINE_HOME:-$INSTALL_DIR/dist/wine}"   # daoc client start passes the installed one
 
 MODE="${1:-}"
 [ -z "$MODE" ] && { echo "usage: DAoCLauncher wine <wine-args...>" >&2; exit 1; }
@@ -28,6 +30,12 @@ if [ "$MODE" = "wine" ]; then
     export WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"
     export WINEPREFIX="${DAOC_WINEPREFIX:-$INSTALL_DIR/dist/prefix}"
     cd "$CLIENT_ROOT/runtime/client-opendaoc/app"
+    # The arm64 Wine (Hadron's runtime) opens FreeType and its other libraries
+    # by name from ext/lib. Set here: SIP strips DYLD_* when this /bin/bash
+    # script starts.
+    if [ -d "$WINE_HOME/ext/lib" ]; then
+        export DYLD_FALLBACK_LIBRARY_PATH="$WINE_HOME/ext/lib"
+    fi
     # Benchmark probe: DAOC_FTLOG_DIR=<dir> logs one timestamp per presented
     # Metal frame to <dir>/ftlog-<pid>.txt (client/tools/frametime). It has to
     # be injected here: SIP strips DYLD_* when this /bin/bash script starts.
