@@ -22,6 +22,9 @@ if [ "$MODE" = "wine" ]; then
     # 'd3d9,dxgi=b': the wine build's own d3d9 (mtld3d, picked by its compatdb).
     # DAOC_DLL_OVERRIDES replaces this; WINE_COMPATDB (passed through) can
     # select another renderer, e.g. $'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'.
+    # graphics.sh's anisotropy patch matches the next line character for
+    # character (daoc_gfx/anisotropy.py STOCK_LINE) and rewrites it in
+    # dist/DAoCLauncher.app; update.sh graphics checks the two still agree.
     export WINEDLLOVERRIDES="${DAOC_DLL_OVERRIDES:-d3d9,dxgi=b}"
     export WINEPREFIX="${DAOC_WINEPREFIX:-$INSTALL_DIR/dist/prefix}"
     cd "$CLIENT_ROOT/runtime/client-opendaoc/app"

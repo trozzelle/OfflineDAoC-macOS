@@ -78,7 +78,9 @@ The graphical patches live in their own repository,
 [OfflineDAoC-macOS-graphics](https://github.com/trozzelle/OfflineDAoC-macOS-graphics),
 so they can change without touching the install flow, and nothing about them runs
 unless asked for. `graphics.sh` clones the pinned commit into `upstream/graphics/`
-on first use, verifies `HEAD` against the pin, and runs that checkout's `daoc-gfx`
+on first use, refuses to run unless `HEAD` is the pin and `git status` shows no
+local changes (the checkout's `d3d9.dll` is what the game loads), and runs that
+checkout's `daoc-gfx`
 with this install's client app folder, `dist/wine` and `dist/prefix`
 (`DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override the last two, as for the launcher).
 With no arguments it opens `daoc-gfx select`, a checklist of the catalog's
@@ -86,8 +88,16 @@ patches (`retina`, `srgb`, `textures`, `anisotropy`) that changes only the
 patches the user toggles; `enable` / `disable <patch>` do the same
 non-interactively.
 `daoc-gfx` keeps its records in `.daoc-gfx/` inside the client app folder and
-refuses to change anything while that client is running. `update.sh graphics`
-runs the new commit's tests before moving the pin.
+refuses to change anything while that client is running. It writes outside
+`dist/OfflineDAoC` in one place: `anisotropy` rewrites the `WINEDLLOVERRIDES`
+line of `dist/DAoCLauncher.app/Contents/MacOS/launch` (`d3d9,dxgi=b` →
+`d3d9=n,b;dxgi=b`). It recognises that line only if it matches its `STOCK_LINE`
+character for character, so editing the line in `client/DAoCLauncher.app`
+breaks `enable anisotropy`, and re-running `install-client.sh` copies the stock
+launcher back (anisotropy then reads `partly on`). `update.sh graphics` runs the
+new commit's tests, then checks that its `daoc-gfx --help` still lists `--app`,
+`--wine`, `--prefix` and `select` and that its `STOCK_LINE` still appears
+exactly once in `client/DAoCLauncher.app`'s launcher, before moving the pin.
 
 ## Server install
 
