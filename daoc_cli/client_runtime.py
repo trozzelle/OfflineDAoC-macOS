@@ -49,8 +49,8 @@ FORWARD_PREFIXES = ("X87_", "MTL_", "MTLD3D_", "FEX_")
 
 # What the arm64 Wine (Hadron's runtime) runs the client with, as Hadron's own
 # launcher does; a caller's value wins. mtld3d is a native d3d9.dll in the arm64
-# prefix, so d3d9 is native first (the graphics anisotropy proxy, when on, is
-# found first in the client folder). vsync off matches athei's mtld3d in the
+# prefix, so d3d9 is native first (the graphics project's d3d9.dll, anisotropy
+# or reshade, when on, is found first in the client folder). vsync off matches athei's mtld3d in the
 # rosetta Wine. FEX_X87REDUCEDPRECISION: the client does its 3D math in x87,
 # which FEX otherwise emulates at full 80-bit precision in software; in world
 # that held it at ~10-15 FPS, with f64 x87 it runs at ~120 (the 7 FPS Rosetta

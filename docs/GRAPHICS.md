@@ -17,11 +17,14 @@ to apply. Only the patches you toggled change.
   2. [ ] Colour-managed output (sRGB)
   3. [ ] Texture pack  (not installed)
   4. [ ] Anisotropic filtering
+  5. [ ] ReShade post-processing
 Toggle by number (e.g. 1 3), Enter to apply, q to quit:
 ```
 
 Turning anisotropic filtering on asks for its level (2x, 4x, 8x or 16x; Enter
-keeps the current one, 16x the first time).
+keeps the current one, 16x the first time). Anisotropic filtering and ReShade
+each load as the client's `d3d9.dll`, so only one of them can be on: ticking
+both asks again, and unticking one while ticking the other swaps them.
 
 ## The patches
 
@@ -31,6 +34,7 @@ keeps the current one, 16x the first time).
 | `srgb` | `color.space = accurate` in `mtld3d.conf`: colour-managed sRGB output instead of the panel's native gamut | The setting removed |
 | `textures` | A texture pack you downloaded (for example [Sqeak's DAoC Textures](https://www.nexusmods.com/darkageofcamelot/mods/2), whose installer is Windows-only) over the client's folders; the first time, it asks for the archives | Original files back, the pack kept aside (APFS clones) |
 | `anisotropy` | Anisotropic filtering at 2x, 4x, 8x or 16x: a small `d3d9.dll` next to `game.dll`, and the installed `dist/DAoCLauncher.app` set to load it (`d3d9=n,b`); ground, roads and walls stay sharp at a distance. After `daoc client install` copies a fresh launcher it shows `partly on`; enable it again | Proxy removed, the launcher's line back as it was |
+| `reshade` | [ReShade](https://reshade.me) post-processing as the client's `d3d9.dll`, downloaded from its official sources and checked when turned on: SMAA, LumaSharpen and Vibrance to start with, every effect of the pinned shader sets in its overlay (**F12** in game). Works on both Wines; it also sets a per-prefix DLL override for the shader compiler, so after switching Wine it shows `partly on` until enabled again | ReShade's files removed, your ReShade settings and presets kept aside for next time, the launcher's line and the prefix's override back as they were |
 
 ## From scripts
 
@@ -38,6 +42,8 @@ keeps the current one, 16x the first time).
 daoc graphics status                       # each patch and whether it is on
 daoc graphics enable retina srgb
 daoc graphics enable anisotropy --level 8  # or 2, 4, 16; changes the level while on
+daoc graphics enable reshade               # refused while anisotropy is on:
+daoc graphics disable anisotropy && daoc graphics enable reshade
 daoc graphics enable textures --archives ~/Downloads/Sqeaks-DAoC-Textures-v0.1-Part{1,2}.7z
 daoc graphics disable textures
 daoc graphics textures uninstall           # delete the pack files for good
