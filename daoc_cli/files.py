@@ -3,7 +3,7 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
-from typing import BinaryIO, Optional
+from typing import BinaryIO, Optional, Union
 
 
 def sha256_of(stream: BinaryIO) -> str:
@@ -37,8 +37,9 @@ def tail(path: Path, offset: int) -> str:
         return ""
 
 
-def atomic_write(path: Path, text: str, mode: Optional[int] = None) -> None:
-    """Replace path with text through a temp file in the same directory.
+def atomic_write(path: Path, text: Union[str, bytes], mode: Optional[int] = None) -> None:
+    """Replace path with text (str as UTF-8, or bytes as they are) through a
+    temp file in the same directory.
 
     The parent directory is created on demand. The file gets mode when given;
     otherwise an existing file's mode is kept and a new file gets 0o666 less
@@ -54,7 +55,7 @@ def atomic_write(path: Path, text: str, mode: Optional[int] = None) -> None:
             mode = 0o666 & ~umask
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with (os.fdopen(fd, "wb") if isinstance(text, bytes) else os.fdopen(fd, "w", encoding="utf-8")) as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())

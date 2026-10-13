@@ -272,6 +272,32 @@ class InstallTest(InstallBase):
         self.assertFalse((self.co.launcher_app / "stale").exists())
         self.assertEqual(out, "")
 
+    def test_client_sound_starts_off_unless_the_settings_have_it(self):
+        self.patched_client()
+        (self.co.app_dir / "paths.dat").write_bytes(b"[paths]\r\nsettings=OfflineDAoC035")
+        self.prefix.mkdir()
+        (self.prefix / "system.reg").touch()
+        camelot = self.prefix / "drive_c/users/crossover/AppData/Roaming/Electronic Arts/Dark Age of Camelot"
+        user_dat = camelot / "OfflineDAoC03" / "user.dat"
+        user_dat.parent.mkdir(parents=True)
+        user_dat.write_bytes(b"[main]\r\nlast_char=Ma\xefve")  # the client's bytes, no final newline
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        sound_off = b"[sound]\r\nitem1=10\r\nitem2=10\r\nitem3=10\r\nitem4=10\r\n"
+        self.assertEqual(user_dat.read_bytes(), b"[main]\r\nlast_char=Ma\xefve\r\n" + sound_off)
+        self.assertIn("client sound is off", err)
+
+        user_dat.write_bytes(b"[Sound]\r\nitem1=3\r\n[main]\r\n")  # turned up in game
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(user_dat.read_bytes(), b"[Sound]\r\nitem1=3\r\n[main]\r\n")
+        self.assertNotIn("client sound is off", err)
+
+        user_dat.unlink()  # a prefix the client has not run in yet
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(user_dat.read_bytes(), sound_off)
+
     def test_wine_failure_replays_its_output(self):
         self.patched_client()
         self.prefix.mkdir()

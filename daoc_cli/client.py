@@ -20,8 +20,9 @@ copy, which always run):
   4. Client patch on game.dll (see client_patch); a no-op when current.
   5. The flavour's Wine prefix (win10 version setting, prefix upgrade, profile
      folders kept inside the prefix, settings carried over from another user
-     or the other flavour's prefix); for arm64 also Hadron's mtld3d as d3d9
-     and a check that macOS is not holding Wine's Local Network access.
+     or the other flavour's prefix, client sound off unless its settings say
+     otherwise); for arm64 also Hadron's mtld3d as d3d9 and a check that macOS
+     is not holding Wine's Local Network access.
   6. The Launcher bundle, then the flavour record: daoc client start uses
      this Wine only after a complete install.
 update moves the Client install to the latest OfflineDAoC release:
@@ -609,6 +610,45 @@ def _carry_settings(checkout: Checkout, flavour: str, users: Path) -> None:
             return
 
 
+# The client's own settings folder: paths.dat's `settings=` cut to 13 characters
+# (OfflineDAoC035 -> OfflineDAoC03, the folder 1.127 creates in a fresh prefix).
+SETTINGS_NAME_CHARS = 13
+# The Game Options pane's sound sliders: item1 Sound Effects, item2 Music,
+# item3 Ambient Sounds, item4 Ambient Music, each stored as 10 minus the level
+# shown (0 Full, 10 Off): set in game to Off and 3, they are written as 10 and 7.
+SOUND_OFF = b"[sound]\r\nitem1=10\r\nitem2=10\r\nitem3=10\r\nitem4=10\r\n"
+
+
+def _settings_folder(checkout: Checkout) -> Optional[str]:
+    try:
+        text = (checkout.app_dir / "paths.dat").read_text(encoding="latin-1")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip().lower() == "settings" and value.strip():
+            return value.strip()[:SETTINGS_NAME_CHARS]
+    return None
+
+
+def _default_sound_off(checkout: Checkout, flavour: str, users: Path) -> None:
+    """Client sound starts off: a user.dat with no [sound] section gets every
+    volume at 0. One that has it (set in game, written by the client, or carried
+    over) is left alone."""
+    owner = FLAVOURS[flavour].prefix_user()
+    folder = _settings_folder(checkout)
+    if not owner or not folder:
+        return
+    user_dat = (users / owner / "AppData" / "Roaming" / "Electronic Arts" / "Dark Age of Camelot"
+                / folder / "user.dat")
+    data = user_dat.read_bytes() if user_dat.is_file() else b""
+    if any(line.strip().lower() == b"[sound]" for line in data.splitlines()):
+        return
+    end = b"" if not data or data.endswith(b"\n") else b"\r\n"
+    atomic_write(user_dat, data + end + SOUND_OFF)
+    say("client sound is off; turn it up in the game's Sound Options")
+
+
 def _install_mtld3d(wine_home: Path, prefix: Path) -> None:
     """Hadron's mtld3d is a native d3d9.dll in the prefix (i386 in syswow64,
     ARM64X in system32) plus markers that let Wine load its mtld3d.dll builtin;
@@ -671,6 +711,7 @@ def _init_prefix(checkout: Checkout, flavour: str, verbose: bool) -> None:
     if users.is_dir():
         _keep_profile_folders(users)
         _carry_settings(checkout, flavour, users)
+        _default_sound_off(checkout, flavour, users)
     if arm64:
         _install_mtld3d(wine_home, prefix)
         _check_local_network(wine, wineserver, env)

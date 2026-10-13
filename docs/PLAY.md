@@ -66,6 +66,10 @@ Desktop, ...) inside the prefix, so the client never triggers a macOS privacy
 prompt for your home folders. Add `--verbose` to see the Wine download's
 progress bar and wine's prefix setup logging.
 
+The client's sound starts off: install sets the four volumes of the game's Sound
+Options to Off in the client's `user.dat` (`[sound]`) when it has none yet, and
+leaves them alone once you've turned them up in game.
+
 ### arm64 Wine (no Rosetta)
 
 ```bash
