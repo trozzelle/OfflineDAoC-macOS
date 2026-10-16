@@ -71,10 +71,11 @@ Options to Off in the client's `user.dat` (`[sound]`) when it has none yet, and
 leaves them alone once you've turned them up in game.
 
 Install also replaces the Wine's mtld3d renderer with our build of it (see
-[Graphics](GRAPHICS.md#the-mtld3d-build)), which looks the same until you set its
-lighting keys. To go back to the Wine's own, quit the client and run
-`daoc client mtld3d stock` (later installs keep that choice); `daoc client mtld3d
-fork` switches back, and `daoc client mtld3d` shows which one is in use.
+[Graphics](GRAPHICS.md#the-mtld3d-build)), a newer mtld3d plus lighting keys
+that stay off until you set them. To go back to the Wine's own, quit the client
+and run `daoc client mtld3d stock`: the choice is kept for that Wine in
+`.daoc/mtld3d.json`, so later installs, also of a new Wine, keep it. `daoc client
+mtld3d fork` switches back, and `daoc client mtld3d` shows which one is in use.
 
 ### arm64 Wine (no Rosetta)
 

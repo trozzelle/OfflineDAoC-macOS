@@ -297,18 +297,22 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
      image or the copied `wine.app` (no notarization or Developer ID check). Trust in
      the runtime rests entirely on the `wine_arm64` SHA-256 pin: review a new pin
      (its release, its source and its signer) as you would new code.
-2. mtld3d: the Wine's recorded choice (`<wine>/.daoc-mtld3d.json`, default `fork`),
-   applied right after the Wine step so the arm64 prefix copy (step 5) takes it.
+2. mtld3d: the flavour's choice, kept in the checkout (`.daoc/mtld3d.json`, keyed
+   by flavour, default `fork`) so it outlives a Wine reinstall, applied right after
+   the Wine step so the arm64 prefix copy (step 5) takes it.
    `fork` verifies/fetches our mtld3d build (`trozzelle/mtld3d` branch `ppl`:
    upstream `eb1d414` plus the DAoC lighting keys, off unless set) into
    `downloads/mtld3d-<version>/` and swaps its files over the Wine's own, which are
-   saved first under `<wine>/.daoc-mtld3d/stock/` (`daoc_cli/mtld3d.py` `TARGETS`:
+   saved first under `<wine>/.daoc-mtld3d/stock/`, with the fork version and every
+   target's fork and stock SHA-256 in `<wine>/.daoc-mtld3d.json` (both in the Wine
+   tree, so a new Wine starts from its own stock) (`daoc_cli/mtld3d.py` `TARGETS`:
    rosetta `lib/wine/d3d9/mtld3d/`, arm64 Hadron's `lib/hadron/d3d9/i386/d3d9.dll`,
    its syswow64 marker and `lib/wine/{i386-windows,aarch64-unix}/mtld3d.*`); a tree
    already at the pinned version is left alone. `stock` puts the saved files back.
-   `daoc client mtld3d [fork|stock] [--wine X]` switches outside an install
-   (refused while the client runs; arm64 then refreshes the prefix copies) and
-   prints the state with no argument; the overview's `mtld3d:` line shows it.
+   `daoc client mtld3d [fork|stock] [--wine X]` switches outside an install and
+   records the choice (refused while the client runs; arm64 then refreshes the
+   prefix copies), and prints the state with no argument; the overview's `mtld3d:`
+   line shows it.
 3. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.

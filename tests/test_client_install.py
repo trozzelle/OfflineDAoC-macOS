@@ -701,7 +701,7 @@ class Mtld3dTest(InstallBase):
         self.fork_installed()
 
     def test_install_respects_stock_choice(self):
-        mtld3d.set_choice(self.wine_home, "stock")
+        mtld3d.set_choice(self.co, "rosetta", "stock")
         code, out, err = self.install()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.fetches, 0)
@@ -723,6 +723,26 @@ class Mtld3dTest(InstallBase):
         # The choice sticks: a later install keeps the stock files.
         self.assertEqual(self.install()[0], 0)
         self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "stock")
+        self.assertEqual(json.loads((self.co.state / "mtld3d.json").read_text()),
+                         {"rosetta": "stock"})
+
+    def test_stock_choice_survives_wine_reinstall(self):
+        self.assertEqual(self.install()[0], 0)
+        self.assertEqual(self.client("mtld3d", "stock")[0], 0)
+        # A new Wine pin (or rm -rf dist/wine): a fresh tree with its own mtld3d.
+        for name in ("lib", ".daoc-mtld3d"):
+            shutil.rmtree(self.wine_home / name, ignore_errors=True)
+        (self.wine_home / mtld3d.RECORD).unlink()
+        fresh = self.wine_home / mtld3d.TARGETS["rosetta"][0][1]
+        fresh.parent.mkdir(parents=True)
+        fresh.write_bytes(b"new stock")
+        fetches = self.fetches
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fetches, fetches)
+        self.assertEqual(fresh.read_bytes(), b"new stock")
+        self.assertFalse((self.wine_home / mtld3d.RECORD).exists())
+        self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "stock")
 
     def test_mtld3d_refuses_while_client_runs(self):
         self.pids = [4242]
@@ -732,6 +752,7 @@ class Mtld3dTest(InstallBase):
         self.assertEqual(self.pid_scopes, [self.wine_home])
         self.assertEqual(self.fetches, 0)
         self.assertFalse((self.wine_home / mtld3d.RECORD).exists())
+        self.assertFalse((self.co.state / "mtld3d.json").exists())
 
     def test_mtld3d_needs_the_flavours_wine(self):
         code, out, err = self.client("mtld3d", "fork", "--wine", "arm64")

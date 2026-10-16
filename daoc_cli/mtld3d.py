@@ -4,12 +4,14 @@ The bundle (manifest.json "mtld3d") is a tar.xz of the fork's build, cached
 in downloads/ and extracted to downloads/mtld3d-<version>/. apply() copies its
 files over the Wine tree's own mtld3d files (TARGETS), saving those stock
 files first under <wine home>/.daoc-mtld3d/stock/; restore_stock() puts them
-back. <wine home>/.daoc-mtld3d.json records the choice (fork or stock), the
-fork version and the sha256 of every target's fork and stock bytes; it lives
-in the Wine tree, so reinstalling Wine starts over from the new stock files.
+back. <wine home>/.daoc-mtld3d.json records the fork version and the sha256
+of every target's fork and stock bytes; it lives in the Wine tree, so
+reinstalling Wine starts over from the new stock files. The choice (fork or
+stock) is the checkout's: .daoc/mtld3d.json, keyed by flavour, so it outlives
+a Wine reinstall.
 
-Only the Wine tree is written. On arm64 the client install copies Hadron's
-lib/hadron/d3d9 files into the prefix afterwards.
+apply() and restore_stock() write only the Wine tree. On arm64 the client
+install copies Hadron's lib/hadron/d3d9 files into the prefix afterwards.
 """
 import json
 import os
@@ -43,6 +45,8 @@ TARGETS: Dict[str, List[Tuple[str, str]]] = {
 RECORD = ".daoc-mtld3d.json"
 STOCK_DIR = Path(".daoc-mtld3d") / "stock"
 CHOICES = ("fork", "stock")
+# Below the checkout's .daoc/: {"<flavour>": "fork" | "stock"}.
+CHOICE_FILE = "mtld3d.json"
 # winebuild --builtin writes this into a PE; the Rosetta Wine loads its
 # lib/wine/d3d9/mtld3d DLLs as builtins and must never get a native PE there.
 BUILTIN_MARKER = b"Wine builtin DLL"
@@ -93,18 +97,38 @@ def _remove(path: Path) -> None:
         pass
 
 
-def choice(wine_home: Path) -> str:
-    """The recorded choice: "fork" (also with no record) or "stock"."""
-    value = _read_record(wine_home).get("choice", "fork")
+def _choice_file(checkout: Any) -> Path:
+    return Path(checkout.state) / CHOICE_FILE
+
+
+def _read_choices(checkout: Any) -> Dict[str, Any]:
+    path = _choice_file(checkout)
+    try:
+        choices = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        raise DaocError(f"cannot read {path}: {e}") from None
+    if not isinstance(choices, dict):
+        raise DaocError(f"{path} is not a JSON object")
+    return choices
+
+
+def choice(checkout: Any, flavour: str) -> str:
+    """The flavour's recorded choice: "fork" (also with no record) or "stock"."""
+    value = _read_choices(checkout).get(flavour, "fork")
     return value if value in CHOICES else "fork"
 
 
-def set_choice(wine_home: Path, value: str) -> None:
+def set_choice(checkout: Any, flavour: str, value: str) -> None:
     if value not in CHOICES:
         raise DaocError(f"mtld3d choice {value!r} is not one of: {', '.join(CHOICES)}", 2)
-    record = _read_record(wine_home)
-    record["choice"] = value
-    _write_record(wine_home, record)
+    _targets(flavour)
+    choices = _read_choices(checkout)
+    choices[flavour] = value
+    path = _choice_file(checkout)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, json.dumps(choices, indent=2, sort_keys=True) + "\n")
 
 
 def _check_bundle(bundle: Path, flavour: str) -> Dict[str, str]:
@@ -174,13 +198,12 @@ def apply(wine_home: Path, flavour: str, bundle: Path, version: str) -> None:
     record = _read_record(wine_home)
     stock, pending = _save_stock(wine_home, flavour, fork, record)
     record.update(stock=stock, pending=pending)
-    record.setdefault("choice", "stock")
     _write_record(wine_home, record)
     for member, target in _targets(flavour):
         if _sha(wine_home / target) != fork[target]:
             _put(bundle / member, wine_home / target)
     record.pop("pending")
-    record.update(choice="fork", version=version, stock=stock, fork=fork)
+    record.update(version=version, stock=stock, fork=fork)
     _write_record(wine_home, record)
     say(f"mtld3d {version} installed into {wine_home}")
 
@@ -206,14 +229,14 @@ def restore_stock(wine_home: Path, flavour: str) -> None:
                                 "reinstall the Wine to get its stock mtld3d back")
             _put(copy, dest)
     record.pop("pending", None)
-    record["choice"] = "stock"
     _write_record(wine_home, record)
     say(f"stock mtld3d restored in {wine_home}")
 
 
 def state(wine_home: Path, flavour: str) -> str:
     """"fork <version>", "stock" (no record, or every target holds its saved
-    stock bytes) or "mixed: <first target that differs from the choice>"."""
+    stock bytes) or "mixed: <first target holding neither, else the first not
+    holding the fork>"."""
     record = _read_record(wine_home)
     stock = record.get("stock")
     if not isinstance(stock, dict):
@@ -224,8 +247,8 @@ def state(wine_home: Path, flavour: str) -> str:
         return f"fork {record.get('version')}"
     if all(t in stock and current[t] == stock[t] for t in current):
         return "stock"
-    want = fork if record.get("choice", "fork") == "fork" else stock
-    first = next(t for t in current if t not in want or current[t] != want[t])
+    first = next((t for t in current if current[t] not in (fork.get(t), stock.get(t))),
+                 None) or next(t for t in current if current[t] != fork.get(t))
     return f"mixed: {first}"
 
 

@@ -103,7 +103,7 @@ class ApplyTest(Quiet):
                     self.assertEqual((home / target).read_bytes(), (bundle / member).read_bytes(),
                                      target)
                 record = json.loads((home / ".daoc-mtld3d.json").read_text())
-                self.assertEqual(record["choice"], "fork")
+                self.assertNotIn("choice", record)  # the checkout's, not the Wine's
                 self.assertEqual(record["version"], VERSION)
                 self.assertEqual(mtld3d.state(home, flavour), f"fork {VERSION}")
 
@@ -131,7 +131,6 @@ class ApplyTest(Quiet):
                     else:
                         self.assertEqual((home / target).read_bytes(), data, target)
                 self.assertEqual(mtld3d.state(home, flavour), "stock")
-                self.assertEqual(mtld3d.choice(home), "stock")
                 # And back to the fork: the saved stock is kept, not overwritten.
                 mtld3d.apply(home, flavour, bundle, VERSION)
                 mtld3d.restore_stock(home, flavour)
@@ -267,15 +266,24 @@ class ApplyTest(Quiet):
             mtld3d.apply(home, "arm64", self.bundle(files), VERSION)
         self.assertEqual(snapshot(home), before)
 
-    def test_choice_defaults_to_fork_and_is_set(self):
+    def test_choice_is_the_checkouts_per_flavour_and_outlives_the_wine(self):
+        checkout = SimpleNamespace(state=self.root / "checkout" / ".daoc")
+        self.assertEqual(mtld3d.choice(checkout, "arm64"), "fork")
+        mtld3d.set_choice(checkout, "arm64", "stock")
+        self.assertEqual(mtld3d.choice(checkout, "arm64"), "stock")
+        self.assertEqual(mtld3d.choice(checkout, "rosetta"), "fork")
+        self.assertEqual(json.loads((checkout.state / "mtld3d.json").read_text()),
+                         {"arm64": "stock"})
+        # apply/restore leave it alone.
         home = self.wine("arm64")
-        self.assertEqual(mtld3d.choice(home), "fork")
-        mtld3d.set_choice(home, "stock")
-        self.assertEqual(mtld3d.choice(home), "stock")
         mtld3d.apply(home, "arm64", self.bundle(), VERSION)
-        self.assertEqual(mtld3d.choice(home), "fork")
+        self.assertEqual(mtld3d.choice(checkout, "arm64"), "stock")
+        mtld3d.set_choice(checkout, "rosetta", "fork")
+        self.assertEqual(mtld3d.choice(checkout, "arm64"), "stock")
         with self.assertRaises(DaocError):
-            mtld3d.set_choice(home, "maybe")
+            mtld3d.set_choice(checkout, "arm64", "maybe")
+        with self.assertRaises(DaocError):
+            mtld3d.set_choice(checkout, "x86", "fork")
 
 
 def tarball(files) -> bytes:

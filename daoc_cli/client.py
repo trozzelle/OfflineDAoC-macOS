@@ -10,10 +10,10 @@ copy, which always run):
      `wine`): CrossOver Wine with the x87sidecar Rosetta x87 JIT and mtld3d
      (D3D9 on Metal). arm64 fetches and verifies Hadron's disk image
      (manifest.json `wine_arm64`) and copies its arm64 Wine with FEX out
-     unchanged; a new pin replaces it. Then the Wine's mtld3d choice
-     (<wine>/.daoc-mtld3d.json, default fork; see mtld3d and client mtld3d):
-     fork fetches our mtld3d build (manifest.json `mtld3d`) and swaps it in,
-     the Wine's own files saved; stock puts those back.
+     unchanged; a new pin replaces it. Then the flavour's mtld3d choice
+     (.daoc/mtld3d.json, default fork; see mtld3d and client mtld3d): fork
+     fetches our mtld3d build (manifest.json `mtld3d`) and swaps it in, the
+     Wine's own files saved in the Wine tree; stock puts those back.
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
      (see release) beside the install, then swap it in, as update does: an
      interrupted extraction leaves nothing in the way of a re-run. An existing
@@ -117,7 +117,8 @@ def register(groups: "argparse._SubParsersAction") -> None:
         help="use our mtld3d build (fork) or the Wine's own (stock)",
         description="Put our mtld3d fork build (manifest.json `mtld3d`) into the Wine, or "
                     "put the Wine's own mtld3d back; with no argument, print which one it "
-                    "has. client install keeps the choice.",
+                    "has. The choice is kept per Wine in .daoc/mtld3d.json, so client "
+                    "install (also of a new Wine) keeps it.",
     )
     a.add_argument("choice", nargs="?", choices=mtld3d.CHOICES,
                    help="fork: our build (the default); stock: the Wine's own")
@@ -154,6 +155,7 @@ def _mtld3d(args: argparse.Namespace, checkout: Checkout) -> int:
                      checkout.manifest["mtld3d"]["version"])
     else:
         mtld3d.restore_stock(wine_home, flavour)
+    mtld3d.set_choice(checkout, flavour, args.choice)
     if wine_is_arm64(wine_home) and (prefix / "system.reg").is_file():
         _install_mtld3d(wine_home, prefix)
     return 0
@@ -164,7 +166,7 @@ def _apply_mtld3d_choice(checkout: Checkout, flavour: str) -> None:
     before the prefix step copies the arm64 Wine's into the prefix."""
     wine_home, _ = checkout.flavour_paths(flavour)
     current = mtld3d.state(wine_home, flavour)
-    if mtld3d.choice(wine_home) == "stock":
+    if mtld3d.choice(checkout, flavour) == "stock":
         if current != "stock":
             mtld3d.restore_stock(wine_home, flavour)
         return
