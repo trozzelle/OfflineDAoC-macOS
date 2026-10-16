@@ -18,8 +18,6 @@ from daoc_cli.errors import DaocError
 
 VERSION = "v0.13.0-daoc.1"
 MARKER = b"Wine builtin DLL"
-# The Rosetta Wine ships no x86_64-windows/mtld3d.dll: its stock is "absent".
-ABSENT = {"rosetta": {"lib/wine/d3d9/mtld3d/x86_64-windows/mtld3d.dll"}, "arm64": set()}
 
 
 def sha(data: bytes) -> str:
@@ -46,8 +44,7 @@ def write_tree(root: Path, files) -> None:
 
 
 def stock_files(flavour: str, tag: str = "stock"):
-    return {t: f"{tag} {t}\n".encode() for _, t in mtld3d.TARGETS[flavour]
-            if t not in ABSENT[flavour]}
+    return {t: f"{tag} {t}\n".encode() for _, t in mtld3d.TARGETS[flavour]}
 
 
 def snapshot(root: Path):
@@ -76,6 +73,24 @@ class Quiet(unittest.TestCase):
         path = self.root / name
         write_tree(path, files if files is not None else bundle_files())
         return path
+
+    def interrupted_apply(self, home: Path, flavour: str, bundle: Path, version: str = VERSION):
+        """apply, failing right after its first copy into the Wine tree; the
+        targets written."""
+        real_put = mtld3d._put
+        written = []
+
+        def failing_put(src, dest):
+            real_put(src, dest)
+            if ".daoc-mtld3d" not in dest.parts:
+                written.append(dest)
+                raise OSError("disk went away")
+
+        with mock.patch.object(mtld3d, "_put", failing_put):
+            with self.assertRaises(OSError):
+                mtld3d.apply(home, flavour, bundle, version)
+        self.assertEqual(len(written), 1)
+        return written
 
 
 class ApplyTest(Quiet):
@@ -149,19 +164,7 @@ class ApplyTest(Quiet):
     def test_install_resumes_after_partial_copy(self):
         home, bundle = self.wine("arm64"), self.bundle()
         stock = {t: (home / t).read_bytes() for _, t in mtld3d.TARGETS["arm64"]}
-        real_put = mtld3d._put
-        written = []
-
-        def failing_put(src, dest):
-            real_put(src, dest)
-            if ".daoc-mtld3d" not in dest.parts:
-                written.append(dest)
-                raise OSError("disk went away")
-
-        with mock.patch.object(mtld3d, "_put", failing_put):
-            with self.assertRaises(OSError):
-                mtld3d.apply(home, "arm64", bundle, VERSION)
-        self.assertEqual(len(written), 1)
+        self.interrupted_apply(home, "arm64", bundle)
         self.assertTrue(mtld3d.state(home, "arm64").startswith("mixed: "))
         mtld3d.apply(home, "arm64", bundle, VERSION)
         self.assertEqual(mtld3d.state(home, "arm64"), f"fork {VERSION}")
@@ -169,6 +172,56 @@ class ApplyTest(Quiet):
         mtld3d.restore_stock(home, "arm64")
         for target, data in stock.items():
             self.assertEqual((home / target).read_bytes(), data, target)
+
+    def test_interrupted_apply_then_another_bundle_keeps_stock(self):
+        for flavour in ("rosetta", "arm64"):
+            with self.subTest(flavour=flavour):
+                home = self.wine(flavour)
+                stock = {t: (home / t).read_bytes() for _, t in mtld3d.TARGETS[flavour]}
+                b = self.bundle(bundle_files("B"), f"B-{flavour}")
+                a = self.bundle(bundle_files("A"), f"A-{flavour}")
+                self.interrupted_apply(home, flavour, b, "vB")
+                mtld3d.apply(home, flavour, a, "vA")
+                self.assertEqual(mtld3d.state(home, flavour), "fork vA")
+                mtld3d.restore_stock(home, flavour)
+                self.assertEqual(mtld3d.state(home, flavour), "stock")
+                for target, data in stock.items():
+                    self.assertEqual((home / target).read_bytes(), data, target)
+
+    def test_interrupted_upgrade_then_third_bundle_keeps_stock(self):
+        for flavour in ("rosetta", "arm64"):
+            with self.subTest(flavour=flavour):
+                home = self.wine(flavour)
+                stock = {t: (home / t).read_bytes() for _, t in mtld3d.TARGETS[flavour]}
+                mtld3d.apply(home, flavour, self.bundle(bundle_files("A"), f"A-{flavour}"), "vA")
+                self.interrupted_apply(home, flavour,
+                                       self.bundle(bundle_files("B"), f"B-{flavour}"), "vB")
+                mtld3d.apply(home, flavour, self.bundle(bundle_files("C"), f"C-{flavour}"), "vC")
+                self.assertEqual(mtld3d.state(home, flavour), "fork vC")
+                mtld3d.restore_stock(home, flavour)
+                for target, data in stock.items():
+                    self.assertEqual((home / target).read_bytes(), data, target)
+
+    def test_apply_refuses_a_damaged_stock_copy(self):
+        home = self.wine("rosetta")
+        mtld3d.apply(home, "rosetta", self.bundle(bundle_files("A"), "A"), "vA")
+        target = mtld3d.TARGETS["rosetta"][0][1]
+        (home / ".daoc-mtld3d" / "stock" / target).write_bytes(b"damaged")
+        before = snapshot(home)
+        with self.assertRaises(DaocError) as cm:
+            mtld3d.apply(home, "rosetta", self.bundle(bundle_files("B"), "B"), "vB")
+        self.assertIn(target, cm.exception.msg)
+        self.assertEqual(snapshot(home), before)
+
+    def test_absent_stock_target_is_removed_on_restore(self):
+        home, bundle = self.wine("arm64"), self.bundle()
+        missing = mtld3d.TARGETS["arm64"][2][1]
+        (home / missing).unlink()
+        mtld3d.apply(home, "arm64", bundle, VERSION)
+        self.assertTrue((home / missing).is_file())
+        mtld3d.restore_stock(home, "arm64")
+        self.assertFalse((home / missing).exists())
+        self.assertEqual(mtld3d.state(home, "arm64"), "stock")
 
     def test_wine_reinstall_resaves_stock(self):
         old, bundle = self.wine("rosetta", "old"), self.bundle()

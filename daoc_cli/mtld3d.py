@@ -122,45 +122,64 @@ def _check_bundle(bundle: Path, flavour: str) -> Dict[str, str]:
     return fork
 
 
-def _save_stock(wine_home: Path, flavour: str, fork: Dict[str, str],
-                record: Dict[str, Any]) -> Dict[str, Optional[str]]:
-    """The stock shas, saving the tree's stock files where the record's are
-    missing or out of date (a reinstalled Wine). A target holding fork bytes
-    keeps its saved stock copy while that copy still verifies."""
+def _fork_shas(record: Dict[str, Any], target: str) -> List[str]:
+    """Every sha the record knows as fork bytes for target: the installed fork
+    and the pending ones of interrupted runs."""
+    fork = record.get("fork") if isinstance(record.get("fork"), dict) else {}
+    pending = record.get("pending") if isinstance(record.get("pending"), dict) else {}
+    shas = pending.get(target) if isinstance(pending.get(target), list) else []
+    return [s for s in [fork.get(target), *shas] if isinstance(s, str)]
+
+
+def _save_stock(wine_home: Path, flavour: str, fork: Dict[str, str], record: Dict[str, Any]
+                ) -> Tuple[Dict[str, Optional[str]], Dict[str, List[str]]]:
+    """(stock shas, pending fork shas). Stock files are saved where the
+    record's are missing or out of date (a reinstalled Wine). A target holding
+    bytes of this bundle, the recorded fork or an interrupted run's pending
+    fork keeps its saved stock copy, which must still verify. pending lists, per
+    target, the incoming fork sha plus the fork bytes the target holds now."""
     old_stock = record.get("stock") if isinstance(record.get("stock"), dict) else None
-    old_fork = record.get("fork") if isinstance(record.get("fork"), dict) else {}
     stock_dir = wine_home / STOCK_DIR
     stock: Dict[str, Optional[str]] = {}
+    pending: Dict[str, List[str]] = {}
     for _, target in _targets(flavour):
         current = _sha(wine_home / target)
-        is_fork = current is not None and current in (fork[target], old_fork.get(target))
-        if is_fork and old_stock is not None and target in old_stock:
+        known = [fork[target], *_fork_shas(record, target)]
+        pending[target] = [fork[target]]
+        if current is not None and current in known and old_stock is not None and target in old_stock:
+            if current != fork[target]:
+                pending[target].append(current)
             saved = old_stock[target]
-            if saved is None or _sha(stock_dir / target) == saved:
-                stock[target] = saved
-                continue
+            if saved is not None and _sha(stock_dir / target) != saved:
+                raise DaocError(f"{target} holds mtld3d fork bytes and its saved stock copy in "
+                                f"{stock_dir} is missing or damaged; reinstall the Wine to get its "
+                                "stock mtld3d back")
+            stock[target] = saved
+            continue
         stock[target] = current
         copy = stock_dir / target
         if current is None:
             _remove(copy)
         elif _sha(copy) != current:
             _put(wine_home / target, copy)
-    return stock
+    return stock, pending
 
 
 def apply(wine_home: Path, flavour: str, bundle: Path, version: str) -> None:
     """Install the bundle's fork files into the Wine tree, stock saved first.
-    A failed run can be repeated: it ends in the fork."""
+    Before the first copy the record names the stock and the pending fork
+    bytes, so a failed run can be repeated, with this bundle or another, and
+    ends in the fork with the stock intact."""
     fork = _check_bundle(bundle, flavour)
     record = _read_record(wine_home)
-    stock = _save_stock(wine_home, flavour, fork, record)
-    if stock != record.get("stock"):
-        record["stock"] = stock
-        record.setdefault("choice", "stock")
-        _write_record(wine_home, record)
+    stock, pending = _save_stock(wine_home, flavour, fork, record)
+    record.update(stock=stock, pending=pending)
+    record.setdefault("choice", "stock")
+    _write_record(wine_home, record)
     for member, target in _targets(flavour):
         if _sha(wine_home / target) != fork[target]:
             _put(bundle / member, wine_home / target)
+    record.pop("pending")
     record.update(choice="fork", version=version, stock=stock, fork=fork)
     _write_record(wine_home, record)
     say(f"mtld3d {version} installed into {wine_home}")
@@ -186,6 +205,7 @@ def restore_stock(wine_home: Path, flavour: str) -> None:
                 raise DaocError(f"the saved stock {target} in {stock_dir} is missing or damaged; "
                                 "reinstall the Wine to get its stock mtld3d back")
             _put(copy, dest)
+    record.pop("pending", None)
     record["choice"] = "stock"
     _write_record(wine_home, record)
     say(f"stock mtld3d restored in {wine_home}")
