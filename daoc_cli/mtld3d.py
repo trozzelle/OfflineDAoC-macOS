@@ -247,8 +247,12 @@ def state(wine_home: Path, flavour: str) -> str:
         return f"fork {record.get('version')}"
     if all(t in stock and current[t] == stock[t] for t in current):
         return "stock"
-    first = next((t for t in current if current[t] not in (fork.get(t), stock.get(t))),
-                 None) or next(t for t in current if current[t] != fork.get(t))
+    def holds(t: str, want: Dict[str, Any]) -> bool:
+        return t in want and current[t] == want[t]
+
+    targets = list(current)
+    first = next((t for t in targets if not holds(t, fork) and not holds(t, stock)), None) \
+        or next((t for t in targets if not holds(t, fork)), targets[0])
     return f"mixed: {first}"
 
 

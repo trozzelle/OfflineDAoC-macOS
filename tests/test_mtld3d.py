@@ -160,6 +160,33 @@ class ApplyTest(Quiet):
         (home / first).write_bytes(b"something else")
         self.assertEqual(mtld3d.state(home, "rosetta"), f"mixed: {first}")
 
+    def half_applied(self, home: Path, flavour: str):
+        """The record an interrupted first apply leaves: stock shas, no fork."""
+        stock = {t: sha((home / t).read_bytes()) for _, t in mtld3d.TARGETS[flavour]}
+        (home / mtld3d.RECORD).write_text(json.dumps({"stock": stock, "pending": {}}))
+        return [t for _, t in mtld3d.TARGETS[flavour]]
+
+    def test_state_with_every_target_missing_never_raises(self):
+        home = self.wine("rosetta")
+        targets = self.half_applied(home, "rosetta")
+        for t in targets:
+            (home / t).unlink()
+        self.assertEqual(mtld3d.state(home, "rosetta"), f"mixed: {targets[0]}")
+
+    def test_state_names_the_one_missing_target(self):
+        home = self.wine("rosetta")
+        targets = self.half_applied(home, "rosetta")
+        (home / targets[2]).unlink()
+        self.assertEqual(mtld3d.state(home, "rosetta"), f"mixed: {targets[2]}")
+
+    def test_state_mixed_of_fork_and_stock_names_the_first_not_fork(self):
+        home, bundle = self.wine("rosetta"), self.bundle()
+        stock = {t: (home / t).read_bytes() for _, t in mtld3d.TARGETS["rosetta"]}
+        mtld3d.apply(home, "rosetta", bundle, VERSION)
+        third = mtld3d.TARGETS["rosetta"][2][1]
+        (home / third).write_bytes(stock[third])
+        self.assertEqual(mtld3d.state(home, "rosetta"), f"mixed: {third}")
+
     def test_install_resumes_after_partial_copy(self):
         home, bundle = self.wine("arm64"), self.bundle()
         stock = {t: (home / t).read_bytes() for _, t in mtld3d.TARGETS["arm64"]}
