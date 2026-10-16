@@ -55,6 +55,13 @@ class HelpAndUsageTest(unittest.TestCase):
         self.assertNotRegex(out, r"\bdev\b")
         self.assertNotIn("SUPPRESS", out)
 
+    def test_client_help_lists_mtld3d(self):
+        code, out, _ = run_cli(["client", "--help"])
+        self.assertEqual(code, 0)
+        self.assertRegex(out, r"(?m)^\s+mtld3d\s+use our mtld3d build \(fork\) or the Wine's own")
+        args = cli.build_parser()[0].parse_args(["client", "mtld3d", "stock", "--wine", "arm64"])
+        self.assertEqual((args.choice, args.wine), ("stock", "arm64"))
+
     def test_unknown_group_is_usage_error(self):
         code, out, err = run_cli(["nosuch"])
         self.assertEqual(code, 2)

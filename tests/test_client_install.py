@@ -18,8 +18,9 @@ from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 from tests.test_client_patch import SPEC, patched_bytes, pristine_bytes, sha
+from tests.test_mtld3d import VERSION as MTLD3D_VERSION, bundle_files, write_tree
 
-from daoc_cli import client, client_patch, client_runtime, pins, release
+from daoc_cli import client, client_patch, client_runtime, mtld3d, pins, release
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_is_arm64
 from daoc_cli.errors import DaocError
 
@@ -206,21 +207,33 @@ class InstallBase(unittest.TestCase):
         self.pids = []  # the running client's game.dll pids
         self.pid_home = None  # the Wine the running client maps (None: any)
         self.pid_scopes = []  # the wine_home each running-client check looked under
+        # The fork bundle every install and `client mtld3d fork` gets (no download).
+        self.bundle = Path(self.tmp.name) / "mtld3d-bundle"
+        write_tree(self.bundle, bundle_files())
+        self.fetches = 0
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def install(self, *args, **env):
+        return self.client("install", *args, **env)
+
+    def client(self, *args, **env):
         def game_pids(checkout, wine_home=None):
             scope = wine_home or checkout.wine_home
             self.pid_scopes.append(scope)
             return list(self.pids) if self.pid_home in (None, scope) else []
 
+        def fetch_bundle(checkout, *rest):
+            self.fetches += 1
+            return self.bundle
+
         # The synthetic pristine game.dll is a Proven build for every install here.
         with mock.patch.object(client, "_requirements"), \
                 mock.patch.object(client_runtime, "game_pids", game_pids), \
+                mock.patch.object(mtld3d, "fetch_bundle", fetch_bundle), \
                 mock.patch.dict(client_patch.PROVEN_BUILDS, {sha(pristine_bytes()): SPEC}):
-            return run_cli(["client", "install", *args], self.root, dict(self.env, **env))
+            return run_cli(["client", *args], self.root, dict(self.env, **env))
 
     def patched_client(self):
         """A Client install patched by an earlier run: game.dll.orig + game.dll."""
@@ -508,13 +521,18 @@ class Arm64InstallTest(InstallBase):
         self.assertTrue(wine_is_arm64(selected.wine_home))
         self.assertIn("daoc client start now uses the arm64 Wine", err)
         self.assertNotIn("Local Network", err)
-        # The prefix: Hadron's mtld3d in place of Wine's d3d9, settings carried
-        # over from the rosetta prefix to this Wine's user.
+        # The prefix: the mtld3d fork build (installed into the Wine's Hadron
+        # files) in place of Wine's d3d9, settings carried over from the
+        # rosetta prefix to this Wine's user.
+        fork = bundle_files()
         win = self.prefix_arm64 / "drive_c" / "windows"
-        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(), MTLD3D["i386/d3d9.dll"])
+        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(),
+                         fork["native/i386-windows/d3d9.dll"])
         self.assertEqual((win / "system32" / "d3d9.dll").read_bytes(), MTLD3D["aarch64/d3d9.dll"])
-        self.assertEqual((win / "syswow64" / "mtld3d.dll").read_bytes(), b"marker32")
+        self.assertEqual((win / "syswow64" / "mtld3d.dll").read_bytes(),
+                         fork["wine/i386-windows/mtld3d.dll"])
         self.assertEqual((win / "system32" / "mtld3d.dll").read_bytes(), b"marker64")
+        self.assertEqual(mtld3d.state(self.wine_arm64, "arm64"), f"fork {MTLD3D_VERSION}")
         copied = self.prefix_arm64 / "drive_c/users/olduser/AppData/Roaming/Electronic Arts"
         self.assertEqual((copied / "settings.ini").read_text(), "x=1\n")
         prefixes = set((self.wine_arm64 / "bin" / "prefix.log").read_text().split())
@@ -643,6 +661,83 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.co.flavour, "arm64")
         self.assertEqual(self.pid_scopes, [self.wine_arm64])  # the Wine being installed
+
+    def test_mtld3d_stock_puts_hadrons_files_back_into_the_prefix(self):
+        self.assertEqual(self.install("--wine", "arm64")[0], 0)
+        code, out, err = self.client("mtld3d", "stock")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(mtld3d.state(self.wine_arm64, "arm64"), "stock")
+        win = self.prefix_arm64 / "drive_c" / "windows"
+        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(), MTLD3D["i386/d3d9.dll"])
+        self.assertEqual((win / "syswow64" / "mtld3d.dll").read_bytes(), b"marker32")
+        code, out, err = self.client("mtld3d", "fork")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(),
+                         bundle_files()["native/i386-windows/d3d9.dll"])
+
+
+class Mtld3dTest(InstallBase):
+    """The mtld3d fork build in `client install` and `client mtld3d`, on the
+    base's rosetta Wine (which has no mtld3d files of its own)."""
+
+    def setUp(self):
+        super().setUp()
+        self.patched_client()
+
+    def fork_installed(self):
+        files = bundle_files()
+        for member, target in mtld3d.TARGETS["rosetta"]:
+            self.assertEqual((self.wine_home / target).read_bytes(), files[member], target)
+        self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), f"fork {MTLD3D_VERSION}")
+
+    def test_install_applies_fork_by_default(self):
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.fork_installed()
+        self.assertEqual(self.fetches, 1)
+        # Already at the pinned version: nothing fetched again.
+        self.assertEqual(self.install()[0], 0)
+        self.assertEqual(self.fetches, 1)
+        self.fork_installed()
+
+    def test_install_respects_stock_choice(self):
+        mtld3d.set_choice(self.wine_home, "stock")
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fetches, 0)
+        self.assertFalse((self.wine_home / "lib").exists())
+        self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "stock")
+
+    def test_mtld3d_command_switches_and_reports(self):
+        code, out, err = self.client("mtld3d")
+        self.assertEqual((code, out), (0, "stock\n"), err)
+        code, out, err = self.client("mtld3d", "fork")
+        self.assertEqual(code, 0, err)
+        self.fork_installed()
+        self.assertEqual(self.client("mtld3d")[1], f"fork {MTLD3D_VERSION}\n")
+        code, out, err = self.client("mtld3d", "stock")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.client("mtld3d")[1], "stock\n")
+        for _, target in mtld3d.TARGETS["rosetta"]:
+            self.assertFalse((self.wine_home / target).exists(), target)
+        # The choice sticks: a later install keeps the stock files.
+        self.assertEqual(self.install()[0], 0)
+        self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "stock")
+
+    def test_mtld3d_refuses_while_client_runs(self):
+        self.pids = [4242]
+        code, out, err = self.client("mtld3d", "fork")
+        self.assertEqual(code, 2)
+        self.assertIn("run `daoc client mtld3d` again", err)
+        self.assertEqual(self.pid_scopes, [self.wine_home])
+        self.assertEqual(self.fetches, 0)
+        self.assertFalse((self.wine_home / mtld3d.RECORD).exists())
+
+    def test_mtld3d_needs_the_flavours_wine(self):
+        code, out, err = self.client("mtld3d", "fork", "--wine", "arm64")
+        self.assertEqual(code, 1)
+        self.assertIn("daoc client install --wine arm64", err)
+        self.assertEqual(self.fetches, 0)
 
 
 class RequirementsTest(unittest.TestCase):

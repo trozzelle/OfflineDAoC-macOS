@@ -6,7 +6,7 @@ when it records nothing usable.
 """
 from typing import List, Optional, Sequence, Tuple
 
-from daoc_cli import pins, proc, server
+from daoc_cli import mtld3d, pins, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -57,12 +57,25 @@ def _commands() -> List[Tuple[str, str]]:
     return [(a.dest, a.help or "") for a in groups._choices_actions if a.dest != "dev"]
 
 
+def _mtld3d(checkout: Checkout) -> str:
+    """The current flavour's Wine's mtld3d (mtld3d.state), or - without that Wine."""
+    try:
+        flavour = checkout.flavour
+        wine_home, _ = checkout.flavour_paths(flavour)
+        if not (wine_home / "bin" / "wine").is_file():
+            return "-"
+        return mtld3d.state(wine_home, flavour)
+    except DaocError as e:
+        return f"{pins.UNKNOWN} ({e.msg})"
+
+
 def show(checkout: Checkout) -> int:
     lines = [f"daoc checkout {checkout.root}", ""]
     status = [
         ("Server install:", _server_install(checkout)),
         ("Server running:", _server_running(checkout)),
         ("Client install:", pins.NOT_INSTALLED if not checkout.client_root.is_dir() else "present"),
+        ("mtld3d:", _mtld3d(checkout)),
     ]
     newer = _newer_release(checkout)
     if newer is not None:

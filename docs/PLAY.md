@@ -70,6 +70,12 @@ The client's sound starts off: install sets the four volumes of the game's Sound
 Options to Off in the client's `user.dat` (`[sound]`) when it has none yet, and
 leaves them alone once you've turned them up in game.
 
+Install also replaces the Wine's mtld3d renderer with our build of it (see
+[Graphics](GRAPHICS.md#the-mtld3d-build)), which looks the same until you set its
+lighting keys. To go back to the Wine's own, quit the client and run
+`daoc client mtld3d stock` (later installs keep that choice); `daoc client mtld3d
+fork` switches back, and `daoc client mtld3d` shows which one is in use.
+
 ### arm64 Wine (no Rosetta)
 
 ```bash

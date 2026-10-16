@@ -1,5 +1,6 @@
 """`daoc` with no arguments: installs, server state, pins, newer release, commands."""
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -9,7 +10,7 @@ from unittest import mock
 
 from tests.support import GIT_ENV, git, make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import pins
+from daoc_cli import mtld3d, pins
 from daoc_cli.checkout import Checkout
 
 NEW_REF = "0123456789abcdef0123456789abcdef01234567"
@@ -61,6 +62,21 @@ class OverviewTest(unittest.TestCase):
             self.assertEqual(row[2], "-")
             self.assertEqual(row[3:], ["not", "installed"])
         self.assertNotIn("rebuild due", out)
+
+    def test_overview_shows_mtld3d_state(self):
+        self.assertRegex(line(self.overview()[0], "mtld3d:"), r"^mtld3d:\s+-$")
+        wine_home, _ = self.co.flavour_paths("rosetta")
+        (wine_home / "bin").mkdir(parents=True)
+        (wine_home / "bin" / "wine").write_text("#!/bin/sh\n")
+        self.assertRegex(line(self.overview()[0], "mtld3d:"), r"^mtld3d:\s+stock$")
+        target = wine_home / mtld3d.TARGETS["rosetta"][0][1]
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"fork")
+        (wine_home / mtld3d.RECORD).write_text(json.dumps(
+            {"choice": "fork", "version": "v9", "stock": {t: None for _, t in mtld3d.TARGETS["rosetta"]},
+             "fork": {t: hashlib.sha256(b"fork").hexdigest() if t == target.relative_to(wine_home).as_posix()
+                      else None for _, t in mtld3d.TARGETS["rosetta"]}}))
+        self.assertRegex(line(self.overview()[0], "mtld3d:"), r"^mtld3d:\s+fork v9$")
 
     def test_command_list_has_groups_but_not_dev(self):
         out, _ = self.overview()

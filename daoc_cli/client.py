@@ -10,7 +10,10 @@ copy, which always run):
      `wine`): CrossOver Wine with the x87sidecar Rosetta x87 JIT and mtld3d
      (D3D9 on Metal). arm64 fetches and verifies Hadron's disk image
      (manifest.json `wine_arm64`) and copies its arm64 Wine with FEX out
-     unchanged; a new pin replaces it.
+     unchanged; a new pin replaces it. Then the Wine's mtld3d choice
+     (<wine>/.daoc-mtld3d.json, default fork; see mtld3d and client mtld3d):
+     fork fetches our mtld3d build (manifest.json `mtld3d`) and swaps it in,
+     the Wine's own files saved; stock puts those back.
   3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
      (see release) beside the install, then swap it in, as update does: an
      interrupted extraction leaves nothing in the way of a re-run. An existing
@@ -21,8 +24,8 @@ copy, which always run):
   5. The flavour's Wine prefix (win10 version setting, prefix upgrade, profile
      folders kept inside the prefix, settings carried over from another user
      or the other flavour's prefix, client sound off unless its settings say
-     otherwise); for arm64 also Hadron's mtld3d as d3d9 and a check that macOS
-     is not holding Wine's Local Network access.
+     otherwise); for arm64 also the Wine's mtld3d as d3d9 and a check that
+     macOS is not holding Wine's Local Network access.
   6. The Launcher bundle, then the flavour record: daoc client start uses
      this Wine only after a complete install.
 update moves the Client install to the latest OfflineDAoC release:
@@ -52,8 +55,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
-                      updates)
+from daoc_cli import (bench, client_patch, client_runtime, graphics, mtld3d, pins, proc,
+                      release, updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -109,6 +112,18 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.add_argument("--check", action="store_true",
                    help="report Shipped, Local, built-from and latest; change nothing")
     a.set_defaults(func=_update)
+    a = actions.add_parser(
+        "mtld3d",
+        help="use our mtld3d build (fork) or the Wine's own (stock)",
+        description="Put our mtld3d fork build (manifest.json `mtld3d`) into the Wine, or "
+                    "put the Wine's own mtld3d back; with no argument, print which one it "
+                    "has. client install keeps the choice.",
+    )
+    a.add_argument("choice", nargs="?", choices=mtld3d.CHOICES,
+                   help="fork: our build (the default); stock: the Wine's own")
+    a.add_argument("--wine", choices=FLAVOURS, default=None,
+                   help="the Wine to change (default: the current one)")
+    a.set_defaults(func=_mtld3d)
     client_runtime.register(actions)
     bench.register(actions)
 
@@ -122,6 +137,42 @@ def _update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
         return updates.check(checkout, "client")
     return update(checkout)
+
+
+def _mtld3d(args: argparse.Namespace, checkout: Checkout) -> int:
+    flavour = args.wine or checkout.flavour
+    wine_home, prefix = checkout.flavour_paths(flavour)
+    if not (wine_home / "bin" / "wine").is_file():
+        raise DaocError(f"the {flavour} Wine is not installed; run: "
+                        f"daoc client install --wine {flavour}")
+    if args.choice is None:
+        print(mtld3d.state(wine_home, flavour))
+        return 0
+    _refuse_running(checkout, "mtld3d", wine_home)
+    if args.choice == "fork":
+        mtld3d.apply(wine_home, flavour, mtld3d.fetch_bundle(checkout),
+                     checkout.manifest["mtld3d"]["version"])
+    else:
+        mtld3d.restore_stock(wine_home, flavour)
+    if wine_is_arm64(wine_home) and (prefix / "system.reg").is_file():
+        _install_mtld3d(wine_home, prefix)
+    return 0
+
+
+def _apply_mtld3d_choice(checkout: Checkout, flavour: str) -> None:
+    """Give the flavour's Wine the recorded mtld3d (default: the fork build),
+    before the prefix step copies the arm64 Wine's into the prefix."""
+    wine_home, _ = checkout.flavour_paths(flavour)
+    current = mtld3d.state(wine_home, flavour)
+    if mtld3d.choice(wine_home) == "stock":
+        if current != "stock":
+            mtld3d.restore_stock(wine_home, flavour)
+        return
+    version = checkout.manifest["mtld3d"]["version"]
+    if current == f"fork {version}":
+        say(f"mtld3d {version} already installed")
+        return
+    mtld3d.apply(wine_home, flavour, mtld3d.fetch_bundle(checkout), version)
 
 
 def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:
@@ -752,6 +803,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
     _install_wine(checkout, flavour, verbose)
+    _apply_mtld3d_choice(checkout, flavour)
     _install_release(checkout)
     _patch_client(checkout)
     _init_prefix(checkout, flavour, verbose)

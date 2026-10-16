@@ -119,6 +119,13 @@ written at install time, never committed.
     "runtime": "Hadron.app/Contents/SharedSupport/runtime/dist",
     "min_macos": "27"
   },
+  "mtld3d": {
+    "url": "<trozzelle/mtld3d release asset url>",
+    "asset": "mtld3d.tar.xz",
+    "sha256": "<recorded>",
+    "version": "v0.13.0-daoc.1",
+    "members": {"<bundle path>": "<sha256>"}
+  },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
     "ref": "<commit sha>"
@@ -129,8 +136,9 @@ written at install time, never committed.
 Server pin = immutable git commit. Client pin = release tag; per-part and
 whole-archive SHA-256 come from the release's own `download-manifest.json` and are
 verified at install time (same scheme as upstream's `Get-OfflineDAoC.ps1`). Wine pin
-= tarball SHA-256 recorded here. Graphics pin = immutable git commit, pulled only
-by `daoc graphics`.
+= tarball SHA-256 recorded here. mtld3d pin = our fork build's bundle SHA-256 and
+the SHA-256 of every file in it (copied from the release's `release.json`).
+Graphics pin = immutable git commit, pulled only by `daoc graphics`.
 
 ### Shipped pins and Local pins
 
@@ -289,20 +297,33 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
      image or the copied `wine.app` (no notarization or Developer ID check). Trust in
      the runtime rests entirely on the `wine_arm64` SHA-256 pin: review a new pin
      (its release, its source and its signer) as you would new code.
-2. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
+2. mtld3d: the Wine's recorded choice (`<wine>/.daoc-mtld3d.json`, default `fork`),
+   applied right after the Wine step so the arm64 prefix copy (step 5) takes it.
+   `fork` verifies/fetches our mtld3d build (`trozzelle/mtld3d` branch `ppl`:
+   upstream `eb1d414` plus the DAoC lighting keys, off unless set) into
+   `downloads/mtld3d-<version>/` and swaps its files over the Wine's own, which are
+   saved first under `<wine>/.daoc-mtld3d/stock/` (`daoc_cli/mtld3d.py` `TARGETS`:
+   rosetta `lib/wine/d3d9/mtld3d/`, arm64 Hadron's `lib/hadron/d3d9/i386/d3d9.dll`,
+   its syswow64 marker and `lib/wine/{i386-windows,aarch64-unix}/mtld3d.*`); a tree
+   already at the pinned version is left alone. `stock` puts the saved files back.
+   `daoc client mtld3d [fork|stock] [--wine X]` switches outside an install
+   (refused while the client runs; arm64 then refreshes the prefix copies) and
+   prints the state with no argument; the overview's `mtld3d:` line shows it.
+3. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.
-3. Apply the Client patch to `game.dll` from `game.dll.orig` (byte-verified against
+4. Apply the Client patch to `game.dll` from `game.dll.orig` (byte-verified against
    the recorded pristine hash) on every install: the encryption bypass, and
    clearing `IMAGE_SCN_MEM_SHARED` on the `Shared` section, which an arm64 Wine on
    16 KB pages cannot map at its 4 KB-aligned address. Both flavours run the same
    `game.dll`.
-4. Initialize/update the prefix (win10), replace the profile-folder symlinks with
+5. Initialize/update the prefix (win10), replace the profile-folder symlinks with
    real directories (no TCC prompt for ~/Documents), copy the client settings from
    another prefix user or the other flavour's prefix when this prefix's user
    (`crossover`, or the macOS user name for arm64) has none, install the launcher
-   wrapper. arm64 also copies Hadron's mtld3d into the prefix (native `d3d9.dll` in
-   `syswow64`/`system32` plus the `mtld3d.dll` markers) after `wineboot -u`, and runs
+   wrapper. arm64 also copies the Wine's mtld3d (the fork's or Hadron's) into the
+   prefix (native `d3d9.dll` in `syswow64`/`system32` plus the `mtld3d.dll` markers)
+   after `wineboot -u`, and runs
    `wine cmd /c exit` to check for "Failed to resolve your host name IP": macOS
    holding the arm64 Wine's Local Network access makes every Wine start wait ~35 s.
 

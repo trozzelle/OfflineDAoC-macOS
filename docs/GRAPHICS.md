@@ -7,6 +7,16 @@ call clones the commit pinned for the Graphics project into
 `upstream/graphics/`. Quit the client first; changes take effect at the next
 launch.
 
+## The mtld3d build
+
+`daoc client install` puts our build of mtld3d (the D3D9-on-Metal renderer,
+[trozzelle/mtld3d](https://github.com/trozzelle/mtld3d) branch `ppl`: upstream
+mtld3d plus lighting keys for DAoC; an altered version, marked as such) into
+either Wine. Its `lighting.*` keys are off unless you set them in `mtld3d.conf`,
+so out of the box it renders like the Wine's own mtld3d. `daoc client mtld3d`
+shows which one the current Wine has; `daoc client mtld3d stock` goes back to
+the Wine's own and `daoc client mtld3d fork` returns (quit the client first).
+
 ## The checklist
 
 Run it with no arguments for a checklist: toggle patches by number, press Enter
