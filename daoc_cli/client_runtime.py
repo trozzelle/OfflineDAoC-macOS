@@ -54,7 +54,9 @@ FORWARD_PREFIXES = ("X87_", "MTL_", "MTLD3D_", "FEX_")
 # rosetta Wine. FEX_X87REDUCEDPRECISION: the client does its 3D math in x87,
 # which FEX otherwise emulates at full 80-bit precision in software; in world
 # that held it at ~10-15 FPS, with f64 x87 it runs at ~120 (the 7 FPS Rosetta
-# problem x87sidecar solves, in FEX's form).
+# problem x87sidecar solves, in FEX's form). HDR off is the default only: when the
+# client's mtld3d.conf (beside game.dll, where mtld3d reads it) sets
+# color.hdr.enable itself, the env leaves that key out so the conf decides.
 ARM64_ENV = {
     "DAOC_DLL_OVERRIDES": "mscoree,mshtml=;d3d9=n,b",
     "FEX_DISKCACHE": "1",
@@ -65,9 +67,26 @@ ARM64_ENV = {
 }
 
 
+def conf_sets(conf: Path, key: str) -> bool:
+    """Whether mtld3d's conf parser would see key on a live line of conf:
+    trimmed, not blank or #, `key = value` with an exact key match."""
+    try:
+        text = conf.read_text(errors="replace")
+    except OSError:
+        return False
+    lines = (s.strip() for s in text.splitlines())
+    return any(line.split("=", 1)[0].strip() == key
+               for line in lines if line and not line.startswith("#") and "=" in line)
+
+
 def wine_defaults(checkout: Checkout) -> Dict[str, str]:
     """Launch environment the Checkout's Wine needs unless the caller sets it."""
-    return dict(ARM64_ENV) if wine_is_arm64(checkout.wine_home) else {}
+    if not wine_is_arm64(checkout.wine_home):
+        return {}
+    env = dict(ARM64_ENV)
+    if conf_sets(checkout.app_dir / "mtld3d.conf", "color.hdr.enable"):
+        env["MTLD3D_CONFIG"] = "present.vsync=off"
+    return env
 
 
 REALMS = {1: "Albion", 2: "Midgard", 3: "Hibernia"}

@@ -191,6 +191,27 @@ class CharacterAndLaunchTest(unittest.TestCase):
         self.assertIn("MTLD3D_CONFIG=present.vsync=on", envs)
         self.assertNotIn("FEX_DISKCACHE=1", envs)
 
+    def test_arm64_env_leaves_hdr_to_conf(self):
+        self.checkout.wine_home = Path(self.tmp.name) / "dist" / "wine-arm64"
+        (self.checkout.wine_home / "lib" / "wine" / "aarch64-unix").mkdir(parents=True)
+        self.checkout.app_dir.mkdir(parents=True, exist_ok=True)
+        conf = self.checkout.app_dir / "mtld3d.conf"
+
+        def mtld3d_config(env=None):
+            argv = client_runtime.launch_argv(self.checkout, "acct", "pw", None, 10300, env or {})
+            envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]
+            return [e for e in envs if e.startswith("MTLD3D_CONFIG=")]
+
+        default = ["MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off"]
+        self.assertEqual(mtld3d_config(), default)
+        for text in ("# color.hdr.enable = true\n", "color.hdr.enabled = true\n"):
+            conf.write_text(text)
+            self.assertEqual(mtld3d_config(), default, text)
+        conf.write_text("\n  color.hdr.enable = true  \n")
+        self.assertEqual(mtld3d_config(), ["MTLD3D_CONFIG=present.vsync=off"])
+        self.assertEqual(mtld3d_config({"MTLD3D_CONFIG": "present.vsync=on"}),
+                         ["MTLD3D_CONFIG=present.vsync=on"])
+
     def test_rosetta_wine_gets_no_arm64_settings(self):
         argv = client_runtime.launch_argv(self.checkout, "acct", "pw", None, 10300, {})
         envs = [argv[i + 1] for i, a in enumerate(argv) if a == "--env"]

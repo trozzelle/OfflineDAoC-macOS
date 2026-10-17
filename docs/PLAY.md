@@ -194,7 +194,7 @@ Set in the environment; `daoc client start` forwards them.
 | `DAOC_WINEPREFIX` | `dist/prefix` (`dist/prefix-arm64`) | Wine prefix |
 | `DAOC_DLL_OVERRIDES` | `d3d9,dxgi=b` (arm64: `mscoree,mshtml=;d3d9=n,b`) | Replaces the DLL overrides |
 | `WINE_COMPATDB` | — | Rosetta Wine: renderer choice, e.g. `$'v=5\nname=daoc;exe=game.dll;d3d9=wined3d'` for wined3d instead of mtld3d |
-| `MTLD3D_*`, `FEX_*` | arm64: `MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off`, `MTLD3D_NO_CRASH_HANDLER=1`, `FEX_DISKCACHE=1`, `FEX_X87REDUCEDPRECISION=1` | mtld3d and FEX settings; `FEX_X87REDUCEDPRECISION=0` brings back full x87 precision (and ~10–15 FPS) |
+| `MTLD3D_*`, `FEX_*` | arm64: `MTLD3D_CONFIG=color.hdr.enable=false;present.vsync=off` (just `present.vsync=off` when the client's `mtld3d.conf`, beside `game.dll`, sets `color.hdr.enable` itself), `MTLD3D_NO_CRASH_HANDLER=1`, `FEX_DISKCACHE=1`, `FEX_X87REDUCEDPRECISION=1` | mtld3d and FEX settings; `FEX_X87REDUCEDPRECISION=0` brings back full x87 precision (and ~10–15 FPS) |
 | `WINE_LARGE_ADDRESS_AWARE` | arm64: `1` | 4 GB address space for the 32-bit client |
 
 ## Troubleshooting
