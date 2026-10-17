@@ -16,7 +16,8 @@ import tests.support  # noqa: F401  (puts the Checkout root on sys.path)
 from daoc_cli import mtld3d
 from daoc_cli.errors import DaocError
 
-VERSION = "v0.13.0-daoc.1"
+# Follows the manifest pin, so a release bump needs no test edit.
+VERSION = json.loads((Path(__file__).resolve().parents[1] / "manifest.json").read_text())["mtld3d"]["version"]
 MARKER = b"Wine builtin DLL"
 
 

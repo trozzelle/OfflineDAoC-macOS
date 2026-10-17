@@ -36,26 +36,26 @@
     "note": "Broyojo/hadron v0.2.0: upstream Wine built for arm64 with FEX as its WoW64 (i386) and ARM64EC (x86_64) emulator and mtld3d (D3D9 on Metal). No Rosetta. Its loader (lib/wine/aarch64-unix/wine.app) carries Apple's cross-architecture entitlement from Hadron's provisioning profile, which 32-bit programs need for memory below 4 GB; the runtime is copied out of the disk image unchanged. min_macos: its wine, wineserver, ntdll.so and loader carry minos 27.0, so dyld refuses them on older macOS; client install checks it before downloading. Re-check it whenever this pin changes. daoc runs it with FEX_X87REDUCEDPRECISION=1: with FEX's default full-precision x87 the client holds at ~10-15 FPS in world, with it ~120. Opt-in: daoc client install --wine arm64."
   },
   "mtld3d": {
-    "url": "https://github.com/trozzelle/mtld3d/releases/download/v0.13.0-daoc.1/mtld3d.tar.xz",
+    "url": "https://github.com/trozzelle/mtld3d/releases/download/v0.13.0-daoc.2/mtld3d.tar.xz",
     "asset": "mtld3d.tar.xz",
-    "sha256": "3de3d50868cff96f105d7c41c352757a8c6b2fddb3a9d5dee5214bba3ac6d177",
-    "version": "v0.13.0-daoc.1",
+    "sha256": "7f4c692d263bdda459ad63549711b3e66d8b8fe2b9097f33dfb6f2e4c7903d89",
+    "version": "v0.13.0-daoc.2",
     "members": {
       "INSTALL.md": "ea7cb37678352c40cb8a9d97d50f35ffe8339b8959cd964c451d8787e689930b",
       "LICENSE": "34218a98a2bc21b4624a0bd755d47d5fd0f4478090a3139cc1da887849dccb27",
-      "mtld3d.conf": "2052c9981d584469d4a778e5ef6cfc0a0995a034e0ce8cc0c9368fb75cfac501",
-      "native/i386-windows/d3d9.dll": "04c85e8f1d24806c80143ce51f404f7a103ff8291bce06cee268952ced902557",
-      "native/x86_64-windows/d3d9.dll": "d0b62e0509ded594b704a24328620fbcd0e317a7b35f742b9888bae7d97e6402",
+      "mtld3d.conf": "a8d4860de27b11f63707378cea89d186e6a9e0aec65459628b12127f4d9313d7",
+      "native/i386-windows/d3d9.dll": "a871742f17fc0a81c969cf94bf58bbaf2b4562b3d06a3d0a119ec6453ddca78c",
+      "native/x86_64-windows/d3d9.dll": "b3bc8c146c6e6fbfbc2d5065c65f7471000a4ed56b80807323f44f3bdcd43098",
       "prefix-markers/system32/mtld3d.dll": "7d3d0b2af11e7a3c700bcff392a170dbf90e28b614bb2622abd35127dbc738a5",
       "prefix-markers/syswow64/mtld3d.dll": "a74c0363a54b92db5deb731533e27d1248b9e51bc770dac281f8925e518123dc",
-      "wine/aarch64-unix/mtld3d.so": "b6ee83725b17b399aa41273fdb2a8bc71fd8f0adca3bae67a52641de53bcc62e",
-      "wine/i386-windows/d3d9.dll": "86d6f88acead95a7ae7f6c16ecf5d4e4df4162a99cdce10970ddbe454b77d456",
-      "wine/i386-windows/mtld3d.dll": "2043d2a0b10dbda23543c2e7f0eecb78b74786cfe40a48e47a5a77ac1be0c46c",
-      "wine/x86_64-unix/mtld3d.so": "2f2354e52e6940e05681a8429a1e893d369e0e6ecb0e53a06fb5340ae470a01e",
-      "wine/x86_64-windows/d3d9.dll": "7b45d068c741f72154b0f024a9585965fc0b7966ebb6920513c97df8aaa7cd24",
-      "wine/x86_64-windows/mtld3d.dll": "13780ce3fd4cdfdf754632c703f55f663f3dcc74eec07226de946c25490e6d70"
+      "wine/aarch64-unix/mtld3d.so": "3098402d32b93639e979f058959ff781427476f1d63f7c7e2d5122c0b3ffb977",
+      "wine/i386-windows/d3d9.dll": "6ce782b04fcbcfe633ac5da7190225c9f3ada67bc1280f97c5bd511c38ae659d",
+      "wine/i386-windows/mtld3d.dll": "c14bb32612ae99784d08a732d7b52c27b95283d85150c25ed3ec64a13bbff12b",
+      "wine/x86_64-unix/mtld3d.so": "2c2b7ebe16d98bbd79fdcc7fe9665233326efa2a349c97d66d95209cfd9b357c",
+      "wine/x86_64-windows/d3d9.dll": "d31fb6ba9a67e2499717d9bb11308bd75933f7c4b164f87fc53306cd4b573f3a",
+      "wine/x86_64-windows/mtld3d.dll": "09a4d6fa238d8cc11bafbbcef0b92bdfc43996558633b0a19750db5aec207f41"
     },
-    "note": "Our mtld3d fork (trozzelle/mtld3d branch ppl: upstream athei/mtld3d main at eb1d414 plus the DAoC lighting keys, off unless set in mtld3d.conf), an altered build marked as such. daoc client install puts it into each Wine, saving the Wine's own files under <wine>/.daoc-mtld3d/stock first: rosetta lib/wine/d3d9/mtld3d/{i386-windows,x86_64-windows}/{d3d9,mtld3d}.dll and x86_64-unix/mtld3d.so; arm64 lib/hadron/d3d9/i386/d3d9.dll, lib/hadron/d3d9/markers/syswow64/mtld3d.dll, lib/wine/i386-windows/mtld3d.dll and lib/wine/aarch64-unix/mtld3d.so (then copied into the prefix). daoc client mtld3d stock goes back to the Wine's own; daoc client mtld3d fork returns."
+    "note": "Our mtld3d fork (trozzelle/mtld3d branch ppl: upstream athei/mtld3d main at eb1d414 plus the DAoC lighting, fog and water keys, off unless set in mtld3d.conf), an altered build marked as such. daoc client install puts it into each Wine, saving the Wine's own files under <wine>/.daoc-mtld3d/stock first: rosetta lib/wine/d3d9/mtld3d/{i386-windows,x86_64-windows}/{d3d9,mtld3d}.dll and x86_64-unix/mtld3d.so; arm64 lib/hadron/d3d9/i386/d3d9.dll, lib/hadron/d3d9/markers/syswow64/mtld3d.dll, lib/wine/i386-windows/mtld3d.dll and lib/wine/aarch64-unix/mtld3d.so (then copied into the prefix). daoc client mtld3d stock goes back to the Wine's own; daoc client mtld3d fork returns."
   },
   "graphics": {
     "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
