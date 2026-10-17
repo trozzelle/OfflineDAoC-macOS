@@ -289,14 +289,16 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
      Wine for arm64 with FEX as its WoW64 (i386) and ARM64EC emulator, and mtld3d.
      Its loader `lib/wine/aarch64-unix/wine.app` is signed with a provisioning
      profile granting Apple's cross-architecture entitlement (memory below 4 GB,
-     which a 32-bit program needs); copying keeps that signature valid, so nothing
-     in the tree is touched. Requirements: Apple Silicon, macOS 27 or later (its
+     which a 32-bit program needs); copying keeps that signature valid, and this
+     step touches nothing in the tree (step 2 then swaps only the mtld3d files, never
+     the loader). Requirements: Apple Silicon, macOS 27 or later (its
      `wine`, `wineserver`, `ntdll.so` and loader are built with minos 27.0), no
      Rosetta.
      Security: curl sets no quarantine flag, so Gatekeeper never assesses the
      image or the copied `wine.app` (no notarization or Developer ID check). Trust in
-     the runtime rests entirely on the `wine_arm64` SHA-256 pin: review a new pin
-     (its release, its source and its signer) as you would new code.
+     the runtime rests on the `wine_arm64` SHA-256 pin and, for the mtld3d files
+     step 2 puts into it, on the `mtld3d` pin: review a new pin of either (its
+     release, its source and its signer) as you would new code.
 2. mtld3d: the flavour's choice, kept in the checkout (`.daoc/mtld3d.json`, keyed
    by flavour, default `fork`) so it outlives a Wine reinstall, applied right after
    the Wine step so the arm64 prefix copy (step 5) takes it.
@@ -310,9 +312,12 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
    its syswow64 marker and `lib/wine/{i386-windows,aarch64-unix}/mtld3d.*`); a tree
    already at the pinned version is left alone. `stock` puts the saved files back.
    `daoc client mtld3d [fork|stock] [--wine X]` switches outside an install and
-   records the choice (refused while the client runs; arm64 then refreshes the
-   prefix copies), and prints the state with no argument; the overview's `mtld3d:`
-   line shows it.
+   records the choice (refused while the client runs), and prints the state with no
+   argument; the overview's `mtld3d:` line shows it, and when the installed fork is
+   not the pinned one, that `daoc client install` moves it. Whenever the step (or
+   the command) changes an arm64 Wine whose prefix exists, it refreshes the
+   prefix copies at once, so an install interrupted before step 5 never leaves the
+   prefix's `d3d9.dll` paired with another `mtld3d.dll`/`.so`.
 3. Verify/fetch the pinned OfflineDAoC release parts (per-part + archive SHA-256),
    join, extract with zip-slip validation beside `dist/OfflineDAoC`, then swap it
    in, as an update does: an install killed mid-extraction re-runs cleanly.
@@ -325,9 +330,10 @@ pin records the macOS its binaries are built for as `min_macos`, and install che
    real directories (no TCC prompt for ~/Documents), copy the client settings from
    another prefix user or the other flavour's prefix when this prefix's user
    (`crossover`, or the macOS user name for arm64) has none, install the launcher
-   wrapper. arm64 also copies the Wine's mtld3d (the fork's or Hadron's) into the
-   prefix (native `d3d9.dll` in `syswow64`/`system32` plus the `mtld3d.dll` markers)
-   after `wineboot -u`, and runs
+   wrapper. arm64 also copies the Wine's mtld3d into the prefix after `wineboot -u`:
+   native `d3d9.dll` and the `mtld3d.dll` marker in `syswow64` (32-bit; these
+   follow the mtld3d choice: the fork's or Hadron's) and in `system32` (ARM64X;
+   always Hadron's), and runs
    `wine cmd /c exit` to check for "Failed to resolve your host name IP": macOS
    holding the arm64 Wine's Local Network access makes every Wine start wait ~35 s.
 

@@ -72,11 +72,17 @@ class OverviewTest(unittest.TestCase):
         target = wine_home / mtld3d.TARGETS["rosetta"][0][1]
         target.parent.mkdir(parents=True)
         target.write_bytes(b"fork")
-        (wine_home / mtld3d.RECORD).write_text(json.dumps(
-            {"choice": "fork", "version": "v9", "stock": {t: None for _, t in mtld3d.TARGETS["rosetta"]},
-             "fork": {t: hashlib.sha256(b"fork").hexdigest() if t == target.relative_to(wine_home).as_posix()
-                      else None for _, t in mtld3d.TARGETS["rosetta"]}}))
-        self.assertRegex(line(self.overview()[0], "mtld3d:"), r"^mtld3d:\s+fork v9$")
+        record = {"version": "v9", "stock": {t: None for _, t in mtld3d.TARGETS["rosetta"]},
+                  "fork": {t: hashlib.sha256(b"fork").hexdigest()
+                           if t == target.relative_to(wine_home).as_posix() else None
+                           for _, t in mtld3d.TARGETS["rosetta"]}}
+        (wine_home / mtld3d.RECORD).write_text(json.dumps(record))
+        pin = self.co.manifest["mtld3d"]["version"]
+        self.assertEqual(line(self.overview()[0], "mtld3d:").split(None, 1)[1],
+                         f"fork v9 (pin {pin}: run daoc client install)")
+        # At the pinned version: no notice.
+        (wine_home / mtld3d.RECORD).write_text(json.dumps(dict(record, version=pin)))
+        self.assertRegex(line(self.overview()[0], "mtld3d:"), rf"^mtld3d:\s+fork {re.escape(pin)}$")
 
     def test_command_list_has_groups_but_not_dev(self):
         out, _ = self.overview()

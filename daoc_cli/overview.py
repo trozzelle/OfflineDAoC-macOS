@@ -58,15 +58,20 @@ def _commands() -> List[Tuple[str, str]]:
 
 
 def _mtld3d(checkout: Checkout) -> str:
-    """The current flavour's Wine's mtld3d (mtld3d.state), or - without that Wine."""
+    """The current flavour's Wine's mtld3d (mtld3d.state), or - without that
+    Wine; a fork other than the pinned one says how to move to the pin."""
     try:
         flavour = checkout.flavour
         wine_home, _ = checkout.flavour_paths(flavour)
         if not (wine_home / "bin" / "wine").is_file():
             return "-"
-        return mtld3d.state(wine_home, flavour)
+        state = mtld3d.state(wine_home, flavour)
     except DaocError as e:
         return f"{pins.UNKNOWN} ({e.msg})"
+    pin = checkout.manifest.get("mtld3d", {}).get("version")
+    if state.startswith("fork ") and pin and state != f"fork {pin}":
+        state += f" (pin {pin}: run daoc client install)"
+    return state
 
 
 def show(checkout: Checkout) -> int:

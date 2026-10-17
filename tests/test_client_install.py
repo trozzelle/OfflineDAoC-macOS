@@ -675,6 +675,25 @@ class Arm64InstallTest(InstallBase):
         self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(),
                          bundle_files()["native/i386-windows/d3d9.dll"])
 
+    def test_interrupted_install_leaves_the_prefix_in_step_with_the_wine(self):
+        # An installed arm64 Wine and prefix on Hadron's stock mtld3d ...
+        mtld3d.set_choice(self.co, "arm64", "stock")
+        self.assertEqual(self.install("--wine", "arm64")[0], 0)
+        win = self.prefix_arm64 / "drive_c" / "windows"
+        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(), MTLD3D["i386/d3d9.dll"])
+        # ... then an install that applies the fork and dies in the release step.
+        mtld3d.set_choice(self.co, "arm64", "fork")
+        with mock.patch.object(client, "_install_release", side_effect=DaocError("boom")):
+            code, out, err = self.install()
+        self.assertEqual(code, 1)
+        self.assertIn("boom", err)
+        for name in ("d3d9.dll", "mtld3d.dll"):
+            tree = (self.wine_arm64 / "lib/hadron/d3d9" /
+                    ("i386" if name == "d3d9.dll" else "markers/syswow64") / name)
+            self.assertEqual((win / "syswow64" / name).read_bytes(), tree.read_bytes(), name)
+        self.assertEqual((win / "syswow64" / "d3d9.dll").read_bytes(),
+                         bundle_files()["native/i386-windows/d3d9.dll"])
+
 
 class Mtld3dTest(InstallBase):
     """The mtld3d fork build in `client install` and `client mtld3d`, on the
@@ -743,6 +762,23 @@ class Mtld3dTest(InstallBase):
         self.assertEqual(fresh.read_bytes(), b"new stock")
         self.assertFalse((self.wine_home / mtld3d.RECORD).exists())
         self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "stock")
+
+    def test_new_pin_is_applied_by_install(self):
+        self.assertEqual(self.install()[0], 0)
+        self.fork_installed()
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["mtld3d"]["version"] = "v2"
+        path.write_text(json.dumps(manifest))
+        self.bundle = Path(self.tmp.name) / "mtld3d-bundle-v2"
+        write_tree(self.bundle, bundle_files("v2"))
+        code, out, err = self.install()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.fetches, 2)
+        files = bundle_files("v2")
+        for member, target in mtld3d.TARGETS["rosetta"]:
+            self.assertEqual((self.wine_home / target).read_bytes(), files[member], target)
+        self.assertEqual(mtld3d.state(self.wine_home, "rosetta"), "fork v2")
 
     def test_mtld3d_refuses_while_client_runs(self):
         self.pids = [4242]

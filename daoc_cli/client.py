@@ -162,19 +162,24 @@ def _mtld3d(args: argparse.Namespace, checkout: Checkout) -> int:
 
 
 def _apply_mtld3d_choice(checkout: Checkout, flavour: str) -> None:
-    """Give the flavour's Wine the recorded mtld3d (default: the fork build),
-    before the prefix step copies the arm64 Wine's into the prefix."""
-    wine_home, _ = checkout.flavour_paths(flavour)
+    """Give the flavour's Wine the recorded mtld3d (default: the fork build).
+    When that changes an arm64 Wine whose prefix exists, the prefix copies
+    follow at once, so an install interrupted before the prefix step never
+    leaves the prefix's d3d9.dll paired with another mtld3d.dll/.so."""
+    wine_home, prefix = checkout.flavour_paths(flavour)
     current = mtld3d.state(wine_home, flavour)
     if mtld3d.choice(checkout, flavour) == "stock":
-        if current != "stock":
-            mtld3d.restore_stock(wine_home, flavour)
-        return
-    version = checkout.manifest["mtld3d"]["version"]
-    if current == f"fork {version}":
-        say(f"mtld3d {version} already installed")
-        return
-    mtld3d.apply(wine_home, flavour, mtld3d.fetch_bundle(checkout), version)
+        if current == "stock":
+            return
+        mtld3d.restore_stock(wine_home, flavour)
+    else:
+        version = checkout.manifest["mtld3d"]["version"]
+        if current == f"fork {version}":
+            say(f"mtld3d {version} already installed")
+            return
+        mtld3d.apply(wine_home, flavour, mtld3d.fetch_bundle(checkout), version)
+    if wine_is_arm64(wine_home) and (prefix / "system.reg").is_file():
+        _install_mtld3d(wine_home, prefix)
 
 
 def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:
@@ -558,7 +563,9 @@ def _install_wine_arm64(checkout: Checkout, verbose: bool) -> None:
     """Hadron's runtime, copied unchanged out of its release disk image into
     dist/wine-arm64. Its loader (lib/wine/aarch64-unix/wine.app) is signed with
     a provisioning profile that grants the cross-architecture entitlement, so
-    nothing in the tree is modified: no xattr pass (curl sets no quarantine)."""
+    this step modifies nothing in the tree: no xattr pass (curl sets no
+    quarantine). The mtld3d step afterwards swaps only mtld3d's files (see
+    mtld3d.TARGETS), never the loader; the `mtld3d` pin vouches for those."""
     wine_home, _ = checkout.flavour_paths("arm64")
     pin = checkout.manifest["wine_arm64"]
     record = wine_home / WINE_RECORD
