@@ -172,6 +172,57 @@ class E2ETest(unittest.TestCase):
         self.assertIn(f"E2E FAILED at: {step}", err)
         self.assert_restored()
 
+    def new_client(self, login=True, pids=(4242,), port_busy=False):
+        """Patch the new-client side: its install, launch and process lookup."""
+        self.booted = False
+        self.new_launches = []
+        boot = self._start_detached
+
+        def start(argv, cwd, log):
+            boot(argv, cwd, log)
+            self.booted = True
+
+        def launch(checkout, account, password):
+            self.new_launches.append((account, password))
+            if login:
+                with self.server_log.open("a") as f:
+                    f.write(f"LoginRequestHandler: User {ACCOUNT} logging on!\n")
+
+        self.new_install = mock.Mock()
+        for p in (mock.patch.object(e2e, "_start_detached", start),
+                  mock.patch.object(e2e, "_launch_new", launch),
+                  mock.patch.object(e2e, "_port_open",
+                                    lambda port: port == 10300 and (self.booted or port_busy)),
+                  mock.patch.object(e2e.client_runtime, "new_pids", lambda co: list(pids)),
+                  mock.patch.object(e2e.newclient, "install", self.new_install)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_new_uses_10300(self):
+        self.new_client()
+        code, out, err = run_cli(["dev", "e2e", ACCOUNT, PASSWORD, "--client", "new"], self.root)
+        self.assertEqual(code, 0, err)
+        self.assertIn("E2E: PASS", out)
+        self.assertIn("<Port>10300</Port>", (self.sd / "config-at-start.xml").read_text())
+        self.assertEqual(self.new_launches, [(ACCOUNT, PASSWORD)])
+        self.new_install.assert_called_once()
+        self.client_install.assert_not_called()
+        self.assert_restored()
+
+    def test_new_refuses_busy_port(self):
+        self.new_client(port_busy=True)
+        code, out, err = run_cli(["dev", "e2e", ACCOUNT, PASSWORD, "--client", "new"], self.root)
+        self.assertEqual(code, 2)
+        self.assertIn("10300", err)
+        self.assertFalse((self.sd / "script-calls.log").exists())
+        self.assertEqual(self.new_launches, [])
+
+    def test_new_alive_check_uses_new_pids(self):
+        self.new_client(pids=())
+        code, out, err = run_cli(["dev", "e2e", ACCOUNT, PASSWORD, "--client", "new"], self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("could not find the client process", err)
+
     def test_pass_moves_ports_reverts_them_and_writes_the_evidence(self):
         (self.root / "evidence").mkdir()
         (self.root / "evidence" / "wine-attempt-7.log").write_text("stale")

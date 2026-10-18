@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from daoc_cli import client, client_runtime, files, proc, selection, server
+from daoc_cli import client, client_runtime, files, newclient, proc, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -47,7 +47,11 @@ class _Failed(Exception):
 
 
 class _Run:
-    def __init__(self, checkout: Checkout, account: str, password: str) -> None:
+    def __init__(self, checkout: Checkout, account: str, password: str,
+                 client_name: str = "original") -> None:
+        self.client = client_name
+        # The new client cannot change port: its run keeps the server on 10300.
+        self.game_port = client_runtime.NEW_PORT if client_name == "new" else GAME_PORT
         self.co = checkout
         self.account = account
         self.password = password
@@ -103,7 +107,8 @@ class _Run:
 
     # --- 2. Boot on alternate ports -----------------------------------------
     def server_boot(self) -> None:
-        self.step(f"server boot (alternate ports {GAME_PORT}/{REGION_PORT})")
+        self.step(f"server boot (alternate ports {GAME_PORT}/{REGION_PORT})" if self.client == "original"
+                  else f"server boot (port {self.game_port})")
         self.server_script("stop", quiet=True)
         # A fresh install has no config/ until first start; seed it from defaults/ so
         # the port move below edits the file the server will actually read. The data/
@@ -116,7 +121,7 @@ class _Run:
         if not world.is_file():
             _copy(self.server_dir / "defaults" / "world.sqlite", world)
         text = _read(self.config)
-        if "<Port>10300</Port>" in text:
+        if self.client == "original" and "<Port>10300</Port>" in text:
             # The original is kept as serverconfig.xml.bak; cleanup puts it back.
             try:
                 shutil.copy2(self.config, self.config.with_name("serverconfig.xml.bak"))
@@ -138,8 +143,8 @@ class _Run:
         except OSError as e:
             self.abort(f"cannot start daoc-server.sh: {e.strerror or e}")
         for _ in range(BOOT_WAIT):
-            if LISTENING in _read(console) and _port_open(GAME_PORT):
-                self.say(f"server is listening (console.out + port {GAME_PORT} OK)")
+            if LISTENING in _read(console) and _port_open(self.game_port):
+                self.say(f"server is listening (console.out + port {self.game_port} OK)")
                 break
             time.sleep(1)
         if LISTENING not in _read(console):
@@ -161,6 +166,15 @@ class _Run:
     # --- 4. Client installed? -------------------------------------------------
     def client_install(self) -> None:
         self.step("client install")
+        if self.client == "new":
+            if not (self.co.new_client_project / "project.godot").is_file():
+                try:
+                    newclient.install(self.co, selection.load(self.co).game)
+                except DaocError as e:
+                    self.abort(f"new client install failed: {e.msg}")
+            else:
+                self.say("new client already installed")
+            return
         if not self.co.client_root.is_dir():
             try:
                 client.install(self.co)
@@ -185,7 +199,50 @@ class _Run:
         _copy(WINE_LOG, self.evidence / f"wine-attempt-{attempt}.log")
         (self.evidence / f"pgrep-at-attempt-{attempt}.txt").write_text(self.snapshot())
 
+    def client_launch_new(self) -> None:
+        self.step("new client launch")
+        server_log = self.server_dir / "logs" / "server.log"
+        logging_on = re.compile(r"LoginRequestHandler.*User " + re.escape(self.account)
+                                + r" logging on!")
+        offset = files.size(server_log)
+        client_runtime.kill(self.co)
+        _launch_new(self.co, self.account, self.password)
+        login_ok = False
+        deadline = time.monotonic() + ATTEMPT_WINDOW
+        while time.monotonic() < deadline:
+            new = files.tail(server_log, offset)
+            if "Wrong password" in new:
+                self.fail("server rejected the login (Wrong password) — account/password mismatch")
+                break
+            if logging_on.search(new):
+                show = self.admin("accounts", "show", self.account)
+                (self.evidence / "account-show.txt").write_text(show + "\n")
+                if re.search(r"last login [0-9]", show):
+                    login_ok = True
+                    break
+            time.sleep(2)
+        _copy(server_log, self.evidence / "server.log")
+        _copy(client_runtime.NEW_LOG, self.evidence / "new-client.log")
+        if not login_ok:
+            self.fail(f"no 'User {self.account} logging on!' appeared in the server log "
+                      f"within {ATTEMPT_WINDOW} s")
+            return
+        self.say(f"login observed; holding the new client for the {ALIVE_HOLD} s window")
+        pids = client_runtime.new_pids(self.co)
+        if not pids:
+            self.fail("could not find the client process from this launch")
+            return
+        self.say(f"client pid: {pids[0]}")
+        time.sleep(ALIVE_HOLD)
+        if _alive(pids[0]):
+            self.say(f"client process alive {ALIVE_HOLD} s after login — PASS")
+        else:
+            self.fail(f"client process died within {ALIVE_HOLD} s after login")
+
     def client_launch(self) -> None:
+        if self.client == "new":
+            self.client_launch_new()
+            return
         self.step("client launch")
         server_log = self.server_dir / "logs" / "server.log"
         logging_on = re.compile(r"LoginRequestHandler.*User " + re.escape(self.account)
@@ -347,6 +404,13 @@ def _port_open(port: int) -> bool:
         return False
 
 
+def _launch_new(checkout: Checkout, account: str, password: str) -> None:
+    """Open the New client once (it logs in and stops at realm select). The
+    password rides on its argv and is never printed."""
+    classic = selection.load(checkout).game.edition == "classic"
+    proc.run(client_runtime.new_launch_argv(checkout, account, password, classic), check=False)
+
+
 def _launch(checkout: Checkout, account: str, password: str) -> None:
     """Open the Launcher for one attempt at character select. The password rides
     on the argv the Launcher requires and is never printed. LaunchServices drops
@@ -398,10 +462,17 @@ def _on_signal(signum: int, frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
-def run(checkout: Checkout, account: Optional[str] = None, password: Optional[str] = None) -> int:
-    """The acceptance run; 0 when every step passes, else 1."""
+def run(checkout: Checkout, account: Optional[str] = None, password: Optional[str] = None,
+        client_name: str = "original") -> int:
+    """The acceptance run; 0 when every step passes, else 1 (2: the new client's
+    port is taken)."""
     account = account or f"e2e{int(time.time())}"
     password = password or DEFAULT_PASSWORD
+    if client_name == "new" and _port_open(client_runtime.NEW_PORT):
+        # The new client cannot be moved off 10300, so the run needs it free.
+        print(f"port {client_runtime.NEW_PORT} is in use (another server?); the new client only "
+              "connects to it, so stop that server first", file=sys.stderr, flush=True)
+        return 2
     lock = checkout.root / ".e2e.lock"
     # One run at a time: two concurrent runs would fight over the same wine
     # prefix, server ports, and logs.
@@ -413,7 +484,7 @@ def run(checkout: Checkout, account: Optional[str] = None, password: Optional[st
         return 1
     # A TERM or HUP still runs the cleanup below, as the script's EXIT trap did.
     previous = {s: signal.signal(s, _on_signal) for s in (signal.SIGTERM, signal.SIGHUP)}
-    r = _Run(checkout, account, password)
+    r = _Run(checkout, account, password, client_name)
     try:
         # Stale files from a previous run would be mistaken for this run's evidence
         # (the per-attempt wine logs in particular); start clean.

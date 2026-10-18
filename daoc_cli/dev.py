@@ -22,6 +22,8 @@ def register(groups: "argparse._SubParsersAction") -> None:
     )
     a.add_argument("account", nargs="?", help="account to create or reuse (default: e2e<time>)")
     a.add_argument("password", nargs="?", help=f"its password (default: {e2e.DEFAULT_PASSWORD})")
+    a.add_argument("--client", choices=("original", "new"), default="original",
+                   help="client to run (new: the server stays on 10300, which must be free)")
     a.set_defaults(func=_e2e)
     a = actions.add_parser("ship-pins", help="write the effective pins into manifest.json",
                            description="Write the effective pins into manifest.json and "
@@ -39,7 +41,7 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 
 def _e2e(args: argparse.Namespace, checkout: Checkout) -> int:
-    return e2e.run(checkout, args.account, args.password)
+    return e2e.run(checkout, args.account, args.password, args.client)
 
 
 def _ship_pins(args: argparse.Namespace, checkout: Checkout) -> int:
