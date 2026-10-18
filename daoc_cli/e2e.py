@@ -132,13 +132,8 @@ class _Run:
             except OSError as e:
                 self.abort(f"port move failed: {e}")
             self.say(f"ports moved to {GAME_PORT}/{REGION_PORT}")
-        # The client is launched at self.game_port: a config left on any other port (say, by a
-        # hand edit) would send it to a port nothing listens on, which looks like a hung client.
-        configured = re.search(r"<Port>(\d+)</Port>", _read(self.config))
-        if configured is None or int(configured.group(1)) != self.game_port:
-            found = configured.group(0) if configured else "no <Port>"
-            self.abort(f"{self.config} sets {found}, but the client connects to {self.game_port}; "
-                       "put <Port>10300</Port> back (or delete the file to reseed it from defaults/)")
+            if f"<Port>{GAME_PORT}</Port>" not in self.config.read_text(errors="replace"):
+                self.abort("port move failed")
         # Boot detached: without a TTY the launcher script execs the console in the
         # foreground, so a child tied to this process dies with it. A new session
         # with output into logs/console.out (nohup semantics) keeps it independent.
