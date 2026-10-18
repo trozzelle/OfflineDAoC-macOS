@@ -90,6 +90,14 @@ back to an older version needs a backup made under it
 ([docs/UPDATING.md](docs/UPDATING.md#switching-games)). Both clients play the same
 account and characters, one at a time.
 
+**Original Client**
+
+<img width="3450" height="2232" alt="CleanShot 2026-10-18 at 12 10 16 PM@2x" src="https://github.com/user-attachments/assets/c7dbfb1e-fad5-4ba5-b00a-9aec5ab0c444" />
+
+**Godot Client**
+
+<img width="3452" height="2232" alt="CleanShot 2026-10-18 at 12 13 19 PM@2x" src="https://github.com/user-attachments/assets/235c7bd4-38f9-4899-8cce-d8aa989fa69b" />
+
 ## Without Rosetta: the arm64 Wine
 
 Apple keeps Rosetta 2 fully working only through macOS 27. On macOS 27 or later
