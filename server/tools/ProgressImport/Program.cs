@@ -3,15 +3,17 @@ using DaocProgress;
 
 const string Usage = """
     Usage (from the server folder, with the server stopped):
-      ./daoc-progress upgrade
-          Move this server's saved progress into the world this build ships (defaults/world.sqlite):
+      ./daoc-progress upgrade [--edition=sluaghbinder | --edition=classic]
+          Move this server's saved progress into the world this build ships for an edition
+          (defaults/world-sluaghbinder.sqlite or defaults/world.sqlite; default: config/edition):
           accounts (with their roles), characters, items, money, houses, guilds and bots. This
-          install's settings (edition, population, options, XP rates) are kept.
+          install's settings (population, options, XP rates) are kept; the edition is the one
+          given, else config/edition's, else the save's own.
       ./daoc-progress import <folder or .db> --replace-progress
           Replace this server's progress with the progress of another save: an older server folder,
           or a Windows Offline DAoC folder (the one containing runtime/). This server keeps its own
           world and settings. The source is only read.
-      ./daoc-progress inspect <folder or .db>
+      ./daoc-progress inspect <folder or .db> [--json]
           Show what a save contains. Changes nothing.
 
     Options:
@@ -26,12 +28,15 @@ const string Usage = """
 string home = Environment.GetEnvironmentVariable("DAOC_HOME") is { Length: > 0 } configured
     ? Path.GetFullPath(configured)
     : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
-string[] knownFlags = ["--leave-sluaghbinder-bots", "--replace-progress"];
+string[] knownFlags = ["--leave-sluaghbinder-bots", "--replace-progress", "--json",
+    "--edition=" + ImportEngine.Sluaghbinder, "--edition=" + ImportEngine.Classic];
 var flags = args.Where(a => a.StartsWith("--", StringComparison.Ordinal)).ToHashSet();
 var words = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToList();
-if (flags.Except(knownFlags).Any() || words.Count == 0)
+var editions = flags.Where(f => f.StartsWith("--edition=", StringComparison.Ordinal)).ToList();
+if (flags.Except(knownFlags).Any() || words.Count == 0 || editions.Count > 1)
     return Fail(2, Usage);
 bool leaveBots = flags.Contains("--leave-sluaghbinder-bots");
+string? edition = editions.Count == 1 ? editions[0]["--edition=".Length..] : null;
 
 try
 {
@@ -40,12 +45,22 @@ try
         case ("inspect", 2):
         {
             var s = ImportEngine.InspectCopy(ImportEngine.LocateSave(words[1]));
+            if (flags.Contains("--json"))
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, long>
+                {
+                    ["accounts"] = s.Accounts, ["characters"] = s.Characters, ["bots"] = s.Bots,
+                    ["inventory"] = s.InventoryItems, ["sluaghbinder_characters"] = s.SluaghbinderCharacters,
+                    ["sluaghbinder_bots"] = s.SluaghbinderBots,
+                }));
+                return 0;
+            }
             Console.WriteLine($"{s.Database}\n  {s.Accounts} account(s), {s.Characters} character(s), {s.Bots} bot(s), {s.InventoryItems} inventory entries" +
                 (s.SluaghbinderCharacters + s.SluaghbinderBots > 0 ? $"\n  Sluaghbinder: {s.SluaghbinderCharacters} character(s), {s.SluaghbinderBots} bot(s)" : ""));
             return 0;
         }
         case ("upgrade", 1):
-            return Report(ImportEngine.Upgrade(home, Console.WriteLine, leaveBots));
+            return Report(ImportEngine.Upgrade(home, Console.WriteLine, leaveBots, edition));
         case ("import", 2):
             if (!flags.Contains("--replace-progress"))
                 return Fail(2, "import replaces this server's saved progress. Add --replace-progress to confirm (a backup is made first).");
