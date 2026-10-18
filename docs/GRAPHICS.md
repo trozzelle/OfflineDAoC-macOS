@@ -11,11 +11,11 @@ launch.
 
 `daoc client install` puts our build of mtld3d (the D3D9-on-Metal renderer,
 [trozzelle/mtld3d](https://github.com/trozzelle/mtld3d) branch `ppl`: upstream
-mtld3d plus lighting keys for DAoC; an altered version, marked as such) into
-either Wine. Its `lighting.*` keys are off unless you set them in `mtld3d.conf`;
-with them off it renders as upstream mtld3d `eb1d414`, which is newer than either
-Wine's own mtld3d and fixes the bump distortion on reflective water that theirs
-lack. `daoc client mtld3d`
+mtld3d plus DAoC keys for lighting, fog, water, post-processing, sun shadows and
+ray tracing; an altered version, marked as such) into either Wine. Those keys are
+off unless you set them in `mtld3d.conf`; with them off it renders as upstream
+mtld3d `eb1d414`, which is newer than either Wine's own mtld3d and fixes the bump
+distortion on reflective water that theirs lack. `daoc client mtld3d`
 shows which one the current Wine has; `daoc client mtld3d stock` goes back to
 the Wine's own and `daoc client mtld3d fork` returns (quit the client first).
 
