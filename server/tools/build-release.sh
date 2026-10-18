@@ -9,7 +9,8 @@
 # Needs the .NET 10 SDK, cmake, clang (Xcode Command Line Tools) and curl. The result needs none
 # of them: it bundles the .NET runtime and contains a fresh Classic + SI world built from the
 # pinned upstream OpenDAoC-Database plus world/patches.
-# Navmeshes come from world/navmesh (installed into dist/daoc-server); no client files are included.
+# Navmeshes come from DAOC_NAVMESH_SRC/world/navmesh (installed into dist/daoc-server); no client
+# files are included.
 #
 # macOS port of the Linux repo's tools/build-release.sh. Differences from Linux:
 #   - RID is osx-arm64 (Apple Silicon; the Linux repo targets linux-x64).
@@ -42,6 +43,11 @@ DOTNET="${DOTNET:-${DOTNET_ROOT:-$HOME/.dotnet}/dotnet}"
 [[ -x $DOTNET ]] || DOTNET="${DOTNET:-$(command -v dotnet || true)}"
 VERSION="${VERSION:-$(git -C "$HERE" describe --tags --always 2>/dev/null || echo dev)}"
 OUT="$HERE/dist/daoc-server"
+# The game Version being built (`daoc server install` sets both): its port patches live in
+# patches/<version>/, and its navmeshes in DAOC_NAVMESH_SRC/world/navmesh/.
+GAME_VERSION="${DAOC_GAME_VERSION:?build-release: set DAOC_GAME_VERSION (daoc server install does)}"
+NAVMESH_SRC="${DAOC_NAVMESH_SRC:?build-release: set DAOC_NAVMESH_SRC (daoc server install does)}"
+[[ -d $HERE/patches/$GAME_VERSION ]] || { echo "build-release: no patches/$GAME_VERSION" >&2; exit 1; }
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
 # Build steps print errors only, unless --verbose. `dotnet build` appends its own
@@ -88,7 +94,7 @@ rsync -a --delete \
 # The WorldBuilder needs a config dir for its serverconfig (the build only needs it to exist).
 [[ -f $SNAPSHOT/CoreServer/config/serverconfig.xml ]] ||
   cp "$SNAPSHOT/CoreServer/config/serverconfig.example.xml" "$SNAPSHOT/CoreServer/config/serverconfig.xml"
-for p in "$HERE"/patches/*.patch; do
+for p in "$HERE/patches/$GAME_VERSION"/*.patch; do
   [[ -e $p ]] || break
   echo "== Applying $(basename "$p")"
   quiet patch -p1 -d "$SNAPSHOT/.." -i "$p" --forward || { echo "build-release: patch failed: $p" >&2; exit 1; }
@@ -192,21 +198,13 @@ find "$OUT/bin" -type f \( -perm -111 -o -name '*.dylib' \) -print0 | while IFS=
   file "$f" | grep -q Mach-O && codesign --force --sign - "$f" >/dev/null 2>&1 || true
 done
 
-# Navmeshes ship in the source as ~90 MB parts (world/navmesh/; under GitHub's 100 MB file limit).
-# Join and verify them, and install them into the folder so dist/daoc-server is ready to start.
+# Navmeshes come from the fork's world/navmesh/ (one .xz per mesh plus navmesh-manifest.sha256),
+# exported by `daoc server install` into DAOC_NAVMESH_SRC from the Version's navmesh commit.
+# Verify them and install them into the folder so dist/daoc-server is ready to start.
 echo "== Navmeshes (world/navmesh)"
-navset="daoc-navmeshes-classic-si-2.tar.xz"
-nav="$HERE/dist/$navset"
-want=$(<"$REPO/world/navmesh/$navset.sha256")
-if [[ ! -f $nav || $(shasum -a 256 "$nav" | cut -d' ' -f1) != "$want" ]]; then
-  cat "$REPO/world/navmesh/$navset".part-* > "$nav.tmp"
-  [[ $(shasum -a 256 "$nav.tmp" | cut -d' ' -f1) == "$want" ]] || { echo "build-release: navmesh parts in world/navmesh are damaged" >&2; exit 1; }
-  mv "$nav.tmp" "$nav"
-fi
-cp "$REPO/world/navmesh/$navset.sha256" "$nav.sha256"
-DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-archive "$nav"
+DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-xz "$NAVMESH_SRC/world/navmesh"
 
-# The release zip leaves the navmeshes out (they are the separate archive above).
+# The release zip leaves the navmeshes out (they come from the fork's world/navmesh/).
 zipfile="$HERE/dist/daoc-server-$VERSION-macos-arm64.zip"
 rm -f "$zipfile"
 # User state (config/, data/, logs/, run/) never goes into the release zip. -y stores the bin/ links

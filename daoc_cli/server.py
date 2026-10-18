@@ -17,6 +17,7 @@ import argparse
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -61,7 +62,7 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
-    install(checkout, verbose=args.verbose)
+    install(checkout, _version(checkout), verbose=args.verbose)
     return 0
 
 
@@ -121,14 +122,16 @@ def running(checkout: Checkout) -> Optional[bool]:
     return status(checkout)[0]
 
 
-def install(checkout: Checkout, verbose: bool = False,
+def install(checkout: Checkout, version: str, verbose: bool = False,
             pin: Optional[Dict[str, Any]] = None) -> None:
-    """Build the Server install from pin (default: the effective server pin)."""
+    """Build the Server install of game version from pin (default: its effective
+    server pin)."""
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
     root = Path(os.path.realpath(checkout.root))
     progress = "--progress" if verbose else "--quiet"
-    pin = pin if pin is not None else pins.effective(checkout, "server", _version(checkout))
+    pin = pin if pin is not None else pins.effective(checkout, "server", version)
     url, ref = pin["upstream"], pin["ref"]
+    navmesh_ref = pin.get("navmesh_ref") or ref
     src = root / "upstream" / "server"
 
     # 1. Fetch the pinned upstream as a git clone, verify the exact commit, and
@@ -158,7 +161,7 @@ def install(checkout: Checkout, verbose: bool = False,
         raise DaocError(f"upstream HEAD {actual[:12]} != pinned {ref[:12]}")
 
     # Pre-check the macOS patches apply cleanly to this snapshot.
-    patches = [str(p) for p in _patches(root)]
+    patches = [str(p) for p in _patches(root, version)]
     if proc.git(src, "apply", "--check", *patches, verbose=True, check=False).returncode != 0:
         raise DaocError("patches no longer apply to the pinned upstream — re-derive them")
     say("patches apply cleanly")
@@ -169,23 +172,54 @@ def install(checkout: Checkout, verbose: bool = False,
     if shutil.which("cmake") is None:
         raise DaocError("cmake missing (brew install cmake)")
 
-    # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
-    #    fetcher it calls) can't pick up a different tree from an inherited environment.
-    env = dict(os.environ, DAOC_SOURCE_REPO=str(src))
-    build = [str(root / "server" / "tools" / "build-release.sh")]
-    if verbose:
-        build.append("--verbose")
-    # A build that stops halfway leaves an install built from no pin.
-    pins.forget_installed(checkout, "server")
-    proc.run(build, cwd=root, env=env, verbose=True)
+    with tempfile.TemporaryDirectory(prefix="daoc-navmesh-") as navmesh_src:
+        _export_navmesh(src, navmesh_ref, ref, Path(navmesh_src), progress, verbose)
+        # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
+        #    fetcher it calls) can't pick up a different tree from an inherited environment.
+        env = dict(os.environ, DAOC_SOURCE_REPO=str(src), DAOC_GAME_VERSION=version,
+                   DAOC_NAVMESH_SRC=navmesh_src)
+        build = [str(root / "server" / "tools" / "build-release.sh")]
+        if verbose:
+            build.append("--verbose")
+        # A build that stops halfway leaves an install built from no pin.
+        pins.forget_installed(checkout, "server")
+        proc.run(build, cwd=root, env=env, verbose=True)
     pins.record_installed(checkout, "server", pin)
 
     say("install-server: done — server/dist/daoc-server; start it with daoc server start")
 
 
-def _patches(root: Path) -> List[Path]:
-    """server/patches/*.patch in the order build-release.sh applies them."""
-    return sorted((root / "server" / "patches").glob("*.patch"))
+NAVMESH_PATHS = ("world/navmesh", "world/navmesh-manifest.sha256")
+
+
+def _export_navmesh(src: Path, navmesh_ref: str, ref: str, dest: Path, progress: str,
+                    verbose: bool) -> None:
+    """Write navmesh_ref's world/navmesh/ and its manifest into dest. A Version
+    whose own commit has no navmeshes names the commit that has them
+    (navmesh_ref); fetch it into the clone first."""
+    if navmesh_ref != ref:
+        if proc.git(src, "fetch", progress, "origin", navmesh_ref, verbose=verbose,
+                    check=False).returncode != 0:
+            proc.git(src, "fetch", progress, "origin", verbose=True)
+    tar = dest / "navmesh.tar"
+    proc.git(src, "archive", f"--output={tar}", navmesh_ref, *NAVMESH_PATHS, verbose=verbose)
+    with tarfile.open(tar) as archive:
+        base = str(dest.resolve()) + "/"
+        for member in archive.getmembers():
+            target = (dest / member.name).resolve()
+            if not str(target).startswith(base) or not (member.isfile() or member.isdir()):
+                raise DaocError(f"unexpected entry {member.name!r} in the navmesh export")
+        archive.extractall(dest)
+    tar.unlink()
+
+
+def _patches(root: Path, version: str) -> List[Path]:
+    """server/patches/<version>/*.patch in the order build-release.sh applies them."""
+    folder = root / "server" / "patches" / version
+    found = sorted(folder.glob("*.patch"))
+    if not found:
+        raise DaocError(f"no macOS patches for game version {version} in {folder}")
+    return found
 
 
 def _world_hash(checkout: Checkout) -> Optional[str]:
@@ -269,7 +303,7 @@ def update(checkout: Checkout) -> int:
     # 2. Clone the new commit (blobless) and prove the port patches still apply to
     #    it BEFORE moving the pin: an upstream change that breaks a patch fails
     #    here, loudly, and the pin stays put.
-    _precheck(latest["upstream"], latest["ref"], _patches(root), current["ref"])
+    _precheck(latest["upstream"], latest["ref"], _patches(root, version), current["ref"])
 
     # 3. Never rebuild under a live server.
     _stop_first(checkout)
@@ -277,7 +311,7 @@ def update(checkout: Checkout) -> int:
     # 4. Rebuild against the new commit, then record it as the Local pin. A
     #    failed build leaves the pin where it was, so a rerun retries the build.
     before = _world_hash(checkout)
-    install(checkout, pin=latest)
+    install(checkout, version, pin=latest)
     if not pins.same("server", current, latest):
         pins.set_local(checkout, "server", latest, version)
         say(f"server Local pin -> {latest['ref'][:12]}")

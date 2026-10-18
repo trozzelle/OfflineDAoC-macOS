@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from daoc_cli import client, client_runtime, files, proc, server
+from daoc_cli import client, client_runtime, files, proc, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -95,7 +95,7 @@ class _Run:
         self.step("server install")
         if not os.access(self.server_dir / "bin" / "CoreServer", os.X_OK):
             try:
-                server.install(self.co)
+                server.install(self.co, selection.load(self.co).game.version)
             except DaocError as e:
                 self.abort(f"server install failed: {e.msg}")
         else:

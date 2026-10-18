@@ -33,7 +33,7 @@ class ServerUpdateTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = make_checkout(self.tmp.name)
         self.co = Checkout(self.root)
-        patches = self.root / "server" / "patches"
+        patches = self.root / "server" / "patches" / "0.35"
         patches.mkdir(parents=True)
         for name in ("020-b.patch", "010-a.patch", "README.md"):
             (patches / name).write_text("patch\n")
@@ -67,7 +67,7 @@ class ServerUpdateTest(unittest.TestCase):
     def fake_status(self, checkout):
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
 
-    def fake_install(self, checkout, verbose=False, pin=None):
+    def fake_install(self, checkout, version, verbose=False, pin=None):
         self.installs.append(pin if pin is not None else pins.effective(checkout, "server", "0.35"))
         self.world.write_bytes(self.new_world)
         if self.build_fails:
@@ -131,7 +131,7 @@ class ServerUpdateTest(unittest.TestCase):
         self.assertIn("020-b.patch no longer applies", err)
         self.assertIsNone(self.local())
         self.assertEqual(self.installs, [])
-        patches = self.co.root / "server" / "patches"
+        patches = self.co.root / "server" / "patches" / "0.35"
         calls = self.git_calls()
         self.assertEqual(calls[0][:4], ["clone", "--quiet", "--filter=blob:none", self.latest["upstream"]])
         self.assertEqual(calls[1:], [

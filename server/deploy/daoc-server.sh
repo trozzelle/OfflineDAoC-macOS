@@ -62,7 +62,7 @@ start() {
     exec "$DAOC_HOME/daoc-admin"   # already running: just open the admin screen
   fi
   [[ -x $DAOC_HOME/bin/CoreServer ]] || die "no server program in $DAOC_HOME/bin"
-  compgen -G "$DAOC_HOME/navmesh/*.nav" >/dev/null || die "no navmeshes yet. Run ./navmesh-install.sh (see README.md)"
+  compgen -G "$DAOC_HOME/navmesh/*.nav" >/dev/null || die "no navmeshes yet. Rebuild the folder with daoc server install, or run ./navmesh-install.sh --from-dir <folder> (see README.md)"
 
   mkdir -p "$DAOC_HOME"/{config,data,logs,run}
   if [[ ! -f $DAOC_HOME/data/opendaoc.sqlite3.db ]]; then
