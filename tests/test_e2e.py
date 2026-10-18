@@ -231,6 +231,16 @@ class E2ETest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual((self.sd / "data" / "opendaoc.sqlite3.db").read_text(), "sluaghbinder world")
 
+    def test_boot_refuses_a_config_port_the_client_will_not_use(self):
+        # A config left on another port would send the client to a port nothing listens on.
+        (self.sd / "config").mkdir()
+        (self.sd / "config" / "serverconfig.xml").write_text(CONFIG.replace("10300", "20301"))
+        code, out, err = self.run_e2e()
+        self.assertEqual(code, 1)
+        self.assertIn("<Port>20301</Port>", err)
+        self.assertIn("20300", err)
+        self.assertEqual(self.launches, 0)
+
     def test_pass_moves_ports_reverts_them_and_writes_the_evidence(self):
         (self.root / "evidence").mkdir()
         (self.root / "evidence" / "wine-attempt-7.log").write_text("stale")
