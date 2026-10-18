@@ -168,6 +168,9 @@ def restore(checkout: Checkout, name: str, version: str, current: Optional[Game]
             _label(aside, current)
     for suffix in SIDECARS:
         (_data(checkout) / (SAVE_FILE + suffix)).unlink(missing_ok=True)
-    shutil.copy2(folder / SAVE_FILE, _data(checkout) / SAVE_FILE)
+    # A save set aside after an unclean stop holds committed rows in its -wal.
+    for suffix in ("-wal", ""):
+        if (folder / (SAVE_FILE + suffix)).is_file():
+            shutil.copy2(folder / (SAVE_FILE + suffix), _data(checkout) / (SAVE_FILE + suffix))
     mark(checkout, made)
     say(f"restored the save from {folder}")

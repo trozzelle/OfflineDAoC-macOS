@@ -232,6 +232,10 @@ def _start_new(checkout: Checkout) -> None:
     """Launch the New client and wait until the server accepts its login."""
     if not (checkout.godot_app.is_dir() and (checkout.new_client_project / "project.godot").is_file()):
         raise DaocError("the new client is not installed; run daoc client install --client new", 2)
+    game = selection.load(checkout).game
+    if not games.new_client_supported(checkout, game.version):
+        raise DaocError(f"the new client exists from 0.36; game {game.name} plays only with the "
+                        "original client (daoc client start --client original)", 2)
     port = default_port(checkout)
     if port != NEW_PORT:
         raise DaocError(f"the new client only connects to port {NEW_PORT}, and the server is set to "
@@ -240,7 +244,7 @@ def _start_new(checkout: Checkout) -> None:
     if other:
         raise DaocError(f"the {other} client is running; stop it first (daoc client stop)", 2)
     account, password = credentials()
-    classic = selection.load(checkout).game.edition == "classic"
+    classic = game.edition == "classic"
     before, log_offset = _logins(checkout, account), files.size(_server_log(checkout))
     say(f"launching the new client for {account} on port {NEW_PORT} (log: {NEW_LOG})")
     try:

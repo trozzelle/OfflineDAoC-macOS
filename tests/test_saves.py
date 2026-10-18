@@ -1,6 +1,7 @@
 """The save across a switch: its Edition, upgrades with metadata, restore and fresh saves."""
 import io
 import json
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -107,6 +108,25 @@ class SavesTest(unittest.TestCase):
         self.assertFalse((self.data / (saves.SAVE_FILE + "-wal")).exists())
         self.assertTrue((folder / saves.SAVE_FILE).is_file())
         self.assertEqual(json.loads((folder / saves.META).read_text())["game"], "0.36b")
+
+    def test_restore_keeps_rows_that_only_the_wal_holds(self):
+        # A save set aside after an unclean stop keeps committed rows in its -wal.
+        work = self.data / "work"
+        work.mkdir()
+        con = sqlite3.connect(str(work / saves.SAVE_FILE))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA wal_autocheckpoint=0")
+        con.execute('CREATE TABLE ServerProperty ("Key" TEXT, Value TEXT)')
+        con.execute("INSERT INTO ServerProperty VALUES ('enable_sluaghbinder', 'False')")
+        con.commit()
+        folder = saves._backups_dir(self.co) / "20261018-000000-fresh"
+        folder.mkdir(parents=True)
+        for suffix in ("", "-wal"):
+            shutil.copyfile(work / (saves.SAVE_FILE + suffix), folder / (saves.SAVE_FILE + suffix))
+        con.close()
+        (folder / saves.META).write_text(json.dumps({"game": "0.35b"}))
+        self.quiet(saves.restore, self.co, folder.name, "0.35")
+        self.assertEqual(saves.edition(self.co), "classic")
 
     def test_save_game_marker(self):
         self.make_save()

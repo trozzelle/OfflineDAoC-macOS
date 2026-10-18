@@ -89,6 +89,15 @@ class NewClientRuntimeTest(unittest.TestCase):
         self.assertIn("10300", cm.exception.msg)
         self.assertEqual(self.launches, [])
 
+    def test_new_refuses_a_game_without_a_new_client(self):
+        # The 0.36c client stays installed after a switch to 0.35b, but cannot play it.
+        selection.save(self.co, Selection(games.parse("0.35b"), "original"))
+        with self.assertRaises(DaocError) as cm:
+            self.start()
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("0.35b", cm.exception.msg)
+        self.assertEqual(self.launches, [])
+
     def test_new_refuses_character_flag(self):
         with self.assertRaises(DaocError) as cm:
             client_runtime._start(mock.Mock(client="new", character="Spikeone", dry_run=False, retries=1),
