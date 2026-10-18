@@ -6,9 +6,11 @@ when it records nothing usable.
 """
 from typing import List, Optional, Sequence, Tuple
 
-from daoc_cli import games, pins, proc, selection, server
+from daoc_cli import games, pins, proc, saves, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
+from daoc_cli.games import EDITION_TITLES
+from daoc_cli.selection import Selection
 
 
 def _server_install(checkout: Checkout) -> str:
@@ -57,20 +59,64 @@ def _commands() -> List[Tuple[str, str]]:
     return [(a.dest, a.help or "") for a in groups._choices_actions if a.dest != "dev"]
 
 
+def _game_lines(checkout: Checkout, sel: Selection) -> List[Tuple[str, str]]:
+    """Game, both clients and the save, each with the switch that fixes a mismatch."""
+    target = sel.game.name
+    fix = f"run daoc game switch {target}"
+    out = [("Game:", f"{target} ({EDITION_TITLES[sel.game.edition]}) · default client: {sel.client}")]
+    if sel.switching_to:
+        to = sel.switching_to.name
+        out.append(("", f"switch to {to} incomplete: run daoc game switch {to}"))
+
+    if not checkout.client_root.is_dir():
+        out.append(("Original client:", pins.NOT_INSTALLED))
+    else:
+        built = selection.original_game(checkout)
+        if built is None:
+            out.append(("Original client:", "present (not a known build)"))
+        else:
+            out.append(("Original client:", f"{built.name}, {EDITION_TITLES[built.edition]}"))
+            if built != sel.game:
+                out.append(("", f"built for {built.name}: {fix}"))
+
+    built_new = selection.new_game(checkout) if checkout.new_client_root.is_dir() else None
+    supported = games.new_client_supported(checkout, sel.game.version)
+    if built_new is None:
+        out.append(("New client:", pins.NOT_INSTALLED if supported
+                    else f"not available for {sel.game.version}"))
+    else:
+        record = pins.installed(checkout, "new_client") or {}
+        out.append(("New client:", f"{record.get('version', pins.UNKNOWN)}, for {built_new.name}"))
+        if not supported:
+            out.append(("", f"not available for {sel.game.version}; kept for a later game"))
+        elif built_new != sel.game:
+            out.append(("", f"built for {built_new.name}: {fix}"))
+
+    edition = saves.edition(checkout)
+    if edition is None:
+        out.append(("Save:", "none yet"))
+    else:
+        out.append(("Save:", EDITION_TITLES[edition]))
+        moved = saves.save_game(checkout, sel.game)
+        if edition != sel.game.edition or moved.version != sel.game.version:
+            out.append(("", f"selected {target}: {fix}"))
+    return out
+
+
 def show(checkout: Checkout) -> int:
     lines = [f"daoc checkout {checkout.root}", ""]
+    sel = selection.load(checkout)
     status = [
         ("Server install:", _server_install(checkout)),
         ("Server running:", _server_running(checkout)),
-        ("Client install:", pins.NOT_INSTALLED if not checkout.client_root.is_dir() else "present"),
-    ]
+    ] + _game_lines(checkout, sel)
     newer = _newer_release(checkout)
     if newer is not None:
         status.append(("Checkout:", newer))
     width = max(len(k) for k, _ in status)
     lines += [f"{k.ljust(width)}  {v}" for k, v in status]
 
-    version = selection.load(checkout).game.version
+    version = sel.game.version
     rows = [("Pin", "Shipped", "Local", "Built from", "")]
     for group in pins.GROUPS:
         if group == "new_client" and not games.new_client_supported(checkout, version):

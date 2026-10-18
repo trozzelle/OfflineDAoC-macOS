@@ -104,7 +104,8 @@ def _edition_on_disk(checkout: Checkout, version: str) -> Optional[str]:
     return None
 
 
-def _infer_original(checkout: Checkout) -> Optional[Game]:
+def original_game(checkout: Checkout) -> Optional[Game]:
+    """The Game the Original client install holds; None when it holds no known build."""
     if not checkout.app_dir.is_dir():
         return None
     record = pins.installed(checkout, "original_client")
@@ -124,7 +125,8 @@ def _infer_original(checkout: Checkout) -> Optional[Game]:
     return Game(version, edition) if edition else None
 
 
-def _infer_new(checkout: Checkout) -> Optional[Game]:
+def new_game(checkout: Checkout) -> Optional[Game]:
+    """The Game the New client install was made for; None without one."""
     record = pins.installed(checkout, "new_client")
     if not record:
         return None
@@ -139,10 +141,10 @@ def _infer_new(checkout: Checkout) -> Optional[Game]:
 def infer(checkout: Checkout) -> Optional[Selection]:
     """The Selection the installs were set up for; None when they name none.
     The Original client wins when both clients are installed."""
-    game = _infer_original(checkout)
+    game = original_game(checkout)
     if game is not None:
         return Selection(game, "original")
-    game = _infer_new(checkout)
+    game = new_game(checkout)
     if game is not None:
         return Selection(game, "new")
     return None
