@@ -55,6 +55,17 @@ class SavesTest(unittest.TestCase):
         self.make_save("True")
         self.assertEqual(saves.edition(self.co), "sluaghbinder")
 
+    def test_edition_reads_a_wal_save_without_its_sidecars(self):
+        # A restored backup is a WAL-mode database copied in without -wal/-shm,
+        # which a plain read-only open cannot start (it may not create them).
+        con = sqlite3.connect(str(self.data / saves.SAVE_FILE))
+        con.execute("PRAGMA journal_mode=WAL")
+        con.close()
+        self.make_save("False")
+        for suffix in ("-wal", "-shm"):
+            (self.data / (saves.SAVE_FILE + suffix)).unlink(missing_ok=True)
+        self.assertEqual(saves.edition(self.co), "classic")
+
     def test_inspect_parses_json(self):
         self.make_save()
         self.assertEqual(saves.inspect(self.co)["sluaghbinder_characters"], 1)

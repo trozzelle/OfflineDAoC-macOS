@@ -46,8 +46,12 @@ def edition(checkout: Checkout) -> Optional[str]:
     path = _data(checkout) / SAVE_FILE
     if not path.is_file():
         return None
+    # Read-only cannot open a WAL-mode save without its -wal/-shm (it may not create
+    # them), which is how a restored backup arrives. Without a -wal file everything is
+    # in the main file, so reading it as immutable is exact.
+    query = "mode=ro" if path.with_name(path.name + "-wal").exists() else "mode=ro&immutable=1"
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con = sqlite3.connect(f"file:{path}?{query}", uri=True)
         try:
             row = con.execute("SELECT Value FROM ServerProperty WHERE \"Key\"='enable_sluaghbinder'").fetchone()
         finally:
