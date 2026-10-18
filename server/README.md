@@ -73,6 +73,17 @@ the 0.36 sync; the hunk is the same) connects a dummy client to wake the
 pending accept before the listener is disposed. Verified: clean stop in ~3 s with bots in the
 world (the Linux reference stops in ~2 s).
 
+### Login logging (0.36)
+
+In the 0.36 sync the admin module moved into its own project, and `CoreServer` registers it
+(`AdminHost.Register()`) before `GameServer.CreateInstance()` initialises logging. That first touch
+of `LoginRequestHandler` creates its static logger as a `NullLogger`, so no `User … logging on!`
+line ever reaches `server.log`, and `daoc client start` and `daoc dev e2e` wait for that line.
+Reordering the two calls does not help: the JIT can run the class's static initialiser when it
+compiles the calling method. `patches/0.36/020-loginrequesthandler-lazy-logger.patch` creates the
+logger on first use instead. Verified with a byte capture: the login was always accepted; only the
+line was missing.
+
 ## Layout
 
 ```
