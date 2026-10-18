@@ -21,7 +21,7 @@ client, playing, stopping, and what to do when something goes wrong. The
 
 <!-- x-release-please-start-version -->
 ```bash
-git clone --branch v0.2.0 <this repo> daoc-macos && cd daoc-macos
+git clone --branch v0.3.0 <this repo> daoc-macos && cd daoc-macos
 ./daoc self-install
 ```
 <!-- x-release-please-end -->
