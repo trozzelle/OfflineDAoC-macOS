@@ -19,7 +19,7 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 | `daoc client start [--client original\|new] [--character NAME] [--retries N] [--dry-run]` | Launch the default client (or the one named); the original client enters the world, the new client stops at realm select |
 | `daoc client stop` | Stop the client and wait out Linkdead |
 | `daoc client kill` | Tear the client down at once |
-| `daoc client update [--check]` | Take the selected version's release again if upstream replaced its files |
+| `daoc client update [--check]` | Take the default client's release again if upstream replaced its files |
 | `daoc client bench [--seconds S] [--tag T]` | Performance gate (exit 0 pass, 1 fail, 2 invalid) |
 | `daoc admin [command …]` | Admin screen, or one admin command |
 | `daoc progress upgrade\|import\|inspect …` | Saved-progress tools |

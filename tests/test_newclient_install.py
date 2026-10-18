@@ -233,6 +233,43 @@ class NewClientInstallTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("--wine applies to the original client", err)
 
+    def client_update(self, latest):
+        selection.save(self.co, Selection(GAME, "new"))
+        with mock.patch.object(newclient.release, "download", self.fetch), \
+                mock.patch("daoc_cli.updates.resolve_latest",
+                           side_effect=lambda co, group, version=None: dict(latest)):
+            return run_cli(["client", "update"], self.root)
+
+    def test_update_moves_the_default_new_client_to_its_latest_assets(self):
+        self.install()
+        # Upstream replaced a part of the same release tag.
+        name = self.pin["parts"][2]["name"]
+        data = zip_bytes(dict(part_entries(3), **{f"{ROOT}/new-client/godot/content/zone3.png": b"redone"}))
+        self.served[URL + name] = data
+        latest = dict(self.pin, parts=[dict(p) for p in self.pin["parts"]])
+        latest["parts"][2].update(bytes=len(data), sha256=sha(data))
+        self.fetch.urls.clear()
+        code, _, err = self.client_update(latest)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.co.new_client_project / "content" / "zone3.png").read_bytes(), b"redone")
+        self.assertEqual(pins.local(self.co, "new_client", "0.36")["parts"][2]["sha256"], sha(data))
+        self.assertFalse(self.co.client_root.exists())
+        self.assertTrue(all(u.startswith(URL) for u in self.fetch.urls), self.fetch.urls)
+
+    def test_update_of_a_current_new_client_downloads_nothing(self):
+        self.install()
+        self.fetch.urls.clear()
+        code, _, err = self.client_update(self.pin)
+        self.assertEqual(code, 0, err)
+        self.assertIn("new client already at 0.36c", err)
+        self.assertEqual(self.fetch.urls, [])
+
+    def test_update_without_the_new_client_installed_is_refused(self):
+        code, _, err = self.client_update(self.pin)
+        self.assertEqual(code, 2)
+        self.assertIn("daoc client install --client new", err)
+        self.assertEqual(self.fetch.urls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

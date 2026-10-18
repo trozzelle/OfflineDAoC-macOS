@@ -76,12 +76,13 @@ characters, bots), `logs/` and `navmesh/` stay in place.
 
 ### Client
 
-`daoc client update` re-reads the selected version's release; upstream sometimes
-replaces a release's files under the same tag. It re-applies the Client patch to
-the new `game.dll`. If that
+`daoc client update` re-reads the selected version's release for the default
+client; upstream sometimes replaces a release's files under the same tag. For the
+original client it re-applies the Client patch to the new `game.dll`. If that
 `game.dll` is one it doesn't know, it stops with "not a Proven build; it needs a
 shipped update" and leaves your client as it was. Graphics patches you had on
-are carried across to the new client.
+are carried across to the new client. For the new client it downloads the release
+again and swaps it in only once complete; the installed client stays until then.
 
 ## Saved progress
 

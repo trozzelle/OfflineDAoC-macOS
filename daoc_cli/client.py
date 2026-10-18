@@ -112,9 +112,9 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.set_defaults(func=_install)
     a = actions.add_parser(
         "update",
-        help="take the selected version's release again if upstream replaced its files (Local pin)",
-        description="Re-read the selected game version's OfflineDAoC release and move the "
-                    "Client install to it when upstream replaced its files, recorded as a "
+        help="take the default client's release again if upstream replaced its files (Local pin)",
+        description="Re-read the selected game version's release for the default client and "
+                    "move that client to it when upstream replaced its files, recorded as a "
                     "Local pin. --check reports the default client's pin without changing "
                     "anything, and names a newer upstream version.",
     )
@@ -377,10 +377,17 @@ def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloa
 
 
 def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -> int:
-    """Move the Client install to the latest OfflineDAoC release (Local pin),
-    carrying the graphics patches over. fetch_url defaults to release.download."""
+    """Move the Default client to its latest release: the Original client to the latest
+    OfflineDAoC release (Local pin), carrying the graphics patches over; the New client
+    to its release's latest assets. fetch_url defaults to release.download."""
+    sel = selection.load(checkout)
+    if sel.client == "new":
+        if client_runtime.running_client(checkout) == "new":
+            raise DaocError("the new client is running; stop it first: daoc client stop", 2)
+        newclient.update(checkout, sel.game, fetch_url)
+        return 0
     _resume(checkout, "update")
-    game_version = _version(checkout)
+    game_version = sel.game.version
     latest = updates.resolve_latest(checkout, "original_client", game_version)
     current = pins.effective(checkout, "original_client", game_version)
     version = latest["version"]

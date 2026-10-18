@@ -29,7 +29,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from daoc_cli import games, pins, proc, release
+from daoc_cli import games, pins, proc, release, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -199,3 +199,19 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
     for marker in cache.glob(f"*{DONE}"):
         marker.unlink()
     say(f"new client installed: {checkout.new_client_project}")
+
+
+def update(checkout: Checkout, game: Game, fetch_url: Optional[release.Downloader] = None) -> None:
+    """Move the New client to its release tag's latest assets (a Local pin when they
+    differ from the Shipped pin)."""
+    if not checkout.new_client_project.is_dir():
+        raise DaocError("the new client is not installed: daoc client install --client new", 2)
+    latest = updates.resolve_latest(checkout, "new_client", game.version)
+    if not pins.same("new_client", pins.effective(checkout, "new_client", game.version), latest):
+        pins.set_local(checkout, "new_client", latest, game.version)
+    record = pins.installed(checkout, "new_client") or {}
+    if pins.same("new_client", record, latest):
+        say(f"new client already at {latest['version']}")
+        return
+    say(f"new client update: {record.get('version', 'unknown')} -> {latest['version']} (new assets)")
+    install(checkout, game, fetch_url)
