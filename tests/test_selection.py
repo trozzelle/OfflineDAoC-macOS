@@ -45,10 +45,11 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(selection.load(self.co), Selection(Game("0.36", "classic"), "new"))
 
     def test_round_trip_with_switching_to(self):
-        sel = Selection(Game("0.35", "sluaghbinder"), "original", Game("0.36", "sluaghbinder"))
+        sel = Selection(Game("0.35", "sluaghbinder"), "original", Game("0.36", "sluaghbinder"), "new")
         selection.save(self.co, sel)
         self.assertEqual(json.loads(self.file.read_text()),
-                         {"game": "0.35b", "client": "original", "switching_to": "0.36b"})
+                         {"game": "0.35b", "client": "original", "switching_to": "0.36b",
+                          "switching_client": "new"})
         self.assertEqual(selection.load(self.co), sel)
 
     def test_infer_from_record(self):

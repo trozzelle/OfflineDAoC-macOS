@@ -227,6 +227,29 @@ class SwitchTest(unittest.TestCase):
         self.assertIn("fresh", self.calls)
         self.assertFalse([c for c in self.calls if c.startswith("upgrade")])
 
+    def test_restore_without_a_current_save(self):
+        # After --fresh-save, before any server start, there is no save to move aside.
+        self.save["exists"] = False
+        self.select(G("0.36b"), "original")
+        self.switch("0.35b", restore="b1")
+        self.assertIn("restore", self.calls)
+        self.assertLess(self.calls.index("restore"), self.calls.index("selection"))
+
+    def test_unreadable_selection_does_not_block_the_switch_that_fixes_it(self):
+        (self.co.state / selection.FILE).write_text('{"game": "0.37b", "client": "original"}')
+        self.server_built = True
+        self.switch("0.36b")
+        self.assertEqual(selection.load(self.co), Selection(G("0.36b"), "original"))
+
+    def test_rerun_after_interrupt_keeps_the_requested_client(self):
+        self.installed("original")
+        self.fail_upgrade = 1
+        with self.assertRaises(DaocError), redirect_stderr(io.StringIO()):
+            game.switch(self.co, G("0.36b"), "new", False, None, False)
+        self.switch("0.36b")
+        self.assertIn("install new 0.36b", self.calls)
+        self.assertEqual(selection.load(self.co), Selection(G("0.36b"), "new"))
+
     def test_cli_switch_and_list(self):
         self.server_built = True
         code, out, err = run_cli(["game", "switch", "0.35b"], self.root)

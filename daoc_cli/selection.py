@@ -25,6 +25,8 @@ class Selection(NamedTuple):
     game: Game
     client: str
     switching_to: Optional[Game] = None
+    # The client a pending switch was asked for (--client), so its rerun keeps it.
+    switching_client: Optional[str] = None
 
 
 def _path(checkout: Checkout):
@@ -41,7 +43,19 @@ def _parse(checkout: Checkout, data: Any) -> Selection:
     if switching is not None:
         target = games.parse(str(switching))
         games.check(checkout, target)
-    return Selection(game, data["client"], target)
+    asked = data.get("switching_client")
+    if asked is not None and asked not in games.CLIENTS:
+        raise DaocError(f"unknown client {asked!r}")
+    return Selection(game, data["client"], target, asked if target else None)
+
+
+def fallback(checkout: Checkout) -> Selection:
+    """The Selection the installs were set up for, else the Shipped default."""
+    inferred = infer(checkout)
+    if inferred is not None:
+        return inferred
+    game, client = games.default(checkout)
+    return Selection(game, client)
 
 
 def load(checkout: Checkout) -> Selection:
@@ -50,11 +64,7 @@ def load(checkout: Checkout) -> Selection:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        inferred = infer(checkout)
-        if inferred is not None:
-            return inferred
-        game, client = games.default(checkout)
-        return Selection(game, client)
+        return fallback(checkout)
     except (OSError, ValueError) as e:
         raise DaocError(f"cannot read {path}: {e}") from None
     try:
@@ -69,6 +79,7 @@ def save(checkout: Checkout, sel: Selection) -> None:
         "game": sel.game.name,
         "client": sel.client,
         "switching_to": sel.switching_to.name if sel.switching_to else None,
+        "switching_client": sel.switching_client if sel.switching_to else None,
     }
     atomic_write(_path(checkout), json.dumps(data, indent=2) + "\n")
 

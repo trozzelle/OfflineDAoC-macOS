@@ -90,7 +90,13 @@ def _older_backups(checkout: Checkout, version: str) -> List[str]:
 def switch(checkout: Checkout, target: Game, client_name: Optional[str], leave_bots: bool,
            restore: Optional[str], fresh: bool) -> int:
     games.check(checkout, target)
-    sel = selection.load(checkout)
+    try:
+        sel = selection.load(checkout)
+    except DaocError:
+        # A selection this daoc cannot read is what the switch replaces.
+        sel = selection.fallback(checkout)
+    if client_name is None and sel.switching_to == target:
+        client_name = sel.switching_client  # a rerun keeps the client the switch was asked for
 
     # 1. Refuse early.
     if restore and fresh:
@@ -133,7 +139,7 @@ def switch(checkout: Checkout, target: Game, client_name: Optional[str], leave_b
     want_new = supported and (checkout.new_client_root.is_dir() or client_name == "new")
 
     # 2. Pending, then fetch what is new.
-    selection.save(checkout, sel._replace(switching_to=target))
+    selection.save(checkout, sel._replace(switching_to=target, switching_client=client_name))
     if want_original:
         client.install(checkout, game=target, download_only=True)
     if want_new:
@@ -151,16 +157,16 @@ def switch(checkout: Checkout, target: Game, client_name: Optional[str], leave_b
     server.set_edition(checkout, target.edition)
 
     # 5. Save.
-    if have_save:
-        if fresh:
+    if fresh:
+        if have_save:
             saves.fresh(checkout, save_game)
-        else:
-            if restore:
-                saves.restore(checkout, restore, target.version, save_game)
-            moved = saves.save_game(checkout, sel.game)
-            if moved.version != target.version or saves.edition(checkout) != target.edition:
-                saves.upgrade(checkout, moved, target.edition, leave_bots)
-            saves.mark(checkout, target)
+    elif restore or have_save:
+        if restore:
+            saves.restore(checkout, restore, target.version, save_game)
+        moved = saves.save_game(checkout, sel.game)
+        if moved.version != target.version or saves.edition(checkout) != target.edition:
+            saves.upgrade(checkout, moved, target.edition, leave_bots)
+        saves.mark(checkout, target)
 
     # 6. Clients.
     if want_original:
