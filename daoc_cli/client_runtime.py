@@ -1,28 +1,38 @@
 """`daoc client start | stop | kill | login`: run the installed game client.
 
-start opens the Launcher bundle (kept as shell, started through `open -n`) with
-`wine game.dll 127.0.0.1 <port> 42 <account> <password> <character> <realm>`,
-then watches for a new world entry in the server log and retries a hung or
-timed-out client (see watchdog). The character is $DAOC_CHARACTER, else the
-account's most recently played one, read from the server's database.
+The Original client: start opens the Launcher bundle (kept as shell, started
+through `open -n`) with `wine game.dll 127.0.0.1 <port> 42 <account> <password>
+<character> <realm>`, then watches for a new world entry in the server log and
+retries a hung or timed-out client (see watchdog). The character is
+$DAOC_CHARACTER, else the account's most recently played one, read from the
+server's database.
 
-Teardown is scoped to this Checkout: processes are chosen by the files they map
-from this Checkout's wine (lsof on `<wine_home>/`), so another checkout's
-launcher, client or sidecar is never signalled. ps, pgrep and lsof run by
-absolute path: some shells shadow ps with a builtin that misreports translated
-processes.
+The New client: start opens the pinned macOS Godot (`open -n`, so it runs in
+the GUI session) on the installed project with upstream's arguments
+(`--server=127.0.0.1 --account= --password=`, plus `--custom-class=off` on a
+Classic classes game). It always connects to port 10300 and has no auto-enter,
+so start succeeds once the server accepts the login; the user picks the
+character in the client.
+
+Only one client runs at a time: both play the same account. Teardown is scoped
+to this Checkout: Original-client processes are chosen by the files they map
+from this Checkout's wine (lsof on `<wine_home>/`), New-client processes by
+their binary path inside this Checkout's dist/godot, so another checkout's
+client is never signalled. ps, pgrep and lsof run by absolute path: some shells
+shadow ps with a builtin that misreports translated processes.
 """
 import argparse
 import os
 import pathlib
 import re
+import signal
 import sqlite3
 import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from daoc_cli import files, keychain, proc, watchdog
+from daoc_cli import files, games, keychain, proc, selection, watchdog
 from daoc_cli.checkout import Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 
@@ -36,6 +46,10 @@ OPEN = "/usr/bin/open"
 WINE_LOG = Path("/tmp/daoc-wine.log")
 DEFAULT_RETRIES = 3
 DEFAULT_PORT = 10300
+# The New client has this port compiled in (DaocClient.cs: `const int Port = 10300`).
+NEW_PORT = 10300
+NEW_LOG = Path("/tmp/daoc-new-client.log")
+NEW_KILL_GRACE = 5
 
 # LaunchServices drops the caller's environment, so wine/x87sidecar/FEX/mtld3d/
 # Metal HUD knobs must ride on --env. Forward them only when set: an empty
@@ -203,12 +217,62 @@ def _logins(checkout: Checkout, account: str) -> int:
     return len(re.findall(r"User " + re.escape(account) + r" logging on!", text, re.IGNORECASE))
 
 
-def start(checkout: Checkout, *, retries: int = 1) -> None:
+def new_launch_argv(checkout: Checkout, account: str, password: str, classic: bool) -> List[str]:
+    """`open` the pinned Godot on the New client project (upstream's launcher arguments)."""
+    return [
+        OPEN, "-n", str(checkout.godot_app),
+        "--env", f"DOTNET_ROOT={Path.home() / '.dotnet'}",
+        "--stdout", str(NEW_LOG), "--stderr", str(NEW_LOG),
+        "--args", "--path", str(checkout.new_client_project), "--",
+        "--server=127.0.0.1", f"--account={account}", f"--password={password}",
+    ] + (["--custom-class=off"] if classic else [])
+
+
+def _start_new(checkout: Checkout) -> None:
+    """Launch the New client and wait until the server accepts its login."""
+    if not (checkout.godot_app.is_dir() and (checkout.new_client_project / "project.godot").is_file()):
+        raise DaocError("the new client is not installed; run daoc client install --client new", 2)
+    port = default_port(checkout)
+    if port != NEW_PORT:
+        raise DaocError(f"the new client only connects to port {NEW_PORT}, and the server is set to "
+                        f"{port} ($DAOC_PORT or <Port> in config/serverconfig.xml)", 2)
+    other = running_client(checkout)
+    if other:
+        raise DaocError(f"the {other} client is running; stop it first (daoc client stop)", 2)
+    account, password = credentials()
+    classic = selection.load(checkout).game.edition == "classic"
+    before, log_offset = _logins(checkout, account), files.size(_server_log(checkout))
+    say(f"launching the new client for {account} on port {NEW_PORT} (log: {NEW_LOG})")
+    try:
+        proc.run(new_launch_argv(checkout, account, password, classic), cwd=checkout.root)
+    except DaocError as e:
+        raise DaocError(e.msg, 2) from None
+    waited = 0
+    while waited < watchdog.CAP:
+        time.sleep(watchdog.POLL)
+        waited += watchdog.POLL
+        if _logins(checkout, account) > before:
+            if "Wrong password" in files.tail(_server_log(checkout), log_offset):
+                raise DaocError(f"the server rejected the password for {account}; "
+                                "run daoc client login to save the right one", 2)
+            say(f"logged in after {waited}s; choose your realm and character in the new client")
+            return
+    kill_new(checkout)
+    raise DaocError(f"timeout: the new client did not log in within {watchdog.CAP}s (log: {NEW_LOG})")
+
+
+def start(checkout: Checkout, *, client: str = "original", retries: int = 1) -> None:
     """Launch until the client enters the world; DaocError when it never does.
 
     An account without a character is launched to character select instead, and
     succeeds once the server accepts the login: waiting for a world entry would
-    kill the client while the character is being created."""
+    kill the client while the character is being created. The New client
+    succeeds on the login (see _start_new)."""
+    if client == "new":
+        _start_new(checkout)
+        return
+    if new_pids(checkout):
+        raise DaocError("the new client is running; stop it first (daoc client stop)", 2)
     game_port = default_port(checkout)
     account, password = credentials()
     chosen = _load_character(checkout, account)
@@ -289,9 +353,51 @@ def game_pids(checkout: Checkout, wine_home: Optional[Path] = None) -> List[int]
     return pids
 
 
+def new_pids(checkout: Checkout) -> List[int]:
+    """This Checkout's New client processes (its pinned Godot's binary)."""
+    app = os.path.realpath(checkout.godot_app)
+    result = proc.run([PS, "-Ao", "pid=,args="], check=False)
+    pids = []
+    for line in (result.stdout or "").splitlines():
+        fields = line.split(None, 1)
+        if len(fields) == 2 and fields[0].isdigit() and watchdog.is_new_client_process(fields[1], app):
+            pids.append(int(fields[0]))
+    return pids
+
+
+def running_client(checkout: Checkout) -> Optional[str]:
+    """"original" or "new" when that client of this Checkout runs, else None."""
+    if game_pids(checkout):
+        return "original"
+    if new_pids(checkout):
+        return "new"
+    return None
+
+
+def kill_new(checkout: Checkout) -> None:
+    """SIGTERM this Checkout's New client, then SIGKILL what is left after a grace period."""
+    pids = new_pids(checkout)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    for _ in range(NEW_KILL_GRACE):
+        if not pids:
+            return
+        time.sleep(1)
+        pids = [p for p in new_pids(checkout) if p in pids]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
 def kill(checkout: Checkout) -> None:
-    """Tear down this Checkout's client tree and wait for its wineserver to exit,
-    so a relaunch never overlaps a previous client."""
+    """Tear down this Checkout's client (either one) and wait for its wineserver
+    to exit, so a relaunch never overlaps a previous client."""
+    kill_new(checkout)
     wine_home = _real_wine_home(checkout)
     wineserver = os.path.join(wine_home, "bin", "wineserver")
     env = wine_env(checkout.wine_home, checkout.prefix)
@@ -336,6 +442,15 @@ def stop(checkout: Checkout) -> None:
 
 
 def _start(args: argparse.Namespace, checkout: Checkout) -> int:
+    client = getattr(args, "client", None) or selection.load(checkout).client
+    if client == "new":
+        if args.character is not None:
+            raise DaocError("the new client has no --character: pick the character on its screen", 2)
+        if args.dry_run:
+            say("the new client opens realm select; pick the character there")
+            return 0
+        start(checkout, client="new")
+        return 0
     if args.character is not None:
         os.environ["DAOC_CHARACTER"] = args.character
     if args.dry_run:
@@ -369,11 +484,16 @@ def _login(args: argparse.Namespace, checkout: Checkout) -> int:
 def register(actions: "argparse._SubParsersAction") -> None:
     """Add start, stop, kill and login to the client group's actions."""
     p = actions.add_parser("start", help="launch the client into the world",
-                           description="Launch the client and wait until the character is in the world.")
+                           description="Launch the client and wait until the character is in the world "
+                                       "(the new client: until the server accepts the login).")
+    p.add_argument("--client", choices=games.CLIENTS, default=None,
+                   help="client to start (default: the default client, see daoc client install --client)")
     p.add_argument("--character", metavar="NAME",
-                   help="character to play (default: $DAOC_CHARACTER, else the last played)")
+                   help="character to play (default: $DAOC_CHARACTER, else the last played); "
+                        "original client only")
     p.add_argument("--retries", type=int, default=DEFAULT_RETRIES, metavar="N",
-                   help=f"launch attempts for a hung client (default {DEFAULT_RETRIES})")
+                   help=f"launch attempts for a hung client (default {DEFAULT_RETRIES}); "
+                        "original client only")
     p.add_argument("--dry-run", action="store_true", help="print the character and exit")
     p.set_defaults(func=_start)
     p = actions.add_parser("stop", help="stop the client and wait out Linkdead")

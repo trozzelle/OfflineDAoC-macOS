@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from daoc_cli import pins, proc, updates
+from daoc_cli import pins, proc, selection, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, say
 
@@ -213,6 +213,7 @@ def handle(args: argparse.Namespace, checkout: Checkout) -> int:
         if passthrough[1:]:
             raise DaocError("usage: daoc graphics update [--check]", 2)
         return update(checkout)
+    selection.require_original(checkout, "daoc graphics")
     if not (checkout.app_dir / "game.dll").is_file():
         raise DaocError(f"no client in {checkout.app_dir} — run daoc client install")
     src = ensure_checkout(checkout)

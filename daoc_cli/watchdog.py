@@ -89,6 +89,13 @@ def is_game_process(args: str) -> bool:
     return "game.dll" in args and "MacOS/launch" not in args and "start.exe" not in args
 
 
+def is_new_client_process(args: str, godot_app: str) -> bool:
+    """This Checkout's Godot running the New client: its argv starts with the
+    pinned app's binary (not a shell that merely names it)."""
+    binary = godot_app.rstrip("/") + "/Contents/MacOS/Godot"
+    return args == binary or args.startswith(binary + " ")
+
+
 def game_cputime_cs(ps_output: str) -> int:
     """Sum of game CPU from `/bin/ps -Ao time=,args=` output."""
     total = 0

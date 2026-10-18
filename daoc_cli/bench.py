@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
 
-from daoc_cli import client_runtime, proc, server
+from daoc_cli import client_runtime, proc, selection, server
 from daoc_cli.checkout import Checkout, wine_env
 from daoc_cli.errors import DaocError, say
 
@@ -347,6 +347,7 @@ def run(checkout: Checkout, seconds: int, tag: str) -> int:
 
 
 def _handle(args: argparse.Namespace, checkout: Checkout) -> int:
+    selection.require_original(checkout, "daoc client bench")
     return run(checkout, args.seconds, args.tag)
 
 

@@ -73,6 +73,15 @@ def save(checkout: Checkout, sel: Selection) -> None:
     atomic_write(_path(checkout), json.dumps(data, indent=2) + "\n")
 
 
+def require_original(checkout: Checkout, what: str) -> None:
+    """DaocError 2 unless the Default client is the Original client: what (bench,
+    graphics patches) only works on it."""
+    if load(checkout).client != "original":
+        raise DaocError(f"{what} works on the original client, and the default client is the new "
+                        "one; make the original client the default with: "
+                        "daoc client install --client original", 2)
+
+
 def _version_of_release(checkout: Checkout, release_version: str) -> Optional[str]:
     """The game Version whose original_client release is release_version."""
     for version in games.versions(checkout):
