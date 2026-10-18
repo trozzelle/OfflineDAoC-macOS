@@ -26,13 +26,14 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
 from daoc_cli.checkout import Checkout
-from daoc_cli import client, dev, graphics, overview, self_install, server
+from daoc_cli import client, dev, game, graphics, overview, self_install, server
 from daoc_cli.server_tools import admin, progress
 from daoc_cli.errors import DaocError, say
 
 GROUPS = (
     ("server", server),
     ("client", client),
+    ("game", game),
     ("admin", admin),
     ("progress", progress),
     ("graphics", graphics),

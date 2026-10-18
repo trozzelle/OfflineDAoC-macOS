@@ -53,8 +53,10 @@ V0_35B: PatchSpec = NO_ENCRYPTION + (UNSHARED_SECTION,)
 
 # Pristine game.dll sha256 -> the patch proven against that build.
 PROVEN_BUILDS: Dict[str, PatchSpec] = {
-    # OfflineDAoC v0.35b, the Sluaghbinder client.
+    # OfflineDAoC v0.35b and v0.36b, the Sluaghbinder client.
     "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b": V0_35B,
+    # OfflineDAoC 0.35/0.36, Classic classes edition; same three sites, byte-checked 2026-10-17.
+    "f55ed6b068e22ce8e1106871c2fad6ee10c18390bbb8b5dc772219ad8c8b83bb": V0_35B,
 }
 
 

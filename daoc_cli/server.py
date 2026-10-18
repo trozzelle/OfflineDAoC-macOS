@@ -17,11 +17,12 @@ import argparse
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import files, pins, proc, updates
+from daoc_cli import files, games, pins, proc, selection, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, ask, say
 
@@ -31,6 +32,15 @@ NO_INSTALL = "no Server install; run daoc server install"
 # <server_dir>/defaults/world.sqlite, and daoc-server.sh copies it into data/
 # only on the first start, so an existing save keeps the world it was made with.
 WORLD_DATA = Path("defaults") / "world.sqlite"
+# The Edition a fresh save starts as, read by daoc-server.sh on first start.
+EDITION_FILE = Path("config") / "edition"
+
+
+def set_edition(checkout: Checkout, edition: str) -> None:
+    """Record the Edition the Server install's next fresh save starts as."""
+    if edition not in games.EDITIONS:
+        raise DaocError(f"no edition {edition!r} (expected one of: {', '.join(games.EDITIONS)})")
+    files.atomic_write(checkout.server_dir / EDITION_FILE, edition + "\n")
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
@@ -40,15 +50,16 @@ def register(groups: "argparse._SubParsersAction") -> None:
         description="Install, run and update the local OpenDAoC server.",
     )
     actions = p.add_subparsers(dest="action", title="actions")
-    a = actions.add_parser("install", help="build server/dist/daoc-server from the pinned upstream")
+    a = actions.add_parser("install", help="build server/dist/daoc-server for the selected game version")
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show git progress and the build's warnings and tool output")
     a.set_defaults(func=_handle_install)
     a = actions.add_parser(
         "update",
-        help="move the server to its upstream's latest commit and rebuild (Local pin)",
-        description="Resolve the upstream's latest main commit, pre-check the port patches "
-                    "against it, record it as a Local pin and rebuild the Server install.",
+        help="move the server to the fork's latest commit for the selected version and rebuild (Local pin)",
+        description="Resolve the fork's latest main commit, check it is synced to the selected "
+                    "game version, pre-check the port patches against it, record it as a Local "
+                    "pin and rebuild the Server install.",
     )
     a.add_argument("--check", action="store_true",
                    help="report Shipped, Local, built-from and latest; change nothing")
@@ -61,14 +72,21 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
-    install(checkout, verbose=args.verbose)
+    game = selection.load(checkout).game
+    install(checkout, game.version, verbose=args.verbose)
+    set_edition(checkout, game.edition)
     return 0
 
 
 def _handle_update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
-        return updates.check(checkout, "server")
+        return updates.check(checkout, "server", _version(checkout))
     return update(checkout)
+
+
+def _version(checkout: Checkout) -> str:
+    """The selected Game's Version."""
+    return selection.load(checkout).game.version
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
@@ -116,14 +134,16 @@ def running(checkout: Checkout) -> Optional[bool]:
     return status(checkout)[0]
 
 
-def install(checkout: Checkout, verbose: bool = False,
+def install(checkout: Checkout, version: str, verbose: bool = False,
             pin: Optional[Dict[str, Any]] = None) -> None:
-    """Build the Server install from pin (default: the effective server pin)."""
+    """Build the Server install of game version from pin (default: its effective
+    server pin)."""
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
     root = Path(os.path.realpath(checkout.root))
     progress = "--progress" if verbose else "--quiet"
-    pin = pin if pin is not None else pins.effective(checkout, "server")
+    pin = pin if pin is not None else pins.effective(checkout, "server", version)
     url, ref = pin["upstream"], pin["ref"]
+    navmesh_ref = pin.get("navmesh_ref") or ref
     src = root / "upstream" / "server"
 
     # 1. Fetch the pinned upstream as a git clone, verify the exact commit, and
@@ -153,7 +173,7 @@ def install(checkout: Checkout, verbose: bool = False,
         raise DaocError(f"upstream HEAD {actual[:12]} != pinned {ref[:12]}")
 
     # Pre-check the macOS patches apply cleanly to this snapshot.
-    patches = [str(p) for p in _patches(root)]
+    patches = [str(p) for p in _patches(root, version)]
     if proc.git(src, "apply", "--check", *patches, verbose=True, check=False).returncode != 0:
         raise DaocError("patches no longer apply to the pinned upstream — re-derive them")
     say("patches apply cleanly")
@@ -164,23 +184,54 @@ def install(checkout: Checkout, verbose: bool = False,
     if shutil.which("cmake") is None:
         raise DaocError("cmake missing (brew install cmake)")
 
-    # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
-    #    fetcher it calls) can't pick up a different tree from an inherited environment.
-    env = dict(os.environ, DAOC_SOURCE_REPO=str(src))
-    build = [str(root / "server" / "tools" / "build-release.sh")]
-    if verbose:
-        build.append("--verbose")
-    # A build that stops halfway leaves an install built from no pin.
-    pins.forget_installed(checkout, "server")
-    proc.run(build, cwd=root, env=env, verbose=True)
+    with tempfile.TemporaryDirectory(prefix="daoc-navmesh-") as navmesh_src:
+        _export_navmesh(src, navmesh_ref, ref, Path(navmesh_src), progress, verbose)
+        # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
+        #    fetcher it calls) can't pick up a different tree from an inherited environment.
+        env = dict(os.environ, DAOC_SOURCE_REPO=str(src), DAOC_GAME_VERSION=version,
+                   DAOC_NAVMESH_SRC=navmesh_src)
+        build = [str(root / "server" / "tools" / "build-release.sh")]
+        if verbose:
+            build.append("--verbose")
+        # A build that stops halfway leaves an install built from no pin.
+        pins.forget_installed(checkout, "server")
+        proc.run(build, cwd=root, env=env, verbose=True)
     pins.record_installed(checkout, "server", pin)
 
     say("install-server: done — server/dist/daoc-server; start it with daoc server start")
 
 
-def _patches(root: Path) -> List[Path]:
-    """server/patches/*.patch in the order build-release.sh applies them."""
-    return sorted((root / "server" / "patches").glob("*.patch"))
+NAVMESH_PATHS = ("world/navmesh", "world/navmesh-manifest.sha256")
+
+
+def _export_navmesh(src: Path, navmesh_ref: str, ref: str, dest: Path, progress: str,
+                    verbose: bool) -> None:
+    """Write navmesh_ref's world/navmesh/ and its manifest into dest. A Version
+    whose own commit has no navmeshes names the commit that has them
+    (navmesh_ref); fetch it into the clone first."""
+    if navmesh_ref != ref:
+        if proc.git(src, "fetch", progress, "origin", navmesh_ref, verbose=verbose,
+                    check=False).returncode != 0:
+            proc.git(src, "fetch", progress, "origin", verbose=True)
+    tar = dest / "navmesh.tar"
+    proc.git(src, "archive", f"--output={tar}", navmesh_ref, *NAVMESH_PATHS, verbose=verbose)
+    with tarfile.open(tar) as archive:
+        base = str(dest.resolve()) + "/"
+        for member in archive.getmembers():
+            target = (dest / member.name).resolve()
+            if not str(target).startswith(base) or not (member.isfile() or member.isdir()):
+                raise DaocError(f"unexpected entry {member.name!r} in the navmesh export")
+        archive.extractall(dest)
+    tar.unlink()
+
+
+def _patches(root: Path, version: str) -> List[Path]:
+    """server/patches/<version>/*.patch in the order build-release.sh applies them."""
+    folder = root / "server" / "patches" / version
+    found = sorted(folder.glob("*.patch"))
+    if not found:
+        raise DaocError(f"no macOS patches for game version {version} in {folder}")
+    return found
 
 
 def _world_hash(checkout: Checkout) -> Optional[str]:
@@ -234,8 +285,8 @@ The new build ships different World data ({world}).
 Your save in data/ keeps the world it was created with until a Progress upgrade
 moves your progress into the new world. It carries over the player-owned
 things: accounts (roles kept), characters, items, money, houses, guilds and
-bots, plus this install's settings (edition, population, daoc-admin options,
-XP rates). Realm-wide world state such as keep and relic ownership starts
+bots, plus this install's settings (population, daoc-admin options, XP rates);
+the edition is the selected game's. Realm-wide world state such as keep and relic ownership starts
 fresh. The previous save is backed up to data/progress-backups/<time>/."""
 
 
@@ -249,21 +300,23 @@ def update(checkout: Checkout) -> int:
     # 1. Resolve the upstream's latest main. Whether the install is already there
     #    is read from the install, not the pin: a pull can move the pin alone.
     say("resolving upstream main")
-    current = pins.effective(checkout, "server")
-    latest = updates.resolve_latest(checkout, "server")
+    game = selection.load(checkout).game
+    version, edition = game.version, game.edition
+    current = pins.effective(checkout, "server", version)
+    latest = updates.resolve_latest(checkout, "server", version)
     if pins.built_from(checkout, "server", latest)[1]:
         say(f"server already at {latest['ref'][:12]}")
         # The pin can lag the install: a lapsed Local pin, or a rerun after an
         # update stopped between the build and step 4's set_local.
         if not pins.same("server", current, latest):
-            pins.set_local(checkout, "server", latest)
+            pins.set_local(checkout, "server", latest, version)
             say(f"server Local pin -> {latest['ref'][:12]}")
         return 0
 
     # 2. Clone the new commit (blobless) and prove the port patches still apply to
     #    it BEFORE moving the pin: an upstream change that breaks a patch fails
     #    here, loudly, and the pin stays put.
-    _precheck(latest["upstream"], latest["ref"], _patches(root), current["ref"])
+    _precheck(latest["upstream"], latest["ref"], _patches(root, version), current["ref"])
 
     # 3. Never rebuild under a live server.
     _stop_first(checkout)
@@ -271,9 +324,10 @@ def update(checkout: Checkout) -> int:
     # 4. Rebuild against the new commit, then record it as the Local pin. A
     #    failed build leaves the pin where it was, so a rerun retries the build.
     before = _world_hash(checkout)
-    install(checkout, pin=latest)
+    install(checkout, version, pin=latest)
+    set_edition(checkout, edition)
     if not pins.same("server", current, latest):
-        pins.set_local(checkout, "server", latest)
+        pins.set_local(checkout, "server", latest, version)
         say(f"server Local pin -> {latest['ref'][:12]}")
 
     # 5. New World data does not reach an existing save on its own: offer a
@@ -290,6 +344,6 @@ def update(checkout: Checkout) -> int:
         say("skipped; run it later with:  daoc progress upgrade")
         return 0
     # No chdir: daoc-progress resolves its own directory.
-    proc.run([tool(checkout, "daoc-progress"), "upgrade"], verbose=True)
+    proc.run([tool(checkout, "daoc-progress"), "upgrade", f"--edition={edition}"], verbose=True)
     say("Progress upgrade: done")
     return 0

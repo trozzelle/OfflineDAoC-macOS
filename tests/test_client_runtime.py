@@ -252,6 +252,8 @@ class NoCharacterTest(unittest.TestCase):
 
     def fake_open(self, argv, **kwargs):
         argv = [os.fspath(a) for a in argv]
+        if argv[0] == client_runtime.PS:  # the check for a running new client
+            return mock.Mock(returncode=0, stdout="", stderr="")
         self.launches.append(argv)
         with self.slog.open("a") as f:
             f.writelines(self.server_says)

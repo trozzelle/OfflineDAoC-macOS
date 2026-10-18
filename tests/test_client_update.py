@@ -139,14 +139,14 @@ class ClientUpdateTest(unittest.TestCase):
             self.latest, self.served = dict(pin, game_dll_sha256=None), served
         self.downloads = FakeDownloads(self.served)
         with mock.patch.object(updates, "resolve_latest",
-                               side_effect=lambda co, group: dict(self.latest)), \
+                               side_effect=lambda co, group, version=None: dict(self.latest)), \
                 mock.patch.object(release, "download", self.downloads):
             return run_cli(["client", "update"], self.root)
 
     def assert_old_client_untouched(self):
         self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), b"old dll")
         self.assertTrue((self.co.client_root / "old-marker").exists())
-        self.assertIsNone(pins.local(self.co, "client"))
+        self.assertIsNone(pins.local(self.co, "original_client", "0.35"))
 
     def assert_new_client(self):
         self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"new release")
@@ -155,7 +155,7 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertEqual((self.co.app_dir / "game.dll.orig").read_bytes(), pristine_bytes())
         dist = self.co.client_root.parent
         self.assertEqual(sorted(p.name for p in dist.iterdir()), ["OfflineDAoC"])
-        local = pins.local(self.co, "client")
+        local = pins.local(self.co, "original_client", "0.35")
         self.assertEqual(local["version"], "T")
         self.assertEqual(local["game_dll_sha256"], sha(pristine_bytes()))
 
@@ -226,8 +226,8 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertEqual(self.gfx_calls(), [])
 
     def test_already_at_latest(self):
-        self.latest = pins.shipped(self.co, "client")
-        pins.record_installed(self.co, "client", self.latest)
+        self.latest = pins.shipped(self.co, "original_client", "0.35")
+        pins.record_installed(self.co, "original_client", self.latest)
         self.served = {}
         code, out, err = self.update()
         self.assertEqual(code, 0, err)
@@ -237,11 +237,11 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertEqual(self.gfx_calls(), [])
 
     def test_already_at_latest_behind_a_lapsed_local_pin_repins_without_a_download(self):
-        pin = dict(pins.shipped(self.co, "client"), version="T", game_dll_sha256="ab" * 32)
-        pins.set_local(self.co, "client", pin)
-        pins.record_installed(self.co, "client", pin)
+        pin = dict(pins.shipped(self.co, "original_client", "0.35"), version="T", game_dll_sha256="ab" * 32)
+        pins.set_local(self.co, "original_client", pin, "0.35")
+        pins.record_installed(self.co, "original_client", pin)
         manifest = json.loads((self.root / "manifest.json").read_text())
-        manifest["client"]["version"] = "S"
+        manifest["versions"]["0.35"]["original_client"]["version"] = "S"
         (self.root / "manifest.json").write_text(json.dumps(manifest))
         # A lapsed Local pin no longer supplies the latest release's game.dll hash.
         self.latest, self.served = dict(pin, game_dll_sha256=None), {}
@@ -249,23 +249,24 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("daoc: client already at T", err)
         self.assertEqual(self.downloads.urls, [])
-        self.assertEqual(pins.effective(Checkout(self.root), "client"), pin)
+        self.assertEqual(pins.effective(Checkout(self.root), "original_client", "0.35"), pin)
 
     def test_install_behind_a_newer_shipped_pin_catches_up(self):
         # A pull brought a Shipped pin naming the latest release; the install is older.
         pin, self.served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": self.dll,
                                          f"{ROOT_FOLDER}/readme.txt": b"new release"})
-        self.latest = dict(pin, game_dll_sha256=sha(self.dll))
+        self.latest = dict(pin, editions={"sluaghbinder": {"game_dll_sha256": sha(self.dll)},
+                                          "classic": {"game_dll_sha256": "c" * 64}})
         manifest = json.loads((self.root / "manifest.json").read_text())
-        manifest["client"] = self.latest
+        manifest["versions"]["0.35"]["original_client"] = self.latest
         (self.root / "manifest.json").write_text(json.dumps(manifest))
-        pins.record_installed(self.co, "client", {"version": "older"})
+        pins.record_installed(self.co, "original_client", {"version": "older"})
         code, out, err = self.update()
         self.assertEqual(code, 0, err)
         self.assertIn("daoc: client update: OfflineDAoC older -> T", err)
         self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"new release")
-        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
-        self.assertIsNone(pins.local(self.co, "client"))
+        self.assertEqual(pins.installed(self.co, "original_client")["version"], "T")
+        self.assertIsNone(pins.local(self.co, "original_client", "0.35"))
 
     def test_failed_restore_keeps_the_carry_over_and_a_rerun_resumes(self):
         self.set_gfx(EVERY_STATE)
@@ -310,8 +311,8 @@ class ClientUpdateTest(unittest.TestCase):
         self.assertTrue(self.saved.exists())
 
     def test_interrupted_swap_is_undone(self):
-        self.latest = pins.shipped(self.co, "client")
-        pins.record_installed(self.co, "client", self.latest)
+        self.latest = pins.shipped(self.co, "original_client", "0.35")
+        pins.record_installed(self.co, "original_client", self.latest)
         old = self.co.client_root.parent / ".OfflineDAoC.old"
         self.co.client_root.rename(old)
         self.served = {}
@@ -336,8 +337,8 @@ class ClientUpdateTest(unittest.TestCase):
         # Patched and under its pin already, so neither an install nor an update
         # replaces it again.
         self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), patched_bytes())
-        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
-        self.assertEqual(pins.local(self.co, "client")["version"], "T")
+        self.assertEqual(pins.installed(self.co, "original_client")["version"], "T")
+        self.assertEqual(pins.local(self.co, "original_client", "0.35")["version"], "T")
 
         code, out, err = self.update()
         self.assertEqual(code, 0, err)

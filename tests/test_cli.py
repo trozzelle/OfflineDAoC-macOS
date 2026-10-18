@@ -19,7 +19,7 @@ from daoc_cli import cli, proc
 from daoc_cli.checkout import Checkout, wine_env
 from daoc_cli.errors import DaocError
 
-VISIBLE_GROUPS = ("server", "client", "admin", "progress", "graphics", "self-install")
+VISIBLE_GROUPS = ("server", "client", "game", "admin", "progress", "graphics", "self-install")
 
 
 def fake_group(name, handler):
@@ -180,13 +180,16 @@ class CheckoutTest(unittest.TestCase):
             self.assertEqual(co.server_dir, root / "server/dist/daoc-server")
             self.assertEqual(co.client_root, root / "dist/OfflineDAoC")
             self.assertEqual(co.app_dir, root / "dist/OfflineDAoC/runtime/client-opendaoc/app")
+            self.assertEqual(co.new_client_root, root / "dist/new-client")
+            self.assertEqual(co.new_client_project, root / "dist/new-client/godot")
+            self.assertEqual(co.godot_app, root / "dist/godot/Godot_mono.app")
             self.assertEqual(co.wine_home, root / "dist/wine")
             self.assertEqual(co.prefix, root / "dist/prefix")
             self.assertEqual(co.launcher_app, root / "dist/DAoCLauncher.app")
             self.assertEqual(co.graphics_src, root / "upstream/graphics")
             self.assertEqual(co.downloads, root / "downloads")
             self.assertEqual(co.state, root / ".daoc")
-            self.assertEqual(co.manifest["schema"], 1)
+            self.assertEqual(co.manifest["schema"], 2)
 
     def test_default_root_is_this_checkout(self):
         self.assertEqual(Checkout().root, Path(__file__).resolve().parents[1])

@@ -70,6 +70,9 @@ class Checkout:
         self.server_dir = self.root / "server" / "dist" / "daoc-server"
         self.client_root = self.root / "dist" / "OfflineDAoC"
         self.app_dir = self.client_root / "runtime" / "client-opendaoc" / "app"
+        self.new_client_root = self.root / "dist" / "new-client"
+        self.new_client_project = self.new_client_root / "godot"
+        self.godot_app = self.root / "dist" / "godot" / "Godot_mono.app"
         self.flavour_file = self.root / "dist" / ".wine-flavour"
         # The overrides resolve against the caller's cwd now; the recorded
         # flavour behind the defaults is read on first use of wine_home/prefix,

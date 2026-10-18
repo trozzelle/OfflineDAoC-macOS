@@ -109,3 +109,24 @@ be read. `daoc client login`, `client start` and `client bench` run
 `security unlock-keychain` on a terminal, and otherwise stop and say to run it
 first. git's osxkeychain credential helper hits the same lock
 (`failed to store: -25308` after a push over SSH); the push itself succeeds.
+
+## The Classic classes game.dll takes the same Client patch
+
+Upstream's classic-classes editions (0.35, 0.36) ship a different `game.dll`
+(`f55ed6b0…`) than the Sluaghbinder ones (`e1d471bb…`), in the b release's
+`editions/<version>-no-custom-class/`. The two differ in 251 bytes, none of them at
+the patch sites: `0x11035` (`c705ac77040103000000`), `0x1102B` (`02`) and the `Shared`
+section header at `0x2EC` (`400000d0`) hold the same bytes in both, so both are
+Proven builds with one patch spec. `daoc` swaps the Edition's pristine `game.dll` in
+and patches it; switching Editions never re-extracts the release.
+
+## The new client needs the GUI session and port 10300
+
+Upstream's Godot client creates its Metal device and then waits forever with no
+window when started from an SSH session (`launchctl managername` says
+`Background`), as Wine does; started with `open` it runs in the Aqua session.
+Its network client has `const int Port = 10300` compiled in (`DaocClient.cs`), so
+it cannot follow `DAOC_PORT`. It keeps its settings in
+`~/Library/Application Support/Godot/app_userdata/MMOEngine`, per macOS user, not
+per checkout. A killed new client leaves the character linkdead for 60 s like the
+original one.

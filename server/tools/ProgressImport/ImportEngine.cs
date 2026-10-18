@@ -1,9 +1,12 @@
 // Ported from Offline DAoC's progress importer (shadowofze/OfflineDAoC,
-// source/tools/OfflineDaoc.ProgressImport/ImportEngine.cs at v0.35 d337d18, GPL-3.0): the same table
-// policy (progress-policy.json), per-table row and content verification, item-template and house
-// handling, Sluaghbinder edition guard, and rollback. Adapted to this server folder (data/,
-// defaults/, run/): no account.txt, account roles are kept, and an in-place world upgrade keeps the
-// install's own settings. Differences are documented in server/README.md.
+// source/tools/OfflineDaoc.ProgressImport/ImportEngine.cs at v0.35 d337d18, GPL-3.0; upstream's v0.36
+// changes (0c767c4) add only its release label and the Windows new-client process check, which
+// daoc covers on macOS by stopping the client first): the same table policy (progress-policy.json),
+// per-table row and content verification, item-template and house handling, Sluaghbinder edition
+// guard, and rollback. Adapted to this server folder (data/, defaults/, config/edition, run/): no
+// account.txt, account roles are kept, an in-place world upgrade keeps the install's own settings,
+// and an upgrade can move a save into the other edition's world. Differences are documented in
+// server/README.md.
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.Text.Json;
@@ -70,17 +73,35 @@ public static class ImportEngine
     }
 
     /// <summary>
-    /// Moves this server's own save into the world this build ships (defaults/world.sqlite), keeping
-    /// this install's settings, and installs the result as data/.
+    /// Moves this server's own save into the world this build ships for an edition, keeping this
+    /// install's settings, and installs the result as data/. The edition is the given one, else
+    /// config/edition, else none: then the save keeps its own enable_sluaghbinder in the Classic
+    /// world (defaults/world.sqlite), as before editions were chosen.
     /// </summary>
-    public static ImportResult Upgrade(string home, Action<string> progress, bool leaveSluaghbinderBots)
+    public static ImportResult Upgrade(string home, Action<string> progress, bool leaveSluaghbinderBots, string? edition)
     {
         home = ServerFolder(home);
         string data = SavePath(home);
         if (!File.Exists(data))
             throw new InvalidOperationException($"There is no saved progress to upgrade: {data} does not exist. The server creates a fresh world on first start.");
-        return Transfer(home, data, upgrade: true, progress, leaveSluaghbinderBots);
+        return Transfer(home, data, upgrade: true, progress, leaveSluaghbinderBots, ResolveEdition(home, edition));
     }
+
+    public const string Sluaghbinder = "sluaghbinder", Classic = "classic";
+
+    /// <summary>The given edition, else config/edition's, else null.</summary>
+    static string? ResolveEdition(string home, string? edition)
+    {
+        string file = Path.Combine(home, "config", "edition");
+        edition ??= File.Exists(file) ? File.ReadAllText(file).Trim() : null;
+        if (edition is not (null or Sluaghbinder or Classic))
+            throw new InvalidOperationException($"Unknown edition '{edition}' (expected {Sluaghbinder} or {Classic}; see {file}).");
+        return edition;
+    }
+
+    /// <summary>The world a fresh or upgraded save of an edition starts from.</summary>
+    static string WorldOf(string home, string? edition) =>
+        Path.Combine(home, "defaults", edition == Sluaghbinder ? "world-sluaghbinder.sqlite" : "world.sqlite");
 
     /// <summary>
     /// Replaces this server's progress with another save's (an older server folder or a Windows
@@ -93,7 +114,7 @@ public static class ImportEngine
         if (File.Exists(data) && SameFile(source, data))
             throw new InvalidOperationException("The source is this server's own save. Use 'upgrade' to move it into the new world.");
         if (InstallOf(source) is { } sourceHome) RequireStopped(sourceHome);
-        return Transfer(home, source, upgrade: false, progress, leaveSluaghbinderBots);
+        return Transfer(home, source, upgrade: false, progress, leaveSluaghbinderBots, ResolveEdition(home, null));
     }
 
     static string ServerFolder(string home)
@@ -106,9 +127,14 @@ public static class ImportEngine
 
     static string SavePath(string home) => Path.Combine(home, "data", SaveFile);
 
-    static ImportResult Transfer(string home, string source, bool upgrade, Action<string> progress, bool leaveSluaghbinderBots)
+    static ImportResult Transfer(string home, string source, bool upgrade, Action<string> progress, bool leaveSluaghbinderBots,
+        string? edition)
     {
-        string data = SavePath(home), world = Path.Combine(home, "defaults", "world.sqlite");
+        string data = SavePath(home), world = WorldOf(home, edition);
+        if (!File.Exists(world))
+            throw new InvalidOperationException($"This build has no {Path.GetFileName(world)}; rebuild the server (daoc server install).");
+        // An upgrade into a chosen edition takes the edition from the target, not the old save.
+        bool editionChosen = upgrade && edition != null;
         RequireStopped(home);
 
         Directory.CreateDirectory(Path.Combine(home, "data"));
@@ -135,7 +161,10 @@ public static class ImportEngine
             var summary = Inspect(snapshot);
             notes.Add($"Source: {summary.Accounts} account(s), {summary.Characters} character(s), {summary.Bots} bot(s), {summary.InventoryItems} inventory entries.");
             bool customClass;
-            using (var c = Open(upgrade ? previous : target, true)) customClass = SluaghbinderEnabled(c);
+            if (editionChosen) customClass = edition == Sluaghbinder;
+            else using (var c = Open(upgrade ? previous : target, true)) customClass = SluaghbinderEnabled(c);
+            if (editionChosen)
+                notes.Add($"Edition: {edition} (enable_sluaghbinder = {(customClass ? "True" : "False")}).");
             if (!customClass && summary.SluaghbinderCharacters > 0)
                 throw new InvalidDataException($"The save has {summary.SluaghbinderCharacters} Sluaghbinder character(s), but this server runs without the custom class " +
                     "(server property enable_sluaghbinder = False). Nothing was changed.");
@@ -218,7 +247,7 @@ public static class ImportEngine
                 }
                 foreach (string table in Rules.ClearTables)
                     if (targetTables.Contains(table)) Exec(c, $"DELETE FROM main.{Q(table)}");
-                if (upgrade) KeepInstallSettings(c, notes);
+                if (upgrade) KeepInstallSettings(c, notes, keepEdition: !editionChosen);
                 Exec(c, "UPDATE main.offline_world_bots SET IsOnline=0");
                 if (!upgrade && Scalar(c, "SELECT count(*) FROM main.offline_world_bots WHERE IsRetired=0") > 0)
                 {
@@ -271,11 +300,11 @@ public static class ImportEngine
         }
     }
 
-    static void KeepInstallSettings(SQLiteConnection c, List<string> notes)
+    static void KeepInstallSettings(SQLiteConnection c, List<string> notes, bool keepEdition)
     {
         if (!Tables(c, "old").Contains("ServerProperty") || !Tables(c).Contains("ServerProperty")) return;
         string fields = string.Join(",", SharedColumns(c, "ServerProperty").Select(Q));
-        foreach (string key in InstallSettings)
+        foreach (string key in InstallSettings.Where(k => keepEdition || k != "enable_sluaghbinder"))
         {
             string? kept = Text(c, "SELECT Value FROM old.ServerProperty WHERE `Key`=@key", key);
             if (kept == null) continue;

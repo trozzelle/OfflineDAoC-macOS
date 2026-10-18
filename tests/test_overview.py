@@ -10,7 +10,11 @@ from unittest import mock
 
 from tests.support import GIT_ENV, git, make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import mtld3d, pins
+import json
+import sqlite3
+
+from daoc_cli import games, mtld3d, pins, selection
+from daoc_cli.selection import Selection
 from daoc_cli.checkout import Checkout
 
 NEW_REF = "0123456789abcdef0123456789abcdef01234567"
@@ -54,11 +58,11 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(err, "")
         self.assertRegex(line(out, "Server install:"), r"not installed$")
         self.assertRegex(line(out, "Server running:"), r"no$")
-        self.assertRegex(line(out, "Client install:"), r"not installed$")
+        self.assertRegex(line(out, "Original client:"), r"not installed$")
         self.assertNotIn("Checkout:", out)
-        for group in pins.GROUPS:
-            row = pin_row(out, group)
-            self.assertEqual(row[1], pins.short(group, pins.shipped(self.co, group)))
+        for group, version in (("server", "0.35"), ("original_client", "0.35"), ("graphics", None)):
+            row = pin_row(out, pins.label(group, version))
+            self.assertEqual(row[1], pins.short(group, pins.shipped(self.co, group, version)))
             self.assertEqual(row[2], "-")
             self.assertEqual(row[3:], ["not", "installed"])
         self.assertNotIn("rebuild due", out)
@@ -96,7 +100,7 @@ class OverviewTest(unittest.TestCase):
         pins.set_local(self.co, "graphics", dict(pins.shipped(self.co, "graphics"), ref=NEW_REF))
         out, _ = self.overview()
         self.assertEqual(pin_row(out, "graphics")[2], NEW_REF[:12])
-        self.assertEqual(pin_row(out, "server")[2], "-")
+        self.assertEqual(pin_row(out, "server@0.35")[2], "-")
 
     def test_running_follows_status(self):
         calls = self.server_install('echo "running (pid 42)"')
@@ -104,7 +108,7 @@ class OverviewTest(unittest.TestCase):
         self.assertRegex(line(out, "Server install:"), r"present \(port build abc1234\)$")
         self.assertRegex(line(out, "Server running:"), r"yes \(pid 42\)$")
         self.assertEqual(calls.read_text(), "status\n")
-        self.assertEqual(pin_row(out, "server")[3], "unknown")
+        self.assertEqual(pin_row(out, "server@0.35")[3], "unknown")
 
     def test_stopped_server_is_not_running(self):
         self.server_install("echo stopped")
@@ -118,14 +122,14 @@ class OverviewTest(unittest.TestCase):
 
     def test_server_built_from_its_recorded_pin(self):
         self.server_install("echo stopped")
-        shipped = pins.shipped(self.co, "server")
+        shipped = pins.shipped(self.co, "server", "0.35")
         pins.record_installed(self.co, "server", shipped)
         out, _ = self.overview()
-        self.assertEqual(pin_row(out, "server")[3:], [shipped["ref"][:12]])
+        self.assertEqual(pin_row(out, "server@0.35")[3:], [shipped["ref"][:12]])
 
         pins.record_installed(self.co, "server", dict(shipped, ref=NEW_REF))
         out, _ = self.overview()
-        self.assertEqual(pin_row(out, "server")[3:], [NEW_REF[:12], "rebuild", "due"])
+        self.assertEqual(pin_row(out, "server@0.35")[3:], [NEW_REF[:12], "rebuild", "due"])
 
     def test_client_without_a_record_is_only_ever_the_legacy_release(self):
         self.co.client_root.mkdir(parents=True)
@@ -134,19 +138,19 @@ class OverviewTest(unittest.TestCase):
         dll.write_bytes(b"pristine")
         sha = hashlib.sha256(b"pristine").hexdigest()
         out, _ = self.overview()
-        self.assertRegex(line(out, "Client install:"), r"present$")
-        self.assertEqual(pin_row(out, "client")[3:], ["game.dll", sha[:12], "rebuild", "due"])
-        self.assertIsNone(pins.installed(self.co, "client"))
+        self.assertRegex(line(out, "Original client:"), r"present \(not a known build\)$")
+        self.assertEqual(pin_row(out, "original_client@0.35")[3:], ["game.dll", sha[:12], "rebuild", "due"])
+        self.assertIsNone(pins.installed(self.co, "original_client"))
 
         # Every Proven release shares the legacy game.dll: a newer pin with that
         # hash must not pass for the 0.35b files on disk.
         legacy = dict(pins.LEGACY_CLIENT, game_dll_sha256=sha)
-        pins.set_local(self.co, "client", dict(pins.shipped(self.co, "client"),
-                                                version="0.36", game_dll_sha256=sha))
+        pins.set_local(self.co, "original_client", dict(pins.shipped(self.co, "original_client", "0.35"),
+                                                version="0.36", game_dll_sha256=sha), "0.35")
         with mock.patch.object(pins, "LEGACY_CLIENT", legacy):
             out, _ = self.overview()
-        self.assertEqual(pin_row(out, "client")[2:], ["0.36", "0.35b", "rebuild", "due"])
-        self.assertEqual(pins.installed(self.co, "client"), legacy)
+        self.assertEqual(pin_row(out, "original_client@0.35")[2:], ["0.36", "0.35b", "rebuild", "due"])
+        self.assertEqual(pins.installed(self.co, "original_client"), legacy)
 
     def test_git_records_graphics_head(self):
         (self.root / ".git").mkdir()
@@ -203,6 +207,70 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(f"daoc: Local graphics pin {NEW_REF[:12]} lapsed; Shipped pin {'f' * 12} applies", err)
         self.assertEqual(pin_row(out, "graphics")[1:3], ["f" * 12, "-"])
+
+    def save(self, value):
+        data = self.co.server_dir / "data"
+        data.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(str(data / "opendaoc.sqlite3.db"))
+        con.execute('CREATE TABLE ServerProperty ("Key" TEXT, Value TEXT)')
+        con.execute("INSERT INTO ServerProperty VALUES ('enable_sluaghbinder', ?)", (value,))
+        con.commit()
+        con.close()
+
+    def test_game_line(self):
+        out, _ = self.overview()
+        self.assertEqual(line(out, "Game:").split(None, 1)[1], "0.35b (Sluaghbinder) · default client: original")
+        self.assertRegex(line(out, "Save:"), r"none yet$")
+
+    def test_switch_incomplete_hint(self):
+        selection.save(self.co, Selection(games.parse("0.35b"), "original", games.parse("0.36")))
+        out, _ = self.overview()
+        self.assertIn("switch to 0.36 incomplete: run daoc game switch 0.36", out)
+
+    def test_existing_checkout_legacy(self):
+        # Review Focus 1: a checkout from before game versions, after git pull.
+        (self.root / ".daoc").mkdir()
+        (self.root / ".daoc" / "pins.json").write_text(json.dumps([
+            {"group": "client", "pin": {"version": "0.35b"}, "replaces": {"version": "0.35b"},
+             "at": "2026-10-11T12:00:00Z"}]))
+        self.co.app_dir.mkdir(parents=True)
+        (self.co.app_dir / "game.dll.orig").write_bytes(b"0.35b pristine")
+        sha = hashlib.sha256(b"0.35b pristine").hexdigest()
+        self.save("False")
+        with mock.patch.object(pins, "LEGACY_CLIENT", dict(pins.LEGACY_CLIENT, game_dll_sha256=sha)):
+            code, out, err = run_cli([], self.root)
+        self.assertEqual(code, 0, err)
+        self.assertIn("Local client pin from before game versions dropped", err)
+        self.assertEqual(line(out, "Game:").split(None, 1)[1], "0.35b (Sluaghbinder) · default client: original")
+        self.assertRegex(line(out, "Original client:"), r"0\.35b, Sluaghbinder$")
+        self.assertRegex(line(out, "Save:"), r"Classic classes$")
+        self.assertIn("selected 0.35b: run daoc game switch 0.35b", out)
+
+    def test_original_built_for_another_game(self):
+        self.co.app_dir.mkdir(parents=True)
+        pins.record_installed(self.co, "original_client", {"version": "0.35b", "edition": "classic"})
+        selection.save(self.co, Selection(games.parse("0.35b"), "original"))
+        out, _ = self.overview()
+        self.assertRegex(line(out, "Original client:"), r"0\.35, Classic classes$")
+        self.assertIn("built for 0.35: run daoc game switch 0.35b", out)
+
+    def test_new_client_not_available_on_035(self):
+        out, _ = self.overview()
+        self.assertRegex(line(out, "New client:"), r"not available for 0\.35$")
+        selection.save(self.co, Selection(games.parse("0.36b"), "new"))
+        out, _ = self.overview()
+        self.assertRegex(line(out, "New client:"), r"not installed$")
+        self.co.new_client_root.mkdir(parents=True)
+        pins.record_installed(self.co, "new_client", {"version": "0.36c", "game": "0.36b"})
+        out, _ = self.overview()
+        self.assertRegex(line(out, "New client:"), r"0\.36c, for 0\.36b$")
+
+    def test_pin_rows_for_selected_version(self):
+        selection.save(self.co, Selection(games.parse("0.36b"), "original"))
+        out, _ = self.overview()
+        for label in ("server@0.36", "original_client@0.36", "new_client@0.36", "graphics"):
+            pin_row(out, label)
+        self.assertNotIn("server@0.35", out)
 
 
 if __name__ == "__main__":
