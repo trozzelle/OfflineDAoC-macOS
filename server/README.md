@@ -79,10 +79,9 @@ In the 0.36 sync the admin module moved into its own project, and `CoreServer` r
 (`AdminHost.Register()`) before `GameServer.CreateInstance()` initialises logging. That first touch
 of `LoginRequestHandler` creates its static logger as a `NullLogger`, so no `User … logging on!`
 line ever reaches `server.log`, and `daoc client start` and `daoc dev e2e` wait for that line.
-Reordering the two calls does not help: the JIT can run the class's static initialiser when it
-compiles the calling method. `patches/0.36/020-loginrequesthandler-lazy-logger.patch` creates the
-logger on first use instead. Verified with a byte capture: the login was always accepted; only the
-line was missing.
+`patches/0.36/020-loginrequesthandler-lazy-logger.patch` creates the logger on first use instead.
+Without it the login is still accepted (the account's `LastLogin` updates); only the line is
+missing.
 
 ## Layout
 
