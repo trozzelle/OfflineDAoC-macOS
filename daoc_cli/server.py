@@ -50,15 +50,16 @@ def register(groups: "argparse._SubParsersAction") -> None:
         description="Install, run and update the local OpenDAoC server.",
     )
     actions = p.add_subparsers(dest="action", title="actions")
-    a = actions.add_parser("install", help="build server/dist/daoc-server from the pinned upstream")
+    a = actions.add_parser("install", help="build server/dist/daoc-server for the selected game version")
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show git progress and the build's warnings and tool output")
     a.set_defaults(func=_handle_install)
     a = actions.add_parser(
         "update",
-        help="move the server to its upstream's latest commit and rebuild (Local pin)",
-        description="Resolve the upstream's latest main commit, pre-check the port patches "
-                    "against it, record it as a Local pin and rebuild the Server install.",
+        help="move the server to the fork's latest commit for the selected version and rebuild (Local pin)",
+        description="Resolve the fork's latest main commit, check it is synced to the selected "
+                    "game version, pre-check the port patches against it, record it as a Local "
+                    "pin and rebuild the Server install.",
     )
     a.add_argument("--check", action="store_true",
                    help="report Shipped, Local, built-from and latest; change nothing")

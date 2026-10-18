@@ -22,8 +22,7 @@ macOS patches from `patches/`.
 ## Quick start
 
 ```bash
-tools/setup-dotnet.sh          # installs the .NET 10 SDK into ~/.dotnet if missing
-tools/build-release.sh         # builds dist/daoc-server/ and the release zip (~2 min after first run)
+daoc server install            # from the checkout: the selected game version's build (see ../README.md)
 cd dist/daoc-server
 ./daoc-server.sh start         # server in the background + admin screen in this terminal
 ```
@@ -69,7 +68,8 @@ output ever binds `SQLite.Interop.dll`.
 
 Closing the admin Unix-domain socket while its asynchronous accept is pending does not wake the
 blocked accept on macOS (kqueue-based .NET), leaving `ServerStopped` stuck in a spin-wait
-forever. `patches/010-adminsockethost-macos-close.patch` connects a dummy client to wake the
+forever. `patches/<version>/010-adminsockethost-macos-close.patch` (the file moved to `src/Admin.Host/` in
+the 0.36 sync; the hunk is the same) connects a dummy client to wake the
 pending accept before the listener is disposed. Verified: clean stop in ~3 s with bots in the
 world (the Linux reference stops in ~2 s).
 
@@ -83,8 +83,9 @@ deploy/daoc-server.sh        start/stop/status (equivalent of the Linux launcher
 deploy/daoc-admin            admin TUI/CLI wrapper
 deploy/daoc-progress         world upgrade / progress import wrapper (macOS port addition)
 tools/ProgressImport/        daoc-progress source: upstream Offline DAoC's progress importer, ported
-deploy/navmesh-install.sh    navmesh installer (macOS port)
-patches/*.patch              macOS patches applied to the source snapshot
+deploy/navmesh-install.sh    navmesh installer (macOS port): --from-xz <world/navmesh>, --from-dir
+patches/<version>/*.patch    macOS patches applied to that game version's source snapshot
+world/editions/<version>/    the Sluaghbinder world overlay (daoc dev edition-sql)
 vendor/System.Data.SQLite    vendored System.Data.SQLite 1.0.119 source + arm64 patches
 build/src                    snapshot of the reference repo's source (created by the build)
 dist/                        build output (gitignored)
@@ -94,13 +95,20 @@ dist/                        build output (gitignored)
 
 - **Backup**: stop the server, copy `data/opendaoc.sqlite3.db` (or use
   `sqlite3 data/opendaoc.sqlite3.db ".backup backup.db"` while running — WAL-safe).
-- **Upgrade**: rerun `tools/build-release.sh`; it replaces `bin/`, `defaults/` and the scripts
+- **Upgrade**: rerun `daoc server install` (it runs `tools/build-release.sh` with
+  `DAOC_GAME_VERSION` and `DAOC_NAVMESH_SRC` set); it replaces `bin/`, `defaults/` and the scripts
   and keeps `config/`, `data/`, `logs/` and `navmesh/` (it refuses while the server is running).
-- **New world data** (a release whose world changed, e.g. the 0.35 sync): an existing `data/`
-  keeps the world it was created with. With the server stopped, `./daoc-progress upgrade` moves
-  your progress into the new world from `defaults/world.sqlite`: accounts (roles kept),
-  characters, items, money, houses, guilds and bots, plus this install's settings (edition,
-  population, `daoc-admin options`, XP rates). World state such as keep and relic ownership
+- **Editions**: `defaults/world.sqlite` is the Classic classes world, and
+  `defaults/world-sluaghbinder.sqlite` the same world with the Sluaghbinder (its trainer, wisp
+  and class rows, `enable_sluaghbinder = True`). `config/edition` (`sluaghbinder` or `classic`,
+  written by `daoc`) picks the one a fresh save starts from.
+- **New world data** (a release whose world changed, e.g. the 0.36 sync): an existing `data/`
+  keeps the world it was created with. With the server stopped, `./daoc-progress upgrade
+  [--edition=sluaghbinder|--edition=classic]` moves your progress into the new world of that
+  edition (default: `config/edition`): accounts (roles kept), characters, items, money, houses,
+  guilds and bots, plus this install's settings (population, `daoc-admin options`, XP rates).
+  The edition is the one given; a save with Sluaghbinder characters cannot move into the
+  Classic classes world. `./daoc-progress inspect <folder> --json` prints the counts. World state such as keep and relic ownership
   starts fresh. The previous save is backed up to `data/progress-backups/<time>/` with an
   `import-report.txt`; to undo, stop the server, delete `data/opendaoc.sqlite3.db-wal` and
   `data/opendaoc.sqlite3.db-shm` if they exist (SQLite would replay a leftover `-wal` into the

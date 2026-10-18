@@ -7,6 +7,8 @@ client, playing, stopping, and what to do when something goes wrong. The
 - [Set up the `daoc` command](#set-up-the-daoc-command)
 - [Install the server](#install-the-server)
 - [Install the client](#install-the-client)
+- [Choose the game](#choose-the-game)
+- [The new client](#the-new-client)
 - [Play](#play)
 - [Playing over SSH](#playing-over-ssh)
 - [Stopping](#stopping)
@@ -35,8 +37,9 @@ line to `~/.zprofile` (default no), or you add it yourself:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Run `daoc` with no arguments for an overview: where the checkout is, whether the
-Server install and Client install are present, whether the server runs, each
+Run `daoc` with no arguments for an overview: where the checkout is, the
+selected game and default client, which game each client install and the save
+belong to (with the switch that fixes a mismatch), whether the server runs, each
 pin, and whether a newer release is out. `daoc --version` prints the release
 you run. `daoc <group> --help` lists a group's actions. `admin`, `progress` and
 `graphics` hand `--help` to their tool instead, so it works only once the Server
@@ -59,7 +62,7 @@ tools' own output.
 daoc client install
 ```
 
-Downloads the OfflineDAoC release (≈5 GB) and athei's CrossOver Wine build,
+Downloads the selected game's OfflineDAoC release (≈5 GB) and athei's CrossOver Wine build,
 applies the Client patch to `game.dll`, and sets up a wine prefix. Re-runs skip
 finished steps. The prefix keeps its Windows profile folders (Documents,
 Desktop, ...) inside the prefix, so the client never triggers a macOS privacy
@@ -91,6 +94,58 @@ measured against the default.
   or denied the prompt, turn "wine" on in System Settings > Privacy & Security >
   Local Network; `daoc client install --wine arm64` says when it is still held.
 
+## Choose the game
+
+| Game | Version | Classes | Clients |
+|---|---|---|---|
+| `0.35` | 0.35 | classic classes only | original |
+| `0.35b` | 0.35 | with the Sluaghbinder | original |
+| `0.36` | 0.36 | classic classes only | original, new |
+| `0.36b` | 0.36 | with the Sluaghbinder | original, new |
+
+`daoc game` lists them and marks the selected one; a checkout starts as `0.35b`.
+
+```bash
+daoc game switch 0.36b
+```
+
+The switch checks everything it can first and changes nothing when it refuses:
+a save with Sluaghbinder characters cannot move into a classic-classes game, and
+Sluaghbinder bots move only with `--leave-sluaghbinder-bots` (they are left
+behind). Then it downloads what is new, stops the client and (after asking) the
+server, rebuilds the server when the version changes, moves your save into the
+game's world (backed up first), and brings each installed client along. If it
+is interrupted, `daoc` says so; run the same switch again to finish it.
+
+Both editions of a version come from one download, so switching between `0.36`
+and `0.36b` downloads nothing and swaps only `game.dll`.
+
+## The new client
+
+From 0.36, upstream ships a second client built in Godot 4. daoc runs it natively
+with the official macOS Godot, so it needs neither Wine nor Rosetta:
+
+```bash
+daoc client install --client new   # about 30 GB, 34 GB installed; it becomes the default client
+daoc client start                  # or: daoc client start --client new
+```
+
+- The download comes in 19 parts; each one is checked, unpacked and deleted
+  before the next, so the install needs about 36 GB free while it runs. If it is
+  interrupted, run it again and it continues.
+- It always connects to port 10300 (it has no port setting), so the server must
+  run on 10300.
+- `daoc client start` waits until the server accepts the login. The client then
+  shows realm select; pick or create the character there (`--character` is for the
+  original client only).
+- `daoc client install --client original` makes the original client the default
+  again; both stay installed and play the same account and characters, one at a
+  time.
+- Its settings (graphics presets, key bindings) live in
+  `~/Library/Application Support/Godot/app_userdata/MMOEngine`, shared by every
+  checkout. `daoc` never deletes that folder.
+- Graphics patches and `daoc client bench` apply to the original client only.
+
 ## Play
 
 Start the server (it holds the terminal with the admin screen):
@@ -111,7 +166,8 @@ daoc client start
 `daoc-offline`); run it again to replace it. If no account is saved yet,
 `daoc client start` asks for it the first time.
 
-`daoc client start`:
+`daoc client start` starts the default client; `--client original|new` picks one
+for this start. The original client:
 
 - logs in as `DAOC_CHARACTER` (or `--character NAME`), else the account's most
   recently played character (read from the server database; `--dry-run` prints
@@ -140,8 +196,8 @@ so someone has to be logged in there.
 
 All of these act only on this checkout's install, never on another checkout's.
 
-- `daoc client stop` — stops the client, then waits until the server has
-  dropped the linkdead character so the next login is not refused.
+- `daoc client stop` — stops the client (either one), then waits until the server
+  has dropped the linkdead character so the next login is not refused.
 - `daoc client kill` — tears down the launcher loop, wine tree and x87sidecar of
   this install at once and waits for its wineserver to exit.
 - `daoc server stop` — saves and stops the server; `daoc server status` prints
@@ -205,3 +261,9 @@ Set in the environment; `daoc client start` forwards them.
   Network ([arm64 Wine](#arm64-wine-no-rosetta)).
 - **Port in use.** If another DAoC server is already using port 10300, stop it
   first.
+- **The new client sits with no window.** It was started outside the Mac's GUI
+  session; `daoc client start` uses `open`, so someone has to be logged in at the
+  Mac. Its output is in `/tmp/daoc-new-client.log`.
+- **The new client refuses to start with another port.** It only connects to
+  10300; set `<Port>` back in the server's `config/serverconfig.xml` (or unset
+  `DAOC_PORT`).

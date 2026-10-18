@@ -5,9 +5,12 @@
 > original client and game data remain their property.
 
 Run the [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) server and game
-client on Apple Silicon. The server builds natively for arm64 and the original
-1.127 Windows client runs under Wine, by default an x86_64 Wine under Rosetta 2 or an arm64 Wine with FEX instead, which needs
-no Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)).
+clients on Apple Silicon. Choose the game, 0.35 or 0.36, with the Sluaghbinder
+(`0.35b`, `0.36b`) or the classic classes only (`0.35`, `0.36`). The server builds
+natively for arm64. The original 1.127 Windows client runs under Wine, by default
+an x86_64 Wine under Rosetta 2, or an arm64 Wine with FEX instead, which needs no
+Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)). From 0.36,
+upstream's new Godot client runs natively too, beside the original one.
 
 <p align="center">
 <img width="564" height="381" alt="A screenshot of a troll fighting a lync in Dark Age of Camelot" src="https://github.com/user-attachments/assets/112a2ca1-3f2c-48ea-9b6b-fe97f553b535" /></p>
@@ -21,13 +24,15 @@ support the upstream projects:
 - [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC): the offline bundle
   built on OpenDAoC, and the source of the client
 - [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots):
-  the pinned OpenDAoC fork (Offline DAoC 0.35) the server builds from
+  the pinned OpenDAoC fork (Offline DAoC 0.35 and 0.36) the server builds from
 - [athei/wine-build](https://github.com/athei/wine-build): the CrossOver-based
   macOS Wine, with [x87sidecar](https://github.com/athei/x87sidecar) (fast x87
   math on ARM64) and [mtld3d](https://github.com/athei/mtld3d) (Direct3D 9 on Metal)
 - [Hadron](https://github.com/Broyojo/hadron): the arm64 Wine behind `--wine arm64`,
   with [FEX](https://github.com/FEX-Emu/FEX) (x86 emulation, including the client's
   x87 math) and mtld3d
+- [Godot](https://godotengine.org): the engine of upstream's new client, run with its
+  official macOS .NET build
 
 ## Requirements
 
@@ -35,7 +40,8 @@ support the upstream projects:
   `--wine arm64`, macOS 27 or later and no Rosetta)
 - Xcode Command Line Tools (`xcode-select --install`)
 - cmake (`brew install cmake`)
-- An internet connection for the ≈5 GB client download
+- An internet connection for the ≈5 GB client download (the new client: about
+  30 GB more, 34 GB installed)
 
 Everything else is fetched.
 
@@ -66,6 +72,23 @@ daoc client start        # launch into the world
 
 Exit with `/quit` in chat; stop with `daoc client stop` and `daoc server stop`.
 Run `daoc` with no arguments for an overview of your installs.
+
+## Choosing the game and the client
+
+A checkout starts as `0.35b` with the original client. To move it, server, save
+and clients together:
+
+```bash
+daoc game                         # the games and which one is selected
+daoc game switch 0.36b            # 0.35, 0.35b, 0.36 or 0.36b
+daoc client install --client new  # 0.36 and later: the new client (about 34 GB), now the default
+daoc client start                 # the default client; --client original|new picks one
+```
+
+Your progress moves with the switch; the previous save is backed up first. Going
+back to an older version needs a backup made under it
+([docs/UPDATING.md](docs/UPDATING.md#switching-games)). Both clients play the same
+account and characters, one at a time.
 
 ## Without Rosetta: the arm64 Wine
 

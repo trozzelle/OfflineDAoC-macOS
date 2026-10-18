@@ -34,7 +34,7 @@ written at install time, never committed.
 
 ## The `daoc` command
 
-`daoc` is one command with groups: `server`, `client`, `admin`, `progress`,
+`daoc` is one command with groups: `server`, `client`, `game`, `admin`, `progress`,
 `graphics`, `self-install`, and a `dev` group for maintainers that help leaves out.
 
 - **Launcher.** `./daoc` is a small POSIX sh file. It resolves the Checkout's real
@@ -92,69 +92,94 @@ written at install time, never committed.
 
 ## Manifest
 
-`manifest.json` holds the Shipped pins — what the installs pull:
+`manifest.json` (schema 2) holds the Shipped pins, per game Version, and the
+default Game:
 
 ```json
 {
-  "schema": 1,
-  "server": {
-    "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
-    "ref": "<commit sha>"
+  "schema": 2,
+  "default": { "game": "0.35b", "client": "original" },
+  "versions": {
+    "0.35": {
+      "server": { "upstream": "<fork>", "ref": "<commit sha>", "navmesh_ref": "<commit sha>" },
+      "original_client": {
+        "release_url": ".../releases/download/v0.35b/", "version": "0.35b",
+        "root_folder": "OfflineDAoC-v0.35b", "archive_sha256": "…", "parts": [ … ],
+        "editions": {
+          "sluaghbinder": { "game_dll_sha256": "e1d471bb…" },
+          "classic": { "game_dll_sha256": "f55ed6b0…", "game_dll_member": "OfflineDAoC-v0.35b/editions/0.35-no-custom-class/…/game.dll" }
+        }
+      },
+      "new_client": null
+    },
+    "0.36": {
+      "server": { "upstream": "<fork>", "ref": "<commit sha>" },
+      "original_client": { "version": "0.36b", "…": "…" },
+      "new_client": {
+        "release_url": ".../releases/download/v0.36c/", "version": "0.36c",
+        "unpacked_bytes": 33758711327, "parts": [ "19 × {name, bytes, sha256}" ],
+        "godot": { "url": "<godot-builds mono macOS zip>", "bytes": 200756622, "sha256": "…" }
+      }
+    }
   },
-  "client": {
-    "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
-    "version": "0.35b",
-    "manifest_asset": "download-manifest.json"
-  },
-  "wine": {
-    "url": "<athei/wine-build release asset url>",
-    "tarball": "wine-cx-26.3.0-8-macos-x86_64.tar.xz",
-    "sha256": "<recorded>",
-    "min_macos": "26"
-  },
-  "wine_arm64": {
-    "url": "<Broyojo/hadron release disk image url>",
-    "image": "Hadron-0.2.0.dmg",
-    "sha256": "<recorded>",
-    "runtime": "Hadron.app/Contents/SharedSupport/runtime/dist",
-    "min_macos": "27"
-  },
-  "graphics": {
-    "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics",
-    "ref": "<commit sha>"
-  }
+  "wine": { "url": "…", "tarball": "…", "sha256": "…", "min_macos": "26" },
+  "wine_arm64": { "url": "…", "image": "…", "sha256": "…", "runtime": "…", "min_macos": "27" },
+  "graphics": { "repo": "https://github.com/trozzelle/OfflineDAoC-macOS-graphics", "ref": "<commit sha>" }
 }
 ```
 
-Server pin = immutable git commit. Client pin = release tag; per-part and
-whole-archive SHA-256 come from the release's own `download-manifest.json` and are
-verified at install time (same scheme as upstream's `Get-OfflineDAoC.ps1`). Wine pin
-= tarball SHA-256 recorded here. Graphics pin = immutable git commit, pulled only
-by `daoc graphics`.
+Server pin = immutable git commit (`navmesh_ref`: the commit whose `world/navmesh/`
+the build uses, when the Version's own commit has none). Client pins = release tags;
+per-part (and, for the original client, whole-archive) SHA-256 come from the
+release's own `download-manifest.json` and are verified at install time (same scheme
+as upstream's `Get-OfflineDAoC.ps1`). Both Editions of a Version share the b
+release's archive; `editions` names each one's pristine `game.dll`. The Godot pin and
+the Wine pins = archive SHA-256 recorded here. Graphics pin = immutable git commit,
+pulled only by `daoc graphics`.
 
 ### Shipped pins and Local pins
 
 A user update never edits `manifest.json`. `daoc server|client|graphics update`
-records a Local pin in `.daoc/pins.json` (gitignored), one entry per group, along
-with the Shipped pin it replaced. The Checkout stays clean, so checking out the
-next release never conflicts on the manifest. When a release changes that group's
-Shipped pin, the Local pin lapses: it is dropped with a one-line notice and the
-new Shipped pin applies. The Server and Client installs record the pin they were
-built from (`.daoc-pin.json` in the install folder), and every "already up to
-date" decision reads that record, never the pin: after a release moves the pin,
-`daoc server install` and `daoc client install` bring the install to it, and
-`daoc server|client update` still moves it to the latest. A client install made
-before the record came from the old tooling, which only installed OfflineDAoC
-0.35b: it is identified by that release's pristine `game.dll` hash alone (every
-Proven release shares it, so the hash names no other version), and the record is
-written then.
+records a Local pin in `.daoc/pins.json` (gitignored), one entry per pin and game
+Version (`server@0.36`, `original_client@0.36`, `new_client@0.36`, `graphics`),
+along with the Shipped pin it replaced. The Checkout stays clean, so checking out
+the next release never conflicts on the manifest. When a release changes that
+Shipped pin, the Local pin lapses: it is dropped with a one-line notice and the new
+Shipped pin applies. An entry from before game versions is dropped with a notice.
+The Server, Original client and New client installs record the pin they were
+built from (`.daoc-pin.json` in the install folder), and every "already up to date"
+decision reads that record, never the pin. An Original client install made before
+the record came from the old tooling, which only installed OfflineDAoC 0.35b: it is
+identified by that release's pristine `game.dll` hash, and the record is written
+then.
 `daoc <group> update --check` only reports what is available.
 `daoc dev ship-pins` is the maintainer step: it writes the effective pins into
 `manifest.json` for a commit.
 
+## Games and switching
+
+The Selection (`.daoc/selection.json`: Game, Default client, a pending switch) says
+what the setup should be; without it, it is inferred from the installs, else the
+manifest's `default` applies. Each install records what it is. `daoc` compares the
+two and names the `daoc game switch` that fixes a mismatch.
+
+`daoc game switch` (`daoc_cli/game.py`) runs, each step checking what is already done
+so a rerun resumes: refuse early (unknown Game, the new client before 0.36 or off
+port 10300, an older Version without `--restore`/`--fresh-save`, Sluaghbinder
+characters or bots that a Classic classes Game cannot hold) → record the pending
+switch → download (the original client's release; the new client staged beside
+its install) → stop the client, then the server (asking) → rebuild the server when
+the Version's pin differs, write `config/edition` → move the save
+(`daoc-progress upgrade --edition=`, or restore/set aside; `data/daoc-game` records
+which Game the save was moved into) → bring each installed client along → record
+the Selection.
+
 ## Update flows
 
-- **Server** (`daoc server update`): resolve the upstream's latest `main`, clone it
+- **Server** (`daoc server update`): resolve the fork's latest `main` and read which
+  game Version it is synced to (`OfflineDaocVersion` in its admin host); another
+  Version than the selected one stops the update (a new Version needs a daoc
+  release). Then clone it
   (blobless, `--filter=blob:none`) and check that every port patch still applies —
   before the pin moves, so a breaking upstream change fails loudly and leaves the
   install alone. A running server is stopped only after asking (off a terminal it
@@ -162,8 +187,9 @@ written then.
   it as the Local pin, so a rerun after a failed build retries it. If the new build ships
   different world data, it explains the Progress upgrade and asks before running
   one (default no); otherwise it prints `daoc progress upgrade` for later.
-- **Client** (`daoc client update`): download and verify the latest OfflineDAoC
-  release and hash its `game.dll` inside the archive. A `game.dll` the Client patch
+- **Client** (`daoc client update`): re-read the selected Version's release (upstream
+  can replace a tag's files), download and verify it, and hash its `game.dll` inside
+  the archive. A `game.dll` the Client patch
   does not know is not a Proven build, so it stops with "not a Proven build; it
   needs a shipped update" before changing anything. It refuses while the client
   runs. Graphics patches are carried across through the Graphics project's machine
@@ -213,15 +239,20 @@ interface the client update uses is there, before moving the pin.
 
 The macOS server port is a source-patch port, not a fork:
 
-1. Clone the pinned upstream commit into `upstream/server/` and check the port
-   patches apply to it.
-2. Overlay `server/` (patch `patches/010-adminsockethost-macos-close.patch` via
-   `git apply`, vendor `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
+1. Clone the selected Version's pinned upstream commit into `upstream/server/` and
+   check that Version's port patches (`patches/<version>/`) apply to it. Export the
+   navmeshes (`world/navmesh/*.xz` and their manifest) from `navmesh_ref` (or the
+   commit itself) for the build.
+2. Overlay `server/` (patch `patches/<version>/*.patch` via `git apply`, vendor
+   `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
 3. Run the port's `tools/build-release.sh` → `server/dist/daoc-server/` (self-contained
    osx-arm64 .NET publish, cmake-built `libDetour.dylib`, ad-hoc codesigning).
    It snapshots the source from `DAOC_SOURCE_REPO`; `daoc server install` pins that
    to the verified `upstream/server/` clone, which is also the default when the
-   build script or `fetch-upstream-db.sh` runs on its own.
+   build script or `fetch-upstream-db.sh` runs on its own. The build also writes
+   `defaults/world-sluaghbinder.sqlite`: the Classic classes world plus
+   `world/editions/<version>/sluaghbinder.sql` (`daoc dev edition-sql`, ADR 0008).
+   `config/edition` picks the world a fresh save starts from.
 
 Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
 
@@ -242,9 +273,11 @@ A save keeps the world it was created from, so new world data in
 Offline DAoC's Windows-only IMPORT PROGRESS engine, ported (`server/tools/ProgressImport`).
 It is published into `bin/` and links the vendored System.Data.SQLite:
 
-- **upgrade**: the result starts as `defaults/world.sqlite`. It receives this
-  server's progress tables and keeps the install's settings (edition, population,
-  options, XP rates).
+- **upgrade**: the result starts as the world of the edition given with
+  `--edition=` (else `config/edition`): `defaults/world-sluaghbinder.sqlite` or
+  `defaults/world.sqlite`. It receives this server's progress tables and keeps the
+  install's settings (population, options, XP rates); the edition is the target's,
+  and the Sluaghbinder guard is judged against it.
 - **import**: the result starts as this server's own save. Its progress tables are
   replaced from another save, which is copied first so the source is never written.
 - `progress-policy.json` lists the progress tables (copied, then verified by row count
@@ -323,9 +356,25 @@ prompt, the `crossover` prefix user, the linkdead wait after a kill), is in
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
 
+## New client
+
+`daoc client install --client new` (`daoc_cli/newclient.py`, ADR 0007) installs the
+pinned macOS Godot .NET build (`dist/godot/Godot_mono.app`) and the 0.36c release's
+`new-client/godot/` tree into `dist/new-client/godot`: each of the 19 parts is
+downloaded, verified, extracted (mtimes kept) into `dist/.new-client.new`, then
+deleted, with a done marker per part, and the finished tree is swapped in. The
+Windows engine and launcher in the release are skipped.
+
+`daoc client start --client new` runs `open -n Godot_mono.app --args --path
+<project> -- --server=127.0.0.1 --account=… --password=…` (`--custom-class=off` on a
+Classic classes Game), with `DOTNET_ROOT=~/.dotnet`. The client has port 10300
+compiled in, so another port is refused; it has no auto-enter, so the start
+succeeds on the login line. Stop and kill find its process by its binary inside
+this Checkout's `dist/godot`.
+
 ## Client start
 
-`daoc client start` takes the Game account from the login Keychain (service
+`daoc client start` (original client) takes the Game account from the login Keychain (service
 `daoc-offline`) and opens `dist/DAoCLauncher.app` with
 `wine game.dll 127.0.0.1 <port> 42 <account> <password> [<character> <realm>]`.
 

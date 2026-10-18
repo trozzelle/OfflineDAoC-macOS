@@ -91,9 +91,11 @@ def register(groups: "argparse._SubParsersAction") -> None:
     actions = p.add_subparsers(dest="action", title="actions")
     a = actions.add_parser(
         "install",
-        help="install Wine, the OfflineDAoC client, the Client patch and the Wine prefix",
-        description="Install Wine, the pinned OfflineDAoC release, the Client patch, the "
-                    "Wine prefix and the Launcher. Re-runs skip finished steps.",
+        help="install the selected game's client and make it the default",
+        description="Install the selected game's client. The original client: Wine, the "
+                    "pinned OfflineDAoC release with the game's edition, the Client patch, the "
+                    "Wine prefix and the Launcher. The new client (0.36 and later): the pinned "
+                    "macOS Godot and upstream's client project. Re-runs skip finished steps.",
     )
     a.add_argument("--wine", choices=FLAVOURS, default=None,
                    help="Wine to install and use: rosetta (x86_64 CrossOver Wine under "
@@ -110,9 +112,11 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.set_defaults(func=_install)
     a = actions.add_parser(
         "update",
-        help="move the client to the latest OfflineDAoC release (Local pin)",
-        description="Move the Client install to the latest OfflineDAoC release, recorded "
-                    "as a Local pin. --check reports without changing anything.",
+        help="take the selected version's release again if upstream replaced its files (Local pin)",
+        description="Re-read the selected game version's OfflineDAoC release and move the "
+                    "Client install to it when upstream replaced its files, recorded as a "
+                    "Local pin. --check reports the default client's pin without changing "
+                    "anything, and names a newer upstream version.",
     )
     a.add_argument("--check", action="store_true",
                    help="report Shipped, Local, built-from and latest; change nothing")

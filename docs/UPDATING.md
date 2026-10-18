@@ -1,7 +1,7 @@
 # Updating and saved progress
 
-How to move daoc to a newer release, the server, client and graphics patches to
-newer upstream versions, and how to carry your progress (accounts, characters,
+How to move daoc to a newer release, switch the game, update the server,
+clients and graphics patches, and carry your progress (accounts, characters,
 bots) across world updates or from another save.
 
 ## daoc itself
@@ -22,14 +22,32 @@ way. Your installs, saves and Local pins are not tracked by git, so the checkout
 change leaves them alone; if the new release ships new pins, `daoc` shows
 "rebuild due" (see [Pins](#pins)).
 
+## Switching games
+
+`daoc game switch <game>` moves this setup to another game: `0.35`, `0.35b`,
+`0.36` or `0.36b` (see [PLAY.md](PLAY.md#choose-the-game)). Your save moves into
+the new game's world with a Progress upgrade (below); the previous save is backed
+up first and labelled with the game it belonged to.
+
+A save cannot move to an older version. Going back needs one of:
+
+```bash
+daoc game switch 0.35b --restore <backup>   # a backup made under 0.35 (the refusal lists them)
+daoc game switch 0.35b --fresh-save         # set the current save aside; start a fresh world
+```
+
+Backups are in the server's `data/progress-backups/`.
+
 ## Server, client and graphics
 
-Each part has its own update:
+Updates stay within the selected game version; a newer upstream version (0.37)
+needs a daoc release, and `--check` says when one is out. Each part has its own
+update:
 
 ```bash
 daoc server update --check     # report what moved upstream; change nothing
-daoc server update             # move the server to the upstream's latest commit and rebuild
-daoc client update             # move the client to the latest OfflineDAoC release
+daoc server update             # move the server to the fork's latest commit for this version, and rebuild
+daoc client update             # take the default client's release again if upstream replaced its files
 daoc graphics update           # move the Graphics project to its latest commit
 ```
 
@@ -49,14 +67,18 @@ to the pin (the client keeps your graphics patches, as an update does).
 
 ### Server
 
-`daoc server update` checks the macOS patches still apply before it moves
-anything. If the server is running it asks before stopping it. The rebuild
+`daoc server update` follows the fork's `main` only while it is synced to the
+selected version (the fork says which in its source); once the fork moves on to a
+newer version, the update stops and says so. It checks the macOS patches still
+apply before it moves anything. If the server is running it asks before stopping it. The rebuild
 replaces only the program files, so your `config/`, `data/` (accounts,
 characters, bots), `logs/` and `navmesh/` stay in place.
 
 ### Client
 
-`daoc client update` re-applies the Client patch to the new `game.dll`. If that
+`daoc client update` re-reads the selected version's release; upstream sometimes
+replaces a release's files under the same tag. It re-applies the Client patch to
+the new `game.dll`. If that
 `game.dll` is one it doesn't know, it stops with "not a Proven build; it needs a
 shipped update" and leaves your client as it was. Graphics patches you had on
 are carried across to the new client.
@@ -66,8 +88,9 @@ are carried across to the new client.
 ### Moving progress into new world data
 
 An existing save keeps the world it was created with. If the update ships new
-world data (such as the 0.35 sync), `daoc server update` asks whether to move
-your progress into it (a Progress upgrade; default no). You can also run it
+world data, `daoc server update` asks whether to move your progress into it (a
+Progress upgrade, into the selected game's edition; default no). `daoc game
+switch` runs it without asking. You can also run it
 later with the server stopped:
 
 ```bash
@@ -75,7 +98,8 @@ daoc progress upgrade
 ```
 
 This carries over accounts (with their roles), characters, items, money, houses,
-guilds, bots and this install's settings. World state such as keep and relic
+guilds, bots and this install's settings; the edition (Sluaghbinder or not) is the
+selected game's. World state such as keep and relic
 ownership starts fresh. The previous save is backed up to
 `data/progress-backups/<time>/` first.
 
