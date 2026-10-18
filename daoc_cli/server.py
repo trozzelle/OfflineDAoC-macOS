@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import files, pins, proc, updates
+from daoc_cli import files, games, pins, proc, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, ask, say
 
@@ -67,8 +67,13 @@ def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
 
 def _handle_update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
-        return updates.check(checkout, "server")
+        return updates.check(checkout, "server", _version(checkout))
     return update(checkout)
+
+
+def _version(checkout: Checkout) -> str:
+    """The selected Game's Version."""
+    return games.default(checkout)[0].version
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
@@ -122,7 +127,7 @@ def install(checkout: Checkout, verbose: bool = False,
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
     root = Path(os.path.realpath(checkout.root))
     progress = "--progress" if verbose else "--quiet"
-    pin = pin if pin is not None else pins.effective(checkout, "server")
+    pin = pin if pin is not None else pins.effective(checkout, "server", _version(checkout))
     url, ref = pin["upstream"], pin["ref"]
     src = root / "upstream" / "server"
 
@@ -249,14 +254,15 @@ def update(checkout: Checkout) -> int:
     # 1. Resolve the upstream's latest main. Whether the install is already there
     #    is read from the install, not the pin: a pull can move the pin alone.
     say("resolving upstream main")
-    current = pins.effective(checkout, "server")
-    latest = updates.resolve_latest(checkout, "server")
+    version = _version(checkout)
+    current = pins.effective(checkout, "server", version)
+    latest = updates.resolve_latest(checkout, "server", version)
     if pins.built_from(checkout, "server", latest)[1]:
         say(f"server already at {latest['ref'][:12]}")
         # The pin can lag the install: a lapsed Local pin, or a rerun after an
         # update stopped between the build and step 4's set_local.
         if not pins.same("server", current, latest):
-            pins.set_local(checkout, "server", latest)
+            pins.set_local(checkout, "server", latest, version)
             say(f"server Local pin -> {latest['ref'][:12]}")
         return 0
 
@@ -273,7 +279,7 @@ def update(checkout: Checkout) -> int:
     before = _world_hash(checkout)
     install(checkout, pin=latest)
     if not pins.same("server", current, latest):
-        pins.set_local(checkout, "server", latest)
+        pins.set_local(checkout, "server", latest, version)
         say(f"server Local pin -> {latest['ref'][:12]}")
 
     # 5. New World data does not reach an existing save on its own: offer a

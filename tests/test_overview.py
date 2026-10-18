@@ -55,9 +55,9 @@ class OverviewTest(unittest.TestCase):
         self.assertRegex(line(out, "Server running:"), r"no$")
         self.assertRegex(line(out, "Client install:"), r"not installed$")
         self.assertNotIn("Checkout:", out)
-        for group in pins.GROUPS:
-            row = pin_row(out, group)
-            self.assertEqual(row[1], pins.short(group, pins.shipped(self.co, group)))
+        for group, version in (("server", "0.35"), ("original_client", "0.35"), ("graphics", None)):
+            row = pin_row(out, pins.label(group, version))
+            self.assertEqual(row[1], pins.short(group, pins.shipped(self.co, group, version)))
             self.assertEqual(row[2], "-")
             self.assertEqual(row[3:], ["not", "installed"])
         self.assertNotIn("rebuild due", out)
@@ -74,7 +74,7 @@ class OverviewTest(unittest.TestCase):
         pins.set_local(self.co, "graphics", dict(pins.shipped(self.co, "graphics"), ref=NEW_REF))
         out, _ = self.overview()
         self.assertEqual(pin_row(out, "graphics")[2], NEW_REF[:12])
-        self.assertEqual(pin_row(out, "server")[2], "-")
+        self.assertEqual(pin_row(out, "server@0.35")[2], "-")
 
     def test_running_follows_status(self):
         calls = self.server_install('echo "running (pid 42)"')
@@ -82,7 +82,7 @@ class OverviewTest(unittest.TestCase):
         self.assertRegex(line(out, "Server install:"), r"present \(port build abc1234\)$")
         self.assertRegex(line(out, "Server running:"), r"yes \(pid 42\)$")
         self.assertEqual(calls.read_text(), "status\n")
-        self.assertEqual(pin_row(out, "server")[3], "unknown")
+        self.assertEqual(pin_row(out, "server@0.35")[3], "unknown")
 
     def test_stopped_server_is_not_running(self):
         self.server_install("echo stopped")
@@ -96,14 +96,14 @@ class OverviewTest(unittest.TestCase):
 
     def test_server_built_from_its_recorded_pin(self):
         self.server_install("echo stopped")
-        shipped = pins.shipped(self.co, "server")
+        shipped = pins.shipped(self.co, "server", "0.35")
         pins.record_installed(self.co, "server", shipped)
         out, _ = self.overview()
-        self.assertEqual(pin_row(out, "server")[3:], [shipped["ref"][:12]])
+        self.assertEqual(pin_row(out, "server@0.35")[3:], [shipped["ref"][:12]])
 
         pins.record_installed(self.co, "server", dict(shipped, ref=NEW_REF))
         out, _ = self.overview()
-        self.assertEqual(pin_row(out, "server")[3:], [NEW_REF[:12], "rebuild", "due"])
+        self.assertEqual(pin_row(out, "server@0.35")[3:], [NEW_REF[:12], "rebuild", "due"])
 
     def test_client_without_a_record_is_only_ever_the_legacy_release(self):
         self.co.client_root.mkdir(parents=True)
@@ -113,18 +113,18 @@ class OverviewTest(unittest.TestCase):
         sha = hashlib.sha256(b"pristine").hexdigest()
         out, _ = self.overview()
         self.assertRegex(line(out, "Client install:"), r"present$")
-        self.assertEqual(pin_row(out, "client")[3:], ["game.dll", sha[:12], "rebuild", "due"])
-        self.assertIsNone(pins.installed(self.co, "client"))
+        self.assertEqual(pin_row(out, "original_client@0.35")[3:], ["game.dll", sha[:12], "rebuild", "due"])
+        self.assertIsNone(pins.installed(self.co, "original_client"))
 
         # Every Proven release shares the legacy game.dll: a newer pin with that
         # hash must not pass for the 0.35b files on disk.
         legacy = dict(pins.LEGACY_CLIENT, game_dll_sha256=sha)
-        pins.set_local(self.co, "client", dict(pins.shipped(self.co, "client"),
-                                                version="0.36", game_dll_sha256=sha))
+        pins.set_local(self.co, "original_client", dict(pins.shipped(self.co, "original_client", "0.35"),
+                                                version="0.36", game_dll_sha256=sha), "0.35")
         with mock.patch.object(pins, "LEGACY_CLIENT", legacy):
             out, _ = self.overview()
-        self.assertEqual(pin_row(out, "client")[2:], ["0.36", "0.35b", "rebuild", "due"])
-        self.assertEqual(pins.installed(self.co, "client"), legacy)
+        self.assertEqual(pin_row(out, "original_client@0.35")[2:], ["0.36", "0.35b", "rebuild", "due"])
+        self.assertEqual(pins.installed(self.co, "original_client"), legacy)
 
     def test_git_records_graphics_head(self):
         (self.root / ".git").mkdir()

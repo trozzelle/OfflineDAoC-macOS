@@ -200,7 +200,7 @@ class InstallBase(unittest.TestCase):
         launcher.mkdir(parents=True)
         (launcher / "launch").write_text("#!/bin/sh\n")
         self.co.app_dir.mkdir(parents=True)
-        pins.record_installed(self.co, "client", pins.shipped(self.co, "client"))
+        pins.record_installed(self.co, "original_client", pins.shipped(self.co, "original_client", "0.35"))
         self.env = {"DAOC_WINE_HOME": None, "DAOC_WINEPREFIX": None,
                     "USER": "olduser", "WINE_FAIL": None, "WINE_LINGER": None}
         self.pids = []  # the running client's game.dll pids
@@ -317,7 +317,7 @@ class InstallTest(InstallBase):
         pin = dict(pin, game_dll_sha256=sha(pristine_bytes()))
         manifest_path = self.root / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        manifest["client"] = pin
+        manifest["versions"]["0.35"]["original_client"] = pin
         manifest_path.write_text(json.dumps(manifest))
         return served
 
@@ -326,7 +326,7 @@ class InstallTest(InstallBase):
         # and install brings it back to the pin.
         served = self.pin_release()
         (self.co.app_dir / "game.dll.orig").write_bytes(b"other pristine")
-        pins.record_installed(self.co, "client", {"version": "0.36"})
+        pins.record_installed(self.co, "original_client", {"version": "0.36"})
         self.prefix.mkdir()
         (self.prefix / "system.reg").touch()
         with mock.patch.object(release, "download", FakeDownloads(served)):
@@ -336,7 +336,7 @@ class InstallTest(InstallBase):
         self.assertIn("game.dll already patched", err)
         self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"pinned")
         self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), patched_bytes())
-        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
+        self.assertEqual(pins.installed(self.co, "original_client")["version"], "T")
 
         code, out, err = self.install()
         self.assertEqual(code, 0, err)
@@ -362,7 +362,7 @@ class InstallTest(InstallBase):
         self.assertEqual(code, 0, err)
         self.assertEqual((self.co.client_root / "readme.txt").read_bytes(), b"pinned")
         self.assertEqual((self.co.app_dir / "game.dll").read_bytes(), patched_bytes())
-        self.assertEqual(pins.installed(self.co, "client")["version"], "T")
+        self.assertEqual(pins.installed(self.co, "original_client")["version"], "T")
         self.assertEqual(sorted(p.name for p in self.co.client_root.parent.iterdir()),
                          [".wine-flavour", "DAoCLauncher.app", "OfflineDAoC", "prefix", "wine"])
 

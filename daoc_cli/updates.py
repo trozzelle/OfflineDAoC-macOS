@@ -1,13 +1,14 @@
 """Latest upstream pins, and `daoc <group> update --check`.
 
-resolve_latest asks GitHub (unauthenticated) for each group's
-latest upstream and returns it in the shape of that group's manifest.json entry:
-  - server: the `main` sha of manifest `server.upstream`.
-  - client: the latest release of the repo in `client.release_url`, plus its
-    download-manifest.json for the root folder, archive hash and size, and the
-    part names, sizes and hashes. The pristine game.dll hash is only known
-    after a download, so it is kept from the current pin when the version is
-    unchanged and is None otherwise.
+resolve_latest asks GitHub (unauthenticated) for a pin's latest upstream and
+returns it in the shape of its manifest.json entry (server and original_client
+for a game Version, see pins):
+  - server: the `main` sha of the Version's `server.upstream`.
+  - original_client: the latest release of the repo in the Version's
+    `original_client.release_url`, plus its download-manifest.json for the root
+    folder, archive hash and size, and the part names, sizes and hashes. The
+    editions' pristine game.dll hashes are only known after a download, so they
+    are kept from the current pin when the version is unchanged and are None otherwise.
   - graphics: the `main` sha of `graphics.repo`, resolved from that repo itself
     so the sha always comes from the repo that is then cloned.
 
@@ -17,7 +18,7 @@ Local pin file is written.
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from daoc_cli import pins, release
 from daoc_cli.checkout import Checkout
@@ -62,9 +63,9 @@ def _main_sha(owner: str, repo: str) -> str:
     return sha
 
 
-def _latest_client(checkout: Checkout) -> Dict[str, Any]:
-    shipped = pins.shipped(checkout, "client")
-    owner, repo = _repo(shipped["release_url"], "client.release_url")
+def _latest_client(checkout: Checkout, game_version: str) -> Dict[str, Any]:
+    shipped = pins.shipped(checkout, "original_client", game_version)
+    owner, repo = _repo(shipped["release_url"], "original_client.release_url")
     tag = _get_json(f"{API}/{owner}/{repo}/releases/latest").get("tag_name")
     if not isinstance(tag, str) or not tag:
         raise DaocError(f"GitHub returned no tag for the latest {owner}/{repo} release")
@@ -91,37 +92,37 @@ def _latest_client(checkout: Checkout) -> Dict[str, Any]:
         }
     except (KeyError, TypeError) as e:
         raise DaocError(f"{asset} of {tag} is missing {e}") from None
-    # The pristine game.dll hash must be re-derived for a new release.
-    current = [pins.local(checkout, "client"), shipped]
-    fields["game_dll_sha256"] = next(
-        (p.get("game_dll_sha256") for p in current if p and p.get("version") == version), None)
+    # The editions' pristine game.dll hashes must be re-derived for a new release.
+    current = [pins.local(checkout, "original_client", game_version), shipped]
+    fields["editions"] = next(
+        (p.get("editions") for p in current if p and p.get("version") == version), None)
     return fields
 
 
-def resolve_latest(checkout: Checkout, group: str) -> Dict[str, Any]:
+def resolve_latest(checkout: Checkout, group: str, version: Optional[str] = None) -> Dict[str, Any]:
     """The group's latest upstream pin, in its manifest entry's shape."""
     if group == "server":
-        url = pins.shipped(checkout, "server")["upstream"]
+        url = pins.shipped(checkout, "server", version)["upstream"]
         return {"upstream": url, "ref": _main_sha(*_repo(url, "server.upstream"))}
-    if group == "client":
-        return _latest_client(checkout)
+    if group == "original_client":
+        return _latest_client(checkout, version)
     if group == "graphics":
         url = pins.shipped(checkout, "graphics")["repo"]
         return {"repo": url, "ref": _main_sha(*_repo(url, "graphics.repo"))}
-    raise DaocError(f"no pin group {group!r} (expected one of: {', '.join(pins.GROUPS)})")
+    raise DaocError(f"no update for pin group {group!r}")
 
 
-def check(checkout: Checkout, group: str) -> int:
+def check(checkout: Checkout, group: str, version: Optional[str] = None) -> int:
     """Print `<group>  Shipped … Local … built from … latest … <verdict>`; exit 0."""
-    shipped = pins.shipped(checkout, group)
+    shipped = pins.shipped(checkout, group, version)
     # pins.local, not pins.effective: a lapsed Local pin is reported, never dropped here.
-    local = pins.local(checkout, group)
+    local = pins.local(checkout, group, version)
     pin = local if local is not None else shipped
     built, _ = pins.built_from(checkout, group, pin)
-    latest = resolve_latest(checkout, group)
+    latest = resolve_latest(checkout, group, version)
     verdict = "up to date" if pins.same(group, pin, latest) else "UPDATE AVAILABLE"
     print(
-        f"{group:<8}  Shipped {pins.short(group, shipped)}  "
+        f"{pins.label(group, version):<8}  Shipped {pins.short(group, shipped)}  "
         f"Local {pins.short(group, local) if local is not None else '-'}  "
         f"built from {built}  latest {pins.short(group, latest)}  {verdict}"
     )

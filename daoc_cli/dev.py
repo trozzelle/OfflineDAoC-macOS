@@ -37,7 +37,8 @@ def _ship_pins(args: argparse.Namespace, checkout: Checkout) -> int:
     if not written:
         print("nothing to ship")
         return 0
-    for group in written:
-        print(f"shipped {group} {pins.short(group, pins.shipped(checkout, group))}")
+    for name in written:
+        group, _, version = name.partition("@")
+        print(f"shipped {name} {pins.short(group, pins.shipped(checkout, group, version or None))}")
     print("now commit manifest.json")
     return 0

@@ -45,7 +45,7 @@ class ServerUpdateTest(unittest.TestCase):
         self.world.parent.mkdir()
         self.world.write_bytes(b"old world")
         self.manifest = (self.root / "manifest.json").read_bytes()
-        self.latest = {"upstream": self.co.manifest["server"]["upstream"], "ref": NEW_SHA}
+        self.latest = {"upstream": self.co.manifest["versions"]["0.35"]["server"]["upstream"], "ref": NEW_SHA}
         self.failing = None
         self.states = [(False, "stopped")]
         self.new_world = b"new world"
@@ -68,13 +68,13 @@ class ServerUpdateTest(unittest.TestCase):
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
 
     def fake_install(self, checkout, verbose=False, pin=None):
-        self.installs.append(pin if pin is not None else pins.effective(checkout, "server"))
+        self.installs.append(pin if pin is not None else pins.effective(checkout, "server", "0.35"))
         self.world.write_bytes(self.new_world)
         if self.build_fails:
             raise DaocError("build-release.sh failed")
 
     def update(self, stdin: str = "", tty: bool = False):
-        with mock.patch.object(updates, "resolve_latest", lambda co, group: dict(self.latest)), \
+        with mock.patch.object(updates, "resolve_latest", lambda co, group, version=None: dict(self.latest)), \
                 mock.patch.object(proc, "run", self.fake_run), \
                 mock.patch.object(server, "status", self.fake_status), \
                 mock.patch.object(server, "install", self.fake_install), \
@@ -88,10 +88,10 @@ class ServerUpdateTest(unittest.TestCase):
         return [c for c in self.calls if c[0].endswith("daoc-progress")]
 
     def local(self):
-        return pins.local(Checkout(self.root), "server")
+        return pins.local(Checkout(self.root), "server", "0.35")
 
     def test_already_at_latest(self) -> None:
-        self.latest["ref"] = self.co.manifest["server"]["ref"]
+        self.latest["ref"] = self.co.manifest["versions"]["0.35"]["server"]["ref"]
         pins.record_installed(self.co, "server", self.latest)
         code, _, err = self.update()
         self.assertEqual(code, 0)
@@ -99,21 +99,21 @@ class ServerUpdateTest(unittest.TestCase):
         self.assertEqual((self.calls, self.installs), ([], []))
 
     def test_already_at_latest_behind_a_lapsed_local_pin_repins_without_a_rebuild(self) -> None:
-        pins.set_local(self.co, "server", self.latest)
+        pins.set_local(self.co, "server", self.latest, "0.35")
         pins.record_installed(self.co, "server", self.latest)
         manifest = json.loads(self.manifest)
-        manifest["server"]["ref"] = "b" * 40
+        manifest["versions"]["0.35"]["server"]["ref"] = "b" * 40
         (self.root / "manifest.json").write_text(json.dumps(manifest))
         code, _, err = self.update()
         self.assertEqual(code, 0, err)
         self.assertIn(f"server already at {NEW_SHA[:12]}", err)
         self.assertEqual((self.calls, self.installs), ([], []))
-        self.assertEqual(pins.effective(Checkout(self.root), "server"), self.latest)
+        self.assertEqual(pins.effective(Checkout(self.root), "server", "0.35"), self.latest)
 
     def test_install_behind_a_newer_shipped_pin_is_rebuilt(self) -> None:
         # A pull brought a Shipped pin naming upstream's latest; the install is older.
         manifest = json.loads(self.manifest)
-        manifest["server"]["ref"] = NEW_SHA
+        manifest["versions"]["0.35"]["server"]["ref"] = NEW_SHA
         (self.root / "manifest.json").write_text(json.dumps(manifest))
         pins.record_installed(self.co, "server", {"upstream": self.latest["upstream"],
                                                   "ref": "1" * 40})

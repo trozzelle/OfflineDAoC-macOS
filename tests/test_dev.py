@@ -26,11 +26,11 @@ class ShipPinsTest(unittest.TestCase):
 
     def test_local_pin_is_shipped_and_cleared(self):
         co = Checkout(self.root)
-        pins.set_local(co, "server", dict(pins.shipped(co, "server"), ref=NEW_REF))
+        pins.set_local(co, "server", dict(pins.shipped(co, "server", "0.35"), ref=NEW_REF), "0.35")
         code, out, err = run_cli(["dev", "ship-pins"], self.root)
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, f"shipped server {NEW_REF[:12]}\nnow commit manifest.json\n")
-        self.assertEqual(json.loads(self.manifest.read_text())["server"]["ref"], NEW_REF)
+        self.assertEqual(out, f"shipped server@0.35 {NEW_REF[:12]}\nnow commit manifest.json\n")
+        self.assertEqual(json.loads(self.manifest.read_text())["versions"]["0.35"]["server"]["ref"], NEW_REF)
         self.assertFalse((self.root / ".daoc" / "pins.json").exists())
         self.assertEqual(run_cli(["dev", "ship-pins"], self.root)[1], "nothing to ship\n")
 

@@ -80,7 +80,7 @@ class InstallTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(os.path.realpath(make_checkout(self.tmp.name)))
         self.co = Checkout(self.root)
-        self.ref = self.co.manifest["server"]["ref"]
+        self.ref = self.co.manifest["versions"]["0.35"]["server"]["ref"]
         src = self.root / "upstream" / "server"
         (src / ".git").mkdir(parents=True)
         tools = self.root / "server" / "tools"

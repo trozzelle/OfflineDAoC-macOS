@@ -51,7 +51,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
+from daoc_cli import (bench, client_patch, client_runtime, games, graphics, pins, proc, release,
                       updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
@@ -119,8 +119,13 @@ def _install(args: argparse.Namespace, checkout: Checkout) -> int:
 
 def _update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
-        return updates.check(checkout, "client")
+        return updates.check(checkout, "original_client", _version(checkout))
     return update(checkout)
+
+
+def _version(checkout: Checkout) -> str:
+    """The selected Game's Version."""
+    return games.default(checkout)[0].version
 
 
 def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:
@@ -288,19 +293,20 @@ def _recover_swap(checkout: Checkout) -> None:
     shutil.rmtree(staging, ignore_errors=True)
 
 
-def replace_install(checkout: Checkout, archive: Path, pin: Dict[str, Any], local: bool) -> None:
+def replace_install(checkout: Checkout, archive: Path, pin: Dict[str, Any], local: bool,
+                    version: str) -> None:
     """Replace the Client install with pin's release in archive, apply the
     Client patch and record pin in the install; local also makes pin the Local
-    client pin. The release is extracted, patched and recorded beside the
-    install, and the pin set, before it is swapped in: an interruption leaves
-    either the old install or the finished new one under its pin."""
+    original_client pin of version. The release is extracted, patched and
+    recorded beside the install, and the pin set, before it is swapped in: an
+    interruption leaves either the old install or the finished new one under its pin."""
     staging, old = _swap_dirs(checkout)
     shutil.rmtree(staging, ignore_errors=True)
     new = release.extract(archive, pin["root_folder"], staging)
     client_patch.patch(new / GAME_DLL)
-    pins.record_installed(checkout, "client", pin, install=new)
+    pins.record_installed(checkout, "original_client", pin, install=new)
     if local:
-        pins.set_local(checkout, "client", pin)
+        pins.set_local(checkout, "original_client", pin, version)
     if checkout.client_root.exists():
         checkout.client_root.rename(old)
     os.replace(new, checkout.client_root)
@@ -324,20 +330,20 @@ def _resume(checkout: Checkout, command: str) -> None:
 
 
 def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloader,
-             command: str, local: bool = False) -> Optional[Dict[str, Any]]:
+             command: str, version: str, local: bool = False) -> Optional[Dict[str, Any]]:
     """Replace the Client install with pin's release (see replace_install),
     carrying the graphics patches over up to the restore; return the saved
     graphics state for restore, or None."""
-    version = pin["version"]
-    archive = release.download_release(pin, checkout.downloads / f"v{version}",
+    release_version = pin["version"]
+    archive = release.download_release(pin, checkout.downloads / f"v{release_version}",
                                        fetch_url=fetch_url)
     sha = release.member_sha256(archive, f"{pin['root_folder']}/{GAME_DLL}")
     if sha not in client_patch.PROVEN_BUILDS:
-        raise DaocError(f"{version}'s game.dll ({sha[:12]}) is not a Proven build; "
+        raise DaocError(f"{release_version}'s game.dll ({sha[:12]}) is not a Proven build; "
                         "it needs a shipped update")
     _refuse_running(checkout, command)
     saved = carry_over(checkout, command)
-    replace_install(checkout, archive, dict(pin, game_dll_sha256=sha), local)
+    replace_install(checkout, archive, dict(pin, game_dll_sha256=sha), local, version)
     return saved
 
 
@@ -345,28 +351,29 @@ def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -
     """Move the Client install to the latest OfflineDAoC release (Local pin),
     carrying the graphics patches over. fetch_url defaults to release.download."""
     _resume(checkout, "update")
-    latest = updates.resolve_latest(checkout, "client")
-    current = pins.effective(checkout, "client")
+    game_version = _version(checkout)
+    latest = updates.resolve_latest(checkout, "original_client", game_version)
+    current = pins.effective(checkout, "original_client", game_version)
     version = latest["version"]
     # Read from the install, not the pin: a pull can move the pin alone.
-    built, matches = pins.built_from(checkout, "client", latest)
+    built, matches = pins.built_from(checkout, "original_client", latest)
     if matches:
         say(f"client already at {version}")
         # The pin can lag the install (a lapsed Local pin); a lapsed pin also
         # drops latest's game.dll hash, so take it from the install's record.
-        if not pins.same("client", current, latest):
-            record = pins.installed(checkout, "client") or {}
-            pins.set_local(checkout, "client", dict(
+        if not pins.same("original_client", current, latest):
+            record = pins.installed(checkout, "original_client") or {}
+            pins.set_local(checkout, "original_client", dict(
                 latest, game_dll_sha256=record.get("game_dll_sha256")
-                or latest.get("game_dll_sha256")))
+                or latest.get("game_dll_sha256")), game_version)
             say(f"OfflineDAoC {version} is the Local client pin "
                 "(`daoc dev ship-pins` makes it Shipped)")
         return 0
     say(f"client update: OfflineDAoC {built} -> {version}")
     # The pin is set with the replace, so a failed restore resumes against the
     # right pin.
-    local = not pins.same("client", current, latest)
-    saved = _replace(checkout, latest, fetch_url or release.download, "update", local)
+    local = not pins.same("original_client", current, latest)
+    saved = _replace(checkout, latest, fetch_url or release.download, "update", game_version, local)
     if saved is not None:
         restore(checkout, saved, "update")
     say(f"client update: done; OfflineDAoC {version} is the Local client pin "
@@ -543,7 +550,8 @@ def _recorded_sha(record: Path) -> Optional[str]:
 
 
 def _install_release(checkout: Checkout) -> None:
-    pin = pins.effective(checkout, "client")
+    game_version = _version(checkout)
+    pin = pins.effective(checkout, "original_client", game_version)
     version = pin["version"]
     _recover_swap(checkout)
     if not checkout.client_root.is_dir():
@@ -551,13 +559,13 @@ def _install_release(checkout: Checkout) -> None:
     else:
         _resume(checkout, "install")
         # Read from the install, not the pin: a pull can move the pin alone.
-        built, matches = pins.built_from(checkout, "client", pin)
+        built, matches = pins.built_from(checkout, "original_client", pin)
         if matches is not False:
             say("OfflineDAoC already installed")
             return
         say(f"replacing OfflineDAoC {built} with the pinned v{version} "
              "(this is a ~5 GB download)")
-    saved = _replace(checkout, pin, release.download, "install")
+    saved = _replace(checkout, pin, release.download, "install", game_version)
     if saved is not None:
         restore(checkout, saved, "install")
 
@@ -702,7 +710,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
             # rewrites it, the Wine being installed is this checkout's.
             checkout.assume_flavour(flavour)
             current = flavour
-    version = pins.effective(checkout, "client")["version"]
+    version = pins.effective(checkout, "original_client", _version(checkout))["version"]
     say(f"client install: OfflineDAoC v{version} + {FLAVOURS[flavour].title}")
     _requirements(checkout, flavour)
     # Before anything touches Wine or game.dll, and while checkout still names

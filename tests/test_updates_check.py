@@ -41,7 +41,7 @@ class Base(unittest.TestCase):
         self.root = make_checkout(self.tmp.name)
         self.co = Checkout(self.root)
         m = self.co.manifest
-        self.server_api = API + m["server"]["upstream"][len("https://github.com/"):] + "/commits/main"
+        self.server_api = API + m["versions"]["0.35"]["server"]["upstream"][len("https://github.com/"):] + "/commits/main"
         self.gfx_api = API + m["graphics"]["repo"][len("https://github.com/"):] + "/commits/main"
         self.release_api = API + "shadowofze/OfflineDAoC/releases/latest"
         self.responses = {}
@@ -67,10 +67,10 @@ class Base(unittest.TestCase):
     def serve_shipped(self, server=None, gfx=None):
         """Latest == Shipped for every group unless a sha is given."""
         m = self.co.manifest
-        client = m["client"]
+        client = m["versions"]["0.35"]["original_client"]
         tag = "v" + client["version"]
         self.responses.update({
-            self.server_api: {"sha": server or m["server"]["ref"]},
+            self.server_api: {"sha": server or m["versions"]["0.35"]["server"]["ref"]},
             self.gfx_api: {"sha": gfx or m["graphics"]["ref"]},
             self.release_api: {"tag_name": tag},
             self.asset(tag): {
@@ -88,23 +88,23 @@ class ResolveLatestTest(Base):
     def test_server_and_graphics_main_sha(self) -> None:
         self.responses = {self.server_api: {"sha": NEW_SHA}, self.gfx_api: {"sha": "f" * 40}}
         with self.serve():
-            server = updates.resolve_latest(self.co, "server")
+            server = updates.resolve_latest(self.co, "server", "0.35")
             gfx = updates.resolve_latest(self.co, "graphics")
-        self.assertEqual(server, {"upstream": self.co.manifest["server"]["upstream"], "ref": NEW_SHA})
+        self.assertEqual(server, {"upstream": self.co.manifest["versions"]["0.35"]["server"]["upstream"], "ref": NEW_SHA})
         self.assertEqual(gfx, {"repo": self.co.manifest["graphics"]["repo"], "ref": "f" * 40})
 
     def test_client_unchanged_version_is_the_shipped_entry(self) -> None:
         self.serve_shipped()
         with self.serve():
-            latest = updates.resolve_latest(self.co, "client")
-        self.assertEqual(latest, pins.shipped(self.co, "client"))
-        self.assertEqual(list(latest), [k for k in self.co.manifest["client"] if k != "note"])
+            latest = updates.resolve_latest(self.co, "original_client", "0.35")
+        self.assertEqual(latest, pins.shipped(self.co, "original_client", "0.35"))
+        self.assertEqual(list(latest), [k for k in self.co.manifest["versions"]["0.35"]["original_client"] if k != "note"])
 
     def test_client_new_release(self) -> None:
         self.responses = {self.release_api: {"tag_name": "v0.36"},
                           self.asset("v0.36"): release_manifest("0.36")}
         with self.serve():
-            latest = updates.resolve_latest(self.co, "client")
+            latest = updates.resolve_latest(self.co, "original_client", "0.35")
         self.assertEqual(latest, {
             "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.36/",
             "version": "0.36",
@@ -116,14 +116,14 @@ class ResolveLatestTest(Base):
                 {"name": "OfflineDAoC-v0.36.zip.001", "bytes": 20, "sha256": "b" * 64},
                 {"name": "OfflineDAoC-v0.36.zip.002", "bytes": 10, "sha256": "d" * 64},
             ],
-            "game_dll_sha256": None,
+            "editions": None,
         })
 
     def test_client_manifest_version_mismatch(self) -> None:
         self.responses = {self.release_api: {"tag_name": "v0.36"},
                           self.asset("v0.36"): release_manifest("0.35b")}
         with self.serve(), self.assertRaises(DaocError) as e:
-            updates.resolve_latest(self.co, "client")
+            updates.resolve_latest(self.co, "original_client", "0.35")
         self.assertIn("0.35b", e.exception.msg)
 
     def test_client_manifest_names_must_be_plain(self) -> None:
@@ -136,14 +136,14 @@ class ResolveLatestTest(Base):
                 rm["RootFolder"] = bad
             self.responses = {self.release_api: {"tag_name": "v0.36"}, self.asset("v0.36"): rm}
             with self.serve(), self.assertRaises(DaocError) as e:
-                updates.resolve_latest(self.co, "client")
+                updates.resolve_latest(self.co, "original_client", "0.35")
             self.assertIn("not a plain file name", e.exception.msg)
 
     def test_rate_limit_is_named(self) -> None:
         for code in (403, 429):
             self.responses = {self.server_api: code}
             with self.serve(), self.assertRaises(DaocError) as e:
-                updates.resolve_latest(self.co, "server")
+                updates.resolve_latest(self.co, "server", "0.35")
             self.assertIn("rate limit", e.exception.msg)
             self.assertIn(str(code), e.exception.msg)
 
@@ -162,7 +162,7 @@ class CheckTest(Base):
     def test_up_to_date_and_nothing_written(self) -> None:
         self.serve_shipped()
         results = self.check_all()
-        ref = self.co.manifest["server"]["ref"][:12]
+        ref = self.co.manifest["versions"]["0.35"]["server"]["ref"][:12]
         for code, out, err in results:
             self.assertEqual((code, err), (0, ""))
             self.assertEqual(len(out.splitlines()), 1)
@@ -170,12 +170,12 @@ class CheckTest(Base):
             self.assertIn("Local -", out)
             self.assertIn("built from not installed", out)
         self.assertEqual(results[0][1],
-                         f"server    Shipped {ref}  Local -  built from not installed  "
+                         f"server@0.35  Shipped {ref}  Local -  built from not installed  "
                          f"latest {ref}  up to date\n")
         self.assertIn("Shipped 0.35b", results[1][1])
 
     def test_update_available_against_the_local_pin(self) -> None:
-        pins.set_local(self.co, "server", {"upstream": "u", "ref": NEW_SHA})
+        pins.set_local(self.co, "server", {"upstream": "u", "ref": NEW_SHA}, "0.35")
         self.serve_shipped(server=NEW_SHA, gfx="e" * 40)
         (server, client, gfx) = self.check_all()
         self.assertIn(f"Local {NEW_SHA[:12]}", server[1])
