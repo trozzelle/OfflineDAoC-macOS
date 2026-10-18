@@ -1,24 +1,108 @@
 {
-  "schema": 1,
-  "server": {
-    "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
-    "ref": "a19a926fe4433f361acb08d82da4610e048c6b03",
-    "note": "Pinned OpenDAoC fork (Offline DAoC 0.35 lineage: server synced to upstream v0.35 d337d18, 0.35 world and navmeshes); macOS port overlay in server/ is applied on top. The ref is verified by git, and the port patches are pre-checked with git apply --check before building."
+  "schema": 2,
+  "default": {
+    "game": "0.35b",
+    "client": "original"
   },
-  "client": {
-    "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
-    "version": "0.35b",
-    "manifest_asset": "download-manifest.json",
-    "root_folder": "OfflineDAoC-v0.35b",
-    "archive_sha256": "5a1d77df4168dbe286f4161ca93e608422a9cd91ebd693d1cf1e88767234e7b6",
-    "archive_bytes": 5099005010,
-    "parts": [
-      { "name": "OfflineDAoC-v0.35b.zip.001", "bytes": 1900000000, "sha256": "02fcffc21ac66e7cbd714e698927fb28be289df4c9c159164e24db9aabd2109d" },
-      { "name": "OfflineDAoC-v0.35b.zip.002", "bytes": 1900000000, "sha256": "4710e99c73a58e82129bc10a3e0d358b4365b8d2521212b0ba9267d7d06d4241" },
-      { "name": "OfflineDAoC-v0.35b.zip.003", "bytes": 1299005010, "sha256": "95f11848419a150d65b4e3b7c853449d4f0b29e9b67a58ec2769365aa7d61bf7" }
-    ],
-    "game_dll_sha256": "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b",
-    "note": "Hashes pinned from the release's download-manifest.json; game.dll hash is the pristine v0.35b Sluaghbinder client."
+  "versions": {
+    "0.35": {
+      "server": {
+        "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
+        "ref": "12a0846bc1d8674ed7cf0de823732fc3ee0f4807",
+        "navmesh_ref": "18498aefc9f8d0d65a6e8ed0ee5d9def63782037",
+        "note": "Fork branch upstream-0.35 (Offline DAoC 0.35, d337d18): same code as the earlier pin a19a926, which the fork's 2026-10-17 history rewrite orphaned. That rewrite dropped the 0.35 navmesh archives, so the navmeshes come from navmesh_ref (the 0.36 sync's classic-si-3 set: the .nav files are byte-identical to 0.35's classic-si-2; pockets.json differs; roads.json is new)."
+      },
+      "original_client": {
+        "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
+        "version": "0.35b",
+        "manifest_asset": "download-manifest.json",
+        "root_folder": "OfflineDAoC-v0.35b",
+        "archive_sha256": "5a1d77df4168dbe286f4161ca93e608422a9cd91ebd693d1cf1e88767234e7b6",
+        "archive_bytes": 5099005010,
+        "parts": [
+          { "name": "OfflineDAoC-v0.35b.zip.001", "bytes": 1900000000, "sha256": "02fcffc21ac66e7cbd714e698927fb28be289df4c9c159164e24db9aabd2109d" },
+          { "name": "OfflineDAoC-v0.35b.zip.002", "bytes": 1900000000, "sha256": "4710e99c73a58e82129bc10a3e0d358b4365b8d2521212b0ba9267d7d06d4241" },
+          { "name": "OfflineDAoC-v0.35b.zip.003", "bytes": 1299005010, "sha256": "95f11848419a150d65b4e3b7c853449d4f0b29e9b67a58ec2769365aa7d61bf7" }
+        ],
+        "editions": {
+          "sluaghbinder": {
+            "game_dll_sha256": "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b"
+          },
+          "classic": {
+            "game_dll_sha256": "f55ed6b068e22ce8e1106871c2fad6ee10c18390bbb8b5dc772219ad8c8b83bb",
+            "game_dll_member": "OfflineDAoC-v0.35b/editions/0.35-no-custom-class/runtime/client-opendaoc/app/game.dll"
+          }
+        },
+        "note": "OfflineDAoC v0.35b release: both editions come from this archive. The Classic classes edition (upstream v0.35) is the same game with editions/0.35-no-custom-class's game.dll; hashes pinned from the release's download-manifest.json."
+      },
+      "new_client": null,
+      "note": "Offline DAoC 0.35 (\"Claude Takeover III\"): games 0.35 (Classic classes) and 0.35b (Sluaghbinder). No new client."
+    },
+    "0.36": {
+      "server": {
+        "upstream": "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots",
+        "ref": "18498aefc9f8d0d65a6e8ed0ee5d9def63782037",
+        "note": "Fork main, synced to upstream Offline DAoC v0.36 (d88b7b2); its admin host moved to src/Admin.Host and navmeshes are one .xz per mesh (set classic-si-3)."
+      },
+      "original_client": {
+        "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.36b/",
+        "version": "0.36b",
+        "manifest_asset": "download-manifest.json",
+        "root_folder": "OfflineDAoC-v0.36b",
+        "archive_sha256": "fc7772c11f309cdd16ddbb4a610864dbc294b82c4a336ccdbf866cb5c5ae6469",
+        "archive_bytes": 5103650363,
+        "parts": [
+          { "name": "OfflineDAoC-v0.36b.zip.001", "bytes": 1900000000, "sha256": "90d56a536af3e389a7073fbf140ab9f801e744488726e9ad716b896598d80b1f" },
+          { "name": "OfflineDAoC-v0.36b.zip.002", "bytes": 1900000000, "sha256": "ba6ffa2b8912dd75602f612544db79b6c0770b2463dd1d75fcb7a2ddec9928e0" },
+          { "name": "OfflineDAoC-v0.36b.zip.003", "bytes": 1303650363, "sha256": "6c9c1c870a19eb60e4cbcabe77a5bb9e1fc0173143b65a4ab85157497a39a992" }
+        ],
+        "editions": {
+          "sluaghbinder": {
+            "game_dll_sha256": "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b"
+          },
+          "classic": {
+            "game_dll_sha256": "f55ed6b068e22ce8e1106871c2fad6ee10c18390bbb8b5dc772219ad8c8b83bb",
+            "game_dll_member": "OfflineDAoC-v0.36b/editions/0.36-no-custom-class/runtime/client-opendaoc/app/game.dll"
+          }
+        },
+        "note": "OfflineDAoC v0.36b release: both editions come from this archive (upstream v0.36 is an overlay of editions/0.36-no-custom-class). game.dll is unchanged from 0.35 in both editions."
+      },
+      "new_client": {
+        "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.36c/",
+        "version": "0.36c",
+        "manifest_asset": "download-manifest.json",
+        "root_folder": "OfflineDAoC-v0.36c",
+        "unpacked_bytes": 33758711327,
+        "parts": [
+          { "name": "OfflineDAoC-v0.36c-part01.zip", "bytes": 1840662618, "sha256": "a782cbb828bb8b62570a3c73e3a1ef14d704b33764ce566e202dbf93ca28ac12" },
+          { "name": "OfflineDAoC-v0.36c-part02.zip", "bytes": 1831910795, "sha256": "76d1d523126664bcfe326ea67976a9d7ee6a19c0743ac349383365a8d6927253" },
+          { "name": "OfflineDAoC-v0.36c-part03.zip", "bytes": 1739876323, "sha256": "3fbb6b10e18997ba18afcc9f421401160f380eba59f2135d78e7c646907859e8" },
+          { "name": "OfflineDAoC-v0.36c-part04.zip", "bytes": 1254219684, "sha256": "78795cff5988c30f509fa4ddd34d96e9d3558a031749d194735ff9c05dbb3c69" },
+          { "name": "OfflineDAoC-v0.36c-part05.zip", "bytes": 1396669356, "sha256": "df4c7e8ddee9669ed193be4d8100d835b51a81b288c423111d75f8b36e839585" },
+          { "name": "OfflineDAoC-v0.36c-part06.zip", "bytes": 1564469197, "sha256": "42f3b13760e15a1d83c9c573c8f61e0b4a432b7d974d3c7184249a23aa69bb0b" },
+          { "name": "OfflineDAoC-v0.36c-part07.zip", "bytes": 1517661759, "sha256": "1eaa404729dc18aaebecf64306581bc341bb64c255e24add367b37c7023f6cc0" },
+          { "name": "OfflineDAoC-v0.36c-part08.zip", "bytes": 1546709809, "sha256": "ddc103c0538c958cd340f8f637f059fd11b1a102f8d0d20c501e407b2de08162" },
+          { "name": "OfflineDAoC-v0.36c-part09.zip", "bytes": 1616723879, "sha256": "2b12a42d1ba9438e52e2701a5ef1a9ec9c24bbdb2b4cb7f7cfb9e026e31c7624" },
+          { "name": "OfflineDAoC-v0.36c-part10.zip", "bytes": 1799585431, "sha256": "8dc4a9e369ff7753d515ff6b66356c1fb0feb8014f6448cb46d8ebd8f6f21526" },
+          { "name": "OfflineDAoC-v0.36c-part11.zip", "bytes": 1755120913, "sha256": "2bb7013721b7a34ec01b30de7ff6b0fe9f6929e5ac38be65f465a32d93e3e3b2" },
+          { "name": "OfflineDAoC-v0.36c-part12.zip", "bytes": 1634256697, "sha256": "afb5b15f80083db12fe291c8594ef883d548b0e788aaa0f58e6d571b9e3c6e26" },
+          { "name": "OfflineDAoC-v0.36c-part13.zip", "bytes": 1645985221, "sha256": "1d2623cc51c9f7bc5dd2876704526348ebd3f3efe9eb6e4de85263f3affc0ad5" },
+          { "name": "OfflineDAoC-v0.36c-part14.zip", "bytes": 1652745752, "sha256": "b74c1f388b0a39a9262ea773e78e515fa05aa49ba1c74bea7a34e136cf2a0273" },
+          { "name": "OfflineDAoC-v0.36c-part15.zip", "bytes": 1645569113, "sha256": "082776b1e4985c11e5afdd7db253556e84a7fec8bc2be1695d87bfa28fb9d7e0" },
+          { "name": "OfflineDAoC-v0.36c-part16.zip", "bytes": 1644877640, "sha256": "857e6064ef89a30ccec215455330b070711bd0df40849951bf53c3397bcae688" },
+          { "name": "OfflineDAoC-v0.36c-part17.zip", "bytes": 1697803933, "sha256": "aac692504d09b716d0588ba9ec7cacccd5cde2e79285dd3ec671ae206e11e20f" },
+          { "name": "OfflineDAoC-v0.36c-part18.zip", "bytes": 1590626919, "sha256": "1605ec4bb167c95a8678bc1061544e6b9d120c1f052163d9213508ae59e346a2" },
+          { "name": "OfflineDAoC-v0.36c-part19.zip", "bytes": 402403267, "sha256": "605b55d7220ec2c2c004c4f6181a366aecef44c39af5bf7aeea1d0b83fed7ff1" }
+        ],
+        "godot": {
+          "url": "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_macos.universal.zip",
+          "bytes": 200756622,
+          "sha256": "8af3977b60d2c59802f7c8ff1914b3ca02a5e294f7381fc1104ee777e33cbbd8"
+        },
+        "note": "OfflineDAoC v0.36c: upstream's Godot 4.7.2 .NET client project (new-client/godot only; the Windows engine and launcher are skipped). daoc runs it under the official macOS Godot build pinned in godot (MIT)."
+      },
+      "note": "Offline DAoC 0.36: games 0.36 (Classic classes) and 0.36b (Sluaghbinder); the new client (0.36c) plays both."
+    }
   },
   "wine": {
     "url": "https://github.com/athei/wine-build/releases/download/cx-26.3.0-8/wine-cx-26.3.0-8-macos-x86_64.tar.xz",
