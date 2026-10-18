@@ -5,13 +5,14 @@ effective pins into manifest.json, for a maintainer to commit.
 """
 import argparse
 
-from daoc_cli import e2e, pins
+from daoc_cli import e2e, edition_sql, pins
 from daoc_cli.checkout import Checkout
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
     p = groups.add_parser("dev", help=argparse.SUPPRESS,
-                          description="Maintainer actions: the acceptance run and pin shipping.")
+                          description="Maintainer actions: the acceptance run, pin shipping "
+                                      "and the Sluaghbinder world overlay.")
     actions = p.add_subparsers(dest="action", title="actions")
     a = actions.add_parser(
         "e2e", help="end-to-end acceptance run on ports 20300/20400",
@@ -26,6 +27,15 @@ def register(groups: "argparse._SubParsersAction") -> None:
                            description="Write the effective pins into manifest.json and "
                                        "clear the Local pins.")
     a.set_defaults(func=_ship_pins)
+    a = actions.add_parser(
+        "edition-sql", help="write the Sluaghbinder world overlay for a game version",
+        description="Download the version's original_client release and write "
+                    "server/world/editions/<version>/sluaghbinder.sql from the difference "
+                    "between its Sluaghbinder and Classic classes databases.",
+    )
+    # dest is not `version`: that name belongs to `daoc --version`.
+    a.add_argument("game_version", metavar="VERSION", help="game version, e.g. 0.36")
+    a.set_defaults(func=_edition_sql)
 
 
 def _e2e(args: argparse.Namespace, checkout: Checkout) -> int:
@@ -41,4 +51,9 @@ def _ship_pins(args: argparse.Namespace, checkout: Checkout) -> int:
         group, _, version = name.partition("@")
         print(f"shipped {name} {pins.short(group, pins.shipped(checkout, group, version or None))}")
     print("now commit manifest.json")
+    return 0
+
+
+def _edition_sql(args: argparse.Namespace, checkout: Checkout) -> int:
+    edition_sql.generate(checkout, args.game_version)
     return 0

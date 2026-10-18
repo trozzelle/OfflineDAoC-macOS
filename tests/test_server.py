@@ -76,6 +76,14 @@ class PassthroughTest(unittest.TestCase):
         (self.co.server_dir / "daoc-server.sh").write_text("#!/bin/sh\nexit 3\n")
         self.assertIsNone(server.running(self.co))
 
+    def test_set_edition_writes_config(self):
+        server.set_edition(self.co, "sluaghbinder")
+        self.assertEqual((self.co.server_dir / "config" / "edition").read_text(), "sluaghbinder\n")
+        server.set_edition(self.co, "classic")
+        self.assertEqual((self.co.server_dir / "config" / "edition").read_text(), "classic\n")
+        with self.assertRaises(errors.DaocError):
+            server.set_edition(self.co, "both")
+
 
 class InstallTest(unittest.TestCase):
     def setUp(self):

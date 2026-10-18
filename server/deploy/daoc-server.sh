@@ -14,9 +14,11 @@
 # Folder layout:
 #   bin/        server program (replaced on upgrade)
 #   defaults/   templates copied into config/ on first start
-#   config/     serverconfig.xml, logconfig.xml, invalidnames.txt   (yours; kept on upgrade)
+#   config/     serverconfig.xml, logconfig.xml, invalidnames.txt, and edition (written by daoc)
+#               (yours; kept on upgrade)
 #   data/       opendaoc.sqlite3.db: the world and all saves (yours; kept on upgrade). Created on
-#               first start from defaults/world.sqlite, a fresh Classic + SI world.
+#               first start from defaults/world.sqlite (a fresh Classic + SI world) or, when
+#               config/edition says sluaghbinder, defaults/world-sluaghbinder.sqlite.
 #   navmesh/    zone*.nav, from ./navmesh-install.sh                  (kept on upgrade)
 #   logs/  run/
 #
@@ -66,8 +68,13 @@ start() {
 
   mkdir -p "$DAOC_HOME"/{config,data,logs,run}
   if [[ ! -f $DAOC_HOME/data/opendaoc.sqlite3.db ]]; then
-    echo "First start: creating a fresh world in data/opendaoc.sqlite3.db"
-    cp "$DAOC_HOME/defaults/world.sqlite" "$DAOC_HOME/data/opendaoc.sqlite3.db"
+    # config/edition (written by daoc) names the Edition a fresh world starts as; none: Classic.
+    local edition world=world.sqlite
+    edition=$(cat "$DAOC_HOME/config/edition" 2>/dev/null || echo classic)
+    [[ $edition == sluaghbinder ]] && world=world-sluaghbinder.sqlite
+    [[ -f $DAOC_HOME/defaults/$world ]] || die "no defaults/$world in this build; rebuild with daoc server install"
+    echo "First start: creating a fresh world ($edition) in data/opendaoc.sqlite3.db"
+    cp "$DAOC_HOME/defaults/$world" "$DAOC_HOME/data/opendaoc.sqlite3.db"
   fi
   for f in serverconfig.xml logconfig.xml invalidnames.txt; do
     [[ -e $DAOC_HOME/config/$f ]] || cp "$DAOC_HOME/defaults/$f" "$DAOC_HOME/config/"

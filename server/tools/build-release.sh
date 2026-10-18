@@ -48,6 +48,8 @@ OUT="$HERE/dist/daoc-server"
 GAME_VERSION="${DAOC_GAME_VERSION:?build-release: set DAOC_GAME_VERSION (daoc server install does)}"
 NAVMESH_SRC="${DAOC_NAVMESH_SRC:?build-release: set DAOC_NAVMESH_SRC (daoc server install does)}"
 [[ -d $HERE/patches/$GAME_VERSION ]] || { echo "build-release: no patches/$GAME_VERSION" >&2; exit 1; }
+[[ -f $HERE/world/editions/$GAME_VERSION/sluaghbinder.sql ]] ||
+  { echo "build-release: no world/editions/$GAME_VERSION/sluaghbinder.sql (daoc dev edition-sql $GAME_VERSION)" >&2; exit 1; }
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
 # Build steps print errors only, unless --verbose. `dotnet build` appends its own
@@ -176,6 +178,17 @@ done
 mkdir -p "$OUT/defaults"
 "$DOTNET" "$SNAPSHOT/WorldBuilder/bin/Release/net10.0/DaocWorldBuilder.dll" \
   --source "$dump" --out "$OUT/defaults/world.sqlite" --patches "$REPO/world/patches" | grep -E "$WORLD_LINES"
+
+# The Sluaghbinder Edition's world: the Classic world above plus upstream's Edition rows
+# (world/editions/<version>/sluaghbinder.sql, written by `daoc dev edition-sql`). A statement that
+# fails (e.g. a key the fork's world already uses) fails the build: the fork's world diverged.
+echo "== Sluaghbinder world (world/editions/$GAME_VERSION)"
+overlay="$HERE/world/editions/$GAME_VERSION/sluaghbinder.sql"
+sluagh="$OUT/defaults/world-sluaghbinder.sqlite"
+cp "$OUT/defaults/world.sqlite" "$sluagh"
+sqlite3 -bail "$sluagh" < "$overlay" || { echo "build-release: $overlay does not apply to this world" >&2; exit 1; }
+[[ $(sqlite3 "$sluagh" "SELECT Value FROM ServerProperty WHERE \"Key\"='enable_sluaghbinder'") == True ]] ||
+  { echo "build-release: $overlay left enable_sluaghbinder off" >&2; exit 1; }
 
 # The server reads config/ next to its program and navmesh/ from its working directory (bin/).
 rm -rf "$OUT/bin/config"

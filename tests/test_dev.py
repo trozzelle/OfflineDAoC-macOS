@@ -2,10 +2,11 @@
 import json
 import tempfile
 import unittest
+from unittest import mock
 
 from tests.support import make_checkout, run_cli
 
-from daoc_cli import pins
+from daoc_cli import edition_sql, pins
 from daoc_cli.checkout import Checkout
 
 NEW_REF = "0123456789abcdef0123456789abcdef01234567"
@@ -42,6 +43,16 @@ class ShipPinsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("ship-pins", out)
         self.assertIn("e2e", out)
+
+
+class EditionSqlTest(unittest.TestCase):
+    def test_version_argument_reaches_generate(self):
+        # A positional named `version` would shadow `daoc --version` and print the daoc release.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(edition_sql, "generate") as generate:
+            code, out, err = run_cli(["dev", "edition-sql", "0.36"], make_checkout(tmp))
+        self.assertEqual((code, out), (0, ""), err)
+        self.assertEqual(generate.call_args[0][1], "0.36")
 
 
 if __name__ == "__main__":

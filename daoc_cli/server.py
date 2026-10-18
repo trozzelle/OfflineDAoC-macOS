@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import files, pins, proc, selection, updates
+from daoc_cli import files, games, pins, proc, selection, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, ask, say
 
@@ -32,6 +32,15 @@ NO_INSTALL = "no Server install; run daoc server install"
 # <server_dir>/defaults/world.sqlite, and daoc-server.sh copies it into data/
 # only on the first start, so an existing save keeps the world it was made with.
 WORLD_DATA = Path("defaults") / "world.sqlite"
+# The Edition a fresh save starts as, read by daoc-server.sh on first start.
+EDITION_FILE = Path("config") / "edition"
+
+
+def set_edition(checkout: Checkout, edition: str) -> None:
+    """Record the Edition the Server install's next fresh save starts as."""
+    if edition not in games.EDITIONS:
+        raise DaocError(f"no edition {edition!r} (expected one of: {', '.join(games.EDITIONS)})")
+    files.atomic_write(checkout.server_dir / EDITION_FILE, edition + "\n")
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
