@@ -55,8 +55,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, games, graphics, pins, proc, release,
-                      selection, updates)
+from daoc_cli import (bench, client_patch, client_runtime, games, graphics, newclient, pins, proc,
+                      release, selection, updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -100,6 +100,10 @@ def register(groups: "argparse._SubParsersAction") -> None:
                         "Rosetta 2, the default) or arm64 (Hadron's arm64 Wine with FEX, no "
                         "Rosetta; macOS 27+). Both can be installed; the last one installed "
                         "is the one daoc client start uses. Default: the current one.")
+    a.add_argument("--client", choices=games.CLIENTS, default=None,
+                   help="client to install and start by default: original (the 1.127 Windows "
+                        "client under Wine) or new (upstream's Godot client, from 0.36; about "
+                        "34 GB). Both can be installed. Default: the current default client.")
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show download progress and Wine's prefix setup logging "
                         "(default: errors only)")
@@ -118,7 +122,18 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 
 def _install(args: argparse.Namespace, checkout: Checkout) -> int:
-    install(checkout, flavour=args.wine, verbose=args.verbose)
+    sel = selection.load(checkout)
+    which = args.client or sel.client
+    if which == "new":
+        if args.wine:
+            raise DaocError("--wine applies to the original client", 2)
+        newclient.install(checkout, sel.game)
+    else:
+        install(checkout, flavour=args.wine, verbose=args.verbose)
+    if which != sel.client:
+        selection.save(checkout, sel._replace(client=which))
+        say(f"daoc client start now starts the {which} client "
+            f"(switch back with: daoc client install --client {sel.client})")
     return 0
 
 
