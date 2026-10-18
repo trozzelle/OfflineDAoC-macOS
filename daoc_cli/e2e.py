@@ -119,7 +119,10 @@ class _Run:
             _copy(self.server_dir / "defaults" / "serverconfig.xml", self.config)
         world = self.server_dir / "data" / "opendaoc.sqlite3.db"
         if not world.is_file():
-            _copy(self.server_dir / "defaults" / "world.sqlite", world)
+            # As daoc-server.sh's first start: config/edition picks the world.
+            edition = _read(self.server_dir / "config" / "edition").strip() or "classic"
+            name = "world-sluaghbinder.sqlite" if edition == "sluaghbinder" else "world.sqlite"
+            _copy(self.server_dir / "defaults" / name, world)
         text = _read(self.config)
         if self.client == "original" and "<Port>10300</Port>" in text:
             # The original is kept as serverconfig.xml.bak; cleanup puts it back.

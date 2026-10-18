@@ -223,6 +223,14 @@ class E2ETest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("could not find the client process", err)
 
+    def test_fresh_save_follows_the_edition(self):
+        (self.sd / "defaults" / "world-sluaghbinder.sqlite").write_text("sluaghbinder world")
+        (self.sd / "config").mkdir()
+        (self.sd / "config" / "edition").write_text("sluaghbinder\n")
+        code, out, err = self.run_e2e()
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.sd / "data" / "opendaoc.sqlite3.db").read_text(), "sluaghbinder world")
+
     def test_pass_moves_ports_reverts_them_and_writes_the_evidence(self):
         (self.root / "evidence").mkdir()
         (self.root / "evidence" / "wine-attempt-7.log").write_text("stale")
