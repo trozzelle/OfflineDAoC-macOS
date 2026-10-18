@@ -11,12 +11,14 @@ copy, which always run):
      (D3D9 on Metal). arm64 fetches and verifies Hadron's disk image
      (manifest.json `wine_arm64`) and copies its arm64 Wine with FEX out
      unchanged; a new pin replaces it.
-  3. Release: fetch, verify, join and extract the pinned OfflineDAoC release
-     (see release) beside the install, then swap it in, as update does: an
-     interrupted extraction leaves nothing in the way of a re-run. An existing
-     Client install built from another release (the pin it records, see
-     pins.INSTALLED) is replaced, graphics carried over; one built from the pin
-     is kept.
+  3. Release: fetch, verify, join and extract the selected Game Version's
+     OfflineDAoC release (see release) beside the install, then swap it in, as
+     update does: an interrupted extraction leaves nothing in the way of a
+     re-run. An existing Client install built from another release (the pin it
+     records, see pins.INSTALLED) is replaced, graphics carried over; one built
+     from the pin is kept. Then the Game's Edition: its game.dll from the
+     install's editions/ folder (Classic classes) or the cached release
+     (Sluaghbinder), swapped in without a re-extract (apply_edition).
   4. Client patch on game.dll (see client_patch); a no-op when current.
   5. The flavour's Wine prefix (win10 version setting, prefix upgrade, profile
      folders kept inside the prefix, settings carried over from another user
@@ -41,21 +43,24 @@ Downloads are cached in downloads/. start/stop/kill/login live in
 client_runtime.
 """
 import argparse
+import hashlib
 import json
 import os
 import platform
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
+from daoc_cli import (bench, client_patch, client_runtime, games, graphics, pins, proc, release,
                       selection, updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
+from daoc_cli.games import Game
 
 XATTR = "/usr/bin/xattr"
 ARCH = "/usr/bin/arch"
@@ -343,7 +348,10 @@ def _replace(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloa
                         "it needs a shipped update")
     _refuse_running(checkout, command)
     saved = carry_over(checkout, command)
-    replace_install(checkout, archive, dict(pin, game_dll_sha256=sha), local, version)
+    edition = next((e for e, v in (pin.get("editions") or {}).items()
+                    if v.get("game_dll_sha256") == sha), None)
+    record = dict(pin, game_dll_sha256=sha, **({"edition": edition} if edition else {}))
+    replace_install(checkout, archive, record, local, version)
     return saved
 
 
@@ -376,6 +384,7 @@ def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -
     saved = _replace(checkout, latest, fetch_url or release.download, "update", game_version, local)
     if saved is not None:
         restore(checkout, saved, "update")
+    apply_edition(checkout, selection.load(checkout).game, fetch_url or release.download)
     say(f"client update: done; OfflineDAoC {version} is the Local client pin "
          "(`daoc dev ship-pins` makes it Shipped)" if local else
          f"client update: done; OfflineDAoC {version}")
@@ -549,25 +558,89 @@ def _recorded_sha(record: Path) -> Optional[str]:
         return None
 
 
-def _install_release(checkout: Checkout) -> None:
-    game_version = _version(checkout)
-    pin = pins.effective(checkout, "original_client", game_version)
+def install_release(checkout: Checkout, game: Game,
+                    fetch_url: Optional[release.Downloader] = None) -> None:
+    """Bring the Client install to game: its Version's release (replaced, graphics
+    carried over, when the install holds another one) and its Edition's game.dll."""
+    pin = pins.effective(checkout, "original_client", game.version)
     version = pin["version"]
     _recover_swap(checkout)
     if not checkout.client_root.is_dir():
         say(f"fetching OfflineDAoC v{version} (this is a ~5 GB download)")
+        replace = True
     else:
         _resume(checkout, "install")
         # Read from the install, not the pin: a pull can move the pin alone.
         built, matches = pins.built_from(checkout, "original_client", pin)
-        if matches is not False:
+        replace = matches is False
+        if replace:
+            say(f"replacing OfflineDAoC {built} with the pinned v{version} "
+                 "(this is a ~5 GB download)")
+        else:
             say("OfflineDAoC already installed")
-            return
-        say(f"replacing OfflineDAoC {built} with the pinned v{version} "
-             "(this is a ~5 GB download)")
-    saved = _replace(checkout, pin, release.download, "install", game_version)
-    if saved is not None:
-        restore(checkout, saved, "install")
+    if replace:
+        saved = _replace(checkout, pin, fetch_url or release.download, "install", game.version)
+        if saved is not None:
+            restore(checkout, saved, "install")
+    apply_edition(checkout, game, fetch_url)
+
+
+def _edition_bytes(checkout: Checkout, game: Game, pin: Dict[str, Any],
+                   fetch_url: release.Downloader) -> bytes:
+    """The Edition's pristine game.dll: the Classic one from the install's own
+    editions folder, else (and for the Sluaghbinder one) from the cached release."""
+    root = pin["root_folder"]
+    member = (pin.get("editions") or {}).get(game.edition, {}).get("game_dll_member") \
+        or f"{root}/{GAME_DLL}"
+    local = checkout.client_root / member[len(root) + 1:]
+    if game.edition == "classic" and local.is_file():
+        return local.read_bytes()
+    archive = release.download_release(pin, checkout.downloads / f"v{pin['version']}",
+                                       fetch_url=fetch_url)
+    with zipfile.ZipFile(archive) as zf:
+        try:
+            return zf.read(member)
+        except KeyError:
+            raise DaocError(f"{archive.name} has no {member}") from None
+
+
+def apply_edition(checkout: Checkout, game: Game,
+                  fetch_url: Optional[release.Downloader] = None) -> bool:
+    """Make the Client install hold game's Edition's game.dll (patched), without
+    re-extracting the release; True when it swapped, False when it already did.
+    A game.dll that is neither Edition's build of game's Version is left alone:
+    the Client patch then refuses it as no Proven build."""
+    want = games.edition_sha(checkout, game)
+    dll = checkout.app_dir / "game.dll"
+    orig = dll.with_name(dll.name + ".orig")
+    record = pins.installed(checkout, "original_client") or {}
+    current = sha256(orig if orig.is_file() else dll)
+    if current == want:
+        if record and record.get("edition") != game.edition:
+            pins.record_installed(checkout, "original_client",
+                                  dict(record, edition=game.edition, game_dll_sha256=want))
+        return False
+    known = {games.edition_sha(checkout, Game(game.version, e)) for e in games.EDITIONS}
+    if current not in known:
+        return False
+    if want not in client_patch.PROVEN_BUILDS:
+        raise DaocError(f"the {game.edition} game.dll ({want[:12]}) is not a Proven build; "
+                        "it needs a shipped update")
+    _refuse_running(checkout, "install")
+    pin = pins.effective(checkout, "original_client", game.version)
+    data = _edition_bytes(checkout, game, pin, fetch_url or release.download)
+    if hashlib.sha256(data).hexdigest() != want:
+        raise DaocError(f"the {game.edition} game.dll of OfflineDAoC v{pin['version']} does not "
+                        f"match its pinned hash {want[:12]}; reinstall the client")
+    say(f"game.dll -> the {games.EDITION_TITLES[game.edition]} edition")
+    tmp = dll.with_name(dll.name + ".new")
+    tmp.write_bytes(data)
+    os.replace(tmp, dll)
+    orig.unlink(missing_ok=True)
+    client_patch.patch(dll)
+    pins.record_installed(checkout, "original_client",
+                          dict(record, edition=game.edition, game_dll_sha256=want))
+    return True
 
 
 def _patch_client(checkout: Checkout) -> None:
@@ -719,7 +792,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
     _install_wine(checkout, flavour, verbose)
-    _install_release(checkout)
+    install_release(checkout, selection.load(checkout).game)
     _patch_client(checkout)
     _init_prefix(checkout, flavour, verbose)
     _install_launcher(checkout)

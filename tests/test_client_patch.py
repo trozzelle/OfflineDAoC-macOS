@@ -53,6 +53,11 @@ class PatchTest(unittest.TestCase):
         self.assertIs(client_patch.PROVEN_BUILDS[
             "e1d471bb19108610ab9c8ca77dd41af40afe716685b03f4cdeda88c05678463b"], SPEC)
 
+    def test_classic_build_is_proven_with_same_spec(self):
+        # OfflineDAoC 0.35/0.36 Classic classes edition: the three sites byte-checked identical.
+        self.assertIs(client_patch.PROVEN_BUILDS[
+            "f55ed6b068e22ce8e1106871c2fad6ee10c18390bbb8b5dc772219ad8c8b83bb"], SPEC)
+
     def test_proven_build_is_patched_and_pristine_kept(self):
         self.dll.write_bytes(pristine_bytes())
         changed, _ = self.patch()

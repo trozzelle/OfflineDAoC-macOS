@@ -162,12 +162,12 @@ def _extract(archive: Path, member: str, dest: Path) -> Path:
 
 
 def generate(checkout: Checkout, version: str,
-             fetch_url: release.Downloader = release.download) -> Path:
+             fetch_url: Optional[release.Downloader] = None) -> Path:
     """Write server/world/editions/<version>/sluaghbinder.sql from the Version's
     original_client release; returns its path."""
     pin = pins.effective(checkout, "original_client", version)
     archive = release.download_release(pin, checkout.downloads / f"v{pin['version']}",
-                                       fetch_url=fetch_url)
+                                       fetch_url=fetch_url or release.download)
     root = pin["root_folder"]
     with tempfile.TemporaryDirectory(prefix="daoc-edition-") as tmp:
         b_db = _extract(archive, f"{root}/{DB}", Path(tmp) / "b.db")

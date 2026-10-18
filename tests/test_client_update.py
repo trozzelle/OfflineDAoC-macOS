@@ -255,7 +255,8 @@ class ClientUpdateTest(unittest.TestCase):
         # A pull brought a Shipped pin naming the latest release; the install is older.
         pin, self.served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": self.dll,
                                          f"{ROOT_FOLDER}/readme.txt": b"new release"})
-        self.latest = dict(pin, game_dll_sha256=sha(self.dll))
+        self.latest = dict(pin, editions={"sluaghbinder": {"game_dll_sha256": sha(self.dll)},
+                                          "classic": {"game_dll_sha256": "c" * 64}})
         manifest = json.loads((self.root / "manifest.json").read_text())
         manifest["versions"]["0.35"]["original_client"] = self.latest
         (self.root / "manifest.json").write_text(json.dumps(manifest))
