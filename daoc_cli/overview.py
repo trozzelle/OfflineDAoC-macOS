@@ -6,7 +6,7 @@ when it records nothing usable.
 """
 from typing import List, Optional, Sequence, Tuple
 
-from daoc_cli import games, pins, proc, server
+from daoc_cli import games, pins, proc, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -70,7 +70,7 @@ def show(checkout: Checkout) -> int:
     width = max(len(k) for k, _ in status)
     lines += [f"{k.ljust(width)}  {v}" for k, v in status]
 
-    version = games.default(checkout)[0].version
+    version = selection.load(checkout).game.version
     rows = [("Pin", "Shipped", "Local", "Built from", "")]
     for group in pins.GROUPS:
         if group == "new_client" and not games.new_client_supported(checkout, version):

@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import files, games, pins, proc, updates
+from daoc_cli import files, pins, proc, selection, updates
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError, ask, say
 
@@ -73,7 +73,7 @@ def _handle_update(args: argparse.Namespace, checkout: Checkout) -> int:
 
 def _version(checkout: Checkout) -> str:
     """The selected Game's Version."""
-    return games.default(checkout)[0].version
+    return selection.load(checkout).game.version
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:

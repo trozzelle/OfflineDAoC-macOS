@@ -51,8 +51,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, games, graphics, pins, proc, release,
-                      updates)
+from daoc_cli import (bench, client_patch, client_runtime, graphics, pins, proc, release,
+                      selection, updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -125,7 +125,7 @@ def _update(args: argparse.Namespace, checkout: Checkout) -> int:
 
 def _version(checkout: Checkout) -> str:
     """The selected Game's Version."""
-    return games.default(checkout)[0].version
+    return selection.load(checkout).game.version
 
 
 def _gfx_checked(result: "subprocess.CompletedProcess[str]", args: List[str]) -> str:

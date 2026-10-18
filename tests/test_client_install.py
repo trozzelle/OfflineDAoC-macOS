@@ -314,7 +314,8 @@ class InstallTest(InstallBase):
         returns its served files."""
         pin, served = make_release({f"{ROOT_FOLDER}/{client.GAME_DLL}": pristine_bytes(),
                                     f"{ROOT_FOLDER}/readme.txt": b"pinned"})
-        pin = dict(pin, game_dll_sha256=sha(pristine_bytes()))
+        pin = dict(pin, editions={"sluaghbinder": {"game_dll_sha256": sha(pristine_bytes())},
+                                  "classic": {"game_dll_sha256": "c" * 64}})
         manifest_path = self.root / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
         manifest["versions"]["0.35"]["original_client"] = pin
