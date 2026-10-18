@@ -83,9 +83,16 @@ def short(group: str, fields: Optional[Dict[str, Any]]) -> str:
     return value[:12] if _KEY[group] == "ref" else value
 
 
+# Fields that also tell two client pins of one tag apart: upstream can replace a
+# tag's assets. Compared only when both pins carry them (an old install record may not).
+_IDENTITY = {"original_client": ("archive_sha256",), "new_client": ("parts",)}
+
+
 def same(group: str, a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
-    """Whether two pins name the same upstream state (ref, or client version)."""
-    return bool(a and b) and a.get(_KEY[group]) == b.get(_KEY[group])
+    """Whether two pins name the same upstream state (ref, or client version and archive)."""
+    if not (a and b) or a.get(_KEY[group]) != b.get(_KEY[group]):
+        return False
+    return all(a[f] == b[f] for f in _IDENTITY.get(group, ()) if f in a and f in b)
 
 
 def shipped(checkout: Checkout, group: str, version: Optional[str] = None) -> Dict[str, Any]:

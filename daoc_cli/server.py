@@ -71,7 +71,9 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
-    install(checkout, _version(checkout), verbose=args.verbose)
+    game = selection.load(checkout).game
+    install(checkout, game.version, verbose=args.verbose)
+    set_edition(checkout, game.edition)
     return 0
 
 
@@ -282,8 +284,8 @@ The new build ships different World data ({world}).
 Your save in data/ keeps the world it was created with until a Progress upgrade
 moves your progress into the new world. It carries over the player-owned
 things: accounts (roles kept), characters, items, money, houses, guilds and
-bots, plus this install's settings (edition, population, daoc-admin options,
-XP rates). Realm-wide world state such as keep and relic ownership starts
+bots, plus this install's settings (population, daoc-admin options, XP rates);
+the edition is the selected game's. Realm-wide world state such as keep and relic ownership starts
 fresh. The previous save is backed up to data/progress-backups/<time>/."""
 
 
@@ -297,7 +299,8 @@ def update(checkout: Checkout) -> int:
     # 1. Resolve the upstream's latest main. Whether the install is already there
     #    is read from the install, not the pin: a pull can move the pin alone.
     say("resolving upstream main")
-    version = _version(checkout)
+    game = selection.load(checkout).game
+    version, edition = game.version, game.edition
     current = pins.effective(checkout, "server", version)
     latest = updates.resolve_latest(checkout, "server", version)
     if pins.built_from(checkout, "server", latest)[1]:
@@ -321,6 +324,7 @@ def update(checkout: Checkout) -> int:
     #    failed build leaves the pin where it was, so a rerun retries the build.
     before = _world_hash(checkout)
     install(checkout, version, pin=latest)
+    set_edition(checkout, edition)
     if not pins.same("server", current, latest):
         pins.set_local(checkout, "server", latest, version)
         say(f"server Local pin -> {latest['ref'][:12]}")
@@ -339,6 +343,6 @@ def update(checkout: Checkout) -> int:
         say("skipped; run it later with:  daoc progress upgrade")
         return 0
     # No chdir: daoc-progress resolves its own directory.
-    proc.run([tool(checkout, "daoc-progress"), "upgrade"], verbose=True)
+    proc.run([tool(checkout, "daoc-progress"), "upgrade", f"--edition={edition}"], verbose=True)
     say("Progress upgrade: done")
     return 0

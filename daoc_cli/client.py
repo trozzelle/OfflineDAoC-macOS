@@ -124,7 +124,9 @@ def _install(args: argparse.Namespace, checkout: Checkout) -> int:
 
 def _update(args: argparse.Namespace, checkout: Checkout) -> int:
     if args.check:
-        return updates.check(checkout, "original_client", _version(checkout))
+        sel = selection.load(checkout)
+        group = "new_client" if sel.client == "new" else "original_client"
+        return updates.check(checkout, group, sel.game.version)
     return update(checkout)
 
 

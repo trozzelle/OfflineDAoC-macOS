@@ -186,6 +186,12 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("upstream HEAD deadbeef", err)
 
+    def test_install_records_the_selected_edition(self):
+        self.select("0.36")
+        code, _, err = run_cli(["server", "install"], self.root, env=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.co.server_dir / "config" / "edition").read_text(), "classic\n")
+
 
 class Tty(io.StringIO):
     def isatty(self):

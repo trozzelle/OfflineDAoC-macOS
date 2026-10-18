@@ -12,7 +12,8 @@ from unittest import mock
 
 from tests.support import make_checkout, run_cli
 
-from daoc_cli import pins, proc, server, updates
+from daoc_cli import games, pins, proc, selection, server, updates
+from daoc_cli.selection import Selection
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -202,8 +203,15 @@ class ServerUpdateTest(unittest.TestCase):
     def test_world_change_on_a_tty_answer_yes_runs_the_upgrade(self) -> None:
         code, _, err = self.update("yes\n", tty=True)
         self.assertEqual(code, 0)
-        self.assertEqual(self.progress_calls(), [[str(self.co.server_dir / "daoc-progress"), "upgrade"]])
+        self.assertEqual(self.progress_calls(), [[str(self.co.server_dir / "daoc-progress"), "upgrade",
+                                                  "--edition=sluaghbinder"]])
         self.assertIn("Progress upgrade: done", err)
+
+    def test_update_records_the_selected_edition(self) -> None:
+        selection.save(self.co, Selection(games.parse("0.35"), "original"))
+        code, _, err = self.update()
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.co.server_dir / "config" / "edition").read_text(), "classic\n")
 
     def test_unchanged_world_asks_nothing(self) -> None:
         self.new_world = b"old world"

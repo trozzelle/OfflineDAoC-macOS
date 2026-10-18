@@ -38,7 +38,8 @@ def parse(name: str) -> Game:
     return Game(match.group(1), "sluaghbinder" if match.group(2) else "classic")
 
 
-def _order(version: str) -> Tuple[int, ...]:
+def order(version: str) -> Tuple[int, ...]:
+    """A Version's sort key: 0.36 after 0.35, 0.100 after 0.99."""
     return tuple(int(x) for x in version.split("."))
 
 
@@ -51,7 +52,7 @@ def _versions(checkout: Checkout) -> Dict[str, Any]:
 
 def versions(checkout: Checkout) -> List[str]:
     """The Versions this daoc release supports, oldest first."""
-    return sorted(_versions(checkout), key=_order)
+    return sorted(_versions(checkout), key=order)
 
 
 def entry(checkout: Checkout, version: str) -> Dict[str, Any]:
