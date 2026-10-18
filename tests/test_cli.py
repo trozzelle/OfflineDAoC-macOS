@@ -19,7 +19,7 @@ from daoc_cli import cli, proc
 from daoc_cli.checkout import Checkout, wine_env
 from daoc_cli.errors import DaocError
 
-VISIBLE_GROUPS = ("server", "client", "admin", "progress", "graphics", "self-install")
+VISIBLE_GROUPS = ("server", "client", "game", "admin", "progress", "graphics", "self-install")
 
 
 def fake_group(name, handler):

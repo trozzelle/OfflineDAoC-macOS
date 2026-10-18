@@ -786,10 +786,18 @@ def _install_launcher(checkout: Checkout) -> None:
     _unquarantine(dst)
 
 
-def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = False) -> None:
-    """Install or complete the Client install with the flavour's Wine (default:
-    the current one); finished steps are skipped. The flavour is recorded last,
-    so `daoc client start` switches only after a complete install."""
+def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = False,
+            game: Optional[Game] = None, download_only: bool = False) -> None:
+    """Install or complete the Client install for game (default: the selected
+    one) with the flavour's Wine (default: the current one); finished steps are
+    skipped. The flavour is recorded last, so `daoc client start` switches only
+    after a complete install. download_only fetches and verifies the release
+    into downloads/ and changes nothing else."""
+    game = game or selection.load(checkout).game
+    if download_only:
+        pin = pins.effective(checkout, "original_client", game.version)
+        release.download_release(pin, checkout.downloads / f"v{pin['version']}")
+        return
     if flavour is None:
         flavour = current = checkout.flavour
     else:
@@ -800,7 +808,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
             # rewrites it, the Wine being installed is this checkout's.
             checkout.assume_flavour(flavour)
             current = flavour
-    version = pins.effective(checkout, "original_client", _version(checkout))["version"]
+    version = pins.effective(checkout, "original_client", game.version)["version"]
     say(f"client install: OfflineDAoC v{version} + {FLAVOURS[flavour].title}")
     _requirements(checkout, flavour)
     # Before anything touches Wine or game.dll, and while checkout still names
@@ -809,7 +817,7 @@ def install(checkout: Checkout, flavour: Optional[str] = None, verbose: bool = F
     checkout.downloads.mkdir(parents=True, exist_ok=True)
     checkout.client_root.parent.mkdir(parents=True, exist_ok=True)
     _install_wine(checkout, flavour, verbose)
-    install_release(checkout, selection.load(checkout).game)
+    install_release(checkout, game)
     _patch_client(checkout)
     _init_prefix(checkout, flavour, verbose)
     _install_launcher(checkout)
