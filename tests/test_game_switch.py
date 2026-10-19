@@ -158,7 +158,7 @@ class SwitchTest(unittest.TestCase):
 
     def test_unknown_game_is_refused(self):
         with self.assertRaises(DaocError) as cm:
-            game.switch(self.co, G("0.37"), None, False, None, False)
+            game.switch(self.co, G("0.99"), None, False, None, False)
         self.assertEqual(cm.exception.code, 2)
         self.assertEqual(self.calls, [])
 
@@ -236,7 +236,7 @@ class SwitchTest(unittest.TestCase):
         self.assertLess(self.calls.index("restore"), self.calls.index("selection"))
 
     def test_unreadable_selection_does_not_block_the_switch_that_fixes_it(self):
-        (self.co.state / selection.FILE).write_text('{"game": "0.37b", "client": "original"}')
+        (self.co.state / selection.FILE).write_text('{"game": "0.99b", "client": "original"}')
         self.server_built = True
         self.switch("0.36b")
         self.assertEqual(selection.load(self.co), Selection(G("0.36b"), "original"))

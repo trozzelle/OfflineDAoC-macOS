@@ -1,13 +1,16 @@
 # OfflineDAoC server — macOS port
 
-A macOS (Apple Silicon) build of the [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots)
+A macOS (Apple Silicon) build of the [OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server)
 DAoC server: one portable folder, no .NET install needed, with the Classic + Shrouded Isles
 world, autonomous gamebots, and the admin TUI/CLI.
 
-The Linux repo is the **read-only parity baseline**. This repo contains only the macOS-specific
-build pipeline, launcher scripts and documentation; the server source itself is compiled from a
-snapshot of the pinned Linux repo clone (`upstream/server`, made by `daoc server install`) with
-macOS patches from `patches/`.
+The server repo holds the server source (Offline DAoC's, synced per release), its world data and
+navmeshes, and the macOS source fixes as commits on one `macos-<version>` branch per game version
+(`main` is where the next upstream sync lands). It started as a fork of catastrophic-impact's
+[daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots),
+a Linux build of the same server. This folder contains only the macOS-specific build pipeline,
+launcher scripts and documentation; the server source is compiled from a snapshot of the pinned
+server repo clone (`upstream/server`, made by `daoc server install`).
 
 ## Requirements
 
@@ -34,14 +37,14 @@ cd dist/daoc-server
   to move your progress into it (see Maintenance). The folder layout, commands and admin screens
   are identical to the Linux repo's `docs/RUN.md`; that guide applies here verbatim.
 
-## What differs from the Linux repo
+## What differs from the Linux build
 
-| Area | Linux repo | This port |
+| Area | Linux build (in the server repo) | This port |
 |---|---|---|
 | Target | linux-x64, glibc 2.34+ | osx-arm64 |
 | Native pathing library | `bin/lib/Detour.so` | `bin/lib/Detour.dylib` |
 | SQLite | NuGet `System.Data.SQLite.Core` + `SQLite.Interop.dll` (hashed exports) | Same package's managed assembly **replaced** by the vendored project source compiled with `SQLITE_STANDARD`, binding the macOS system `libsqlite3` |
-| Source | built in place | built from a snapshot copy in `build/src` with `patches/*.patch` applied (the reference repo stays untouched) |
+| Source | built in place | built from a snapshot copy in `build/src` (the reference clone stays untouched) |
 | Build box | distrobox (Ubuntu 22.04) | Native macOS toolchain |
 | Release archive | `.tar.gz` | `.zip` |
 | Install scripts | `tools/build-release.sh`, `deploy/*` | macOS equivalents in `tools/` and `deploy/` |
@@ -64,29 +67,26 @@ defaults and the server's own NLog stack does all logging.
 resulting `System.Data.SQLite.dll` onto the server, DaocAdmin and WorldBuilder outputs so no
 output ever binds `SQLite.Interop.dll`.
 
-### Admin socket close (macOS)
+### macOS fixes in the server repo
 
-Closing the admin Unix-domain socket while its asynchronous accept is pending does not wake the
-blocked accept on macOS (kqueue-based .NET), leaving `ServerStopped` stuck in a spin-wait
-forever. `patches/<version>/010-adminsockethost-macos-close.patch` (the file moved to `src/Admin.Host/` in
-the 0.36 sync; the hunk is the same) connects a dummy client to wake the
-pending accept before the listener is disposed. Verified: clean stop in ~3 s with bots in the
-world (the Linux reference stops in ~2 s).
+- **Admin socket close.** Closing the admin Unix-domain socket while its asynchronous accept is
+  pending does not wake the blocked accept on macOS (kqueue-based .NET), leaving `ServerStopped`
+  stuck in a spin-wait forever. `AdminSocketHost.Stop()` connects a dummy client to wake the
+  pending accept before the listener is disposed. Verified: clean stop in ~3 s with bots in the
+  world (the Linux reference stops in ~2 s).
+- **Login logging (0.36 on).** In the 0.36 sync the admin module moved into its own project, and
+  `CoreServer` registers it (`AdminHost.Register()`) before `GameServer.CreateInstance()`
+  initialises logging. That first touch of `LoginRequestHandler` created its static logger as a
+  `NullLogger`, so no `User … logging on!` line reached `server.log`, and `daoc client start` and
+  `daoc dev e2e` wait for that line. The logger is now created on first use. Without it the login
+  is still accepted (the account's `LastLogin` updates); only the line is missing.
 
-### Login logging (0.36)
-
-In the 0.36 sync the admin module moved into its own project, and `CoreServer` registers it
-(`AdminHost.Register()`) before `GameServer.CreateInstance()` initialises logging. That first touch
-of `LoginRequestHandler` creates its static logger as a `NullLogger`, so no `User … logging on!`
-line ever reaches `server.log`, and `daoc client start` and `daoc dev e2e` wait for that line.
-`patches/0.36/020-loginrequesthandler-lazy-logger.patch` creates the logger on first use instead.
-Without it the login is still accepted (the account's `LastLogin` updates); only the line is
-missing.
+These were `patches/<version>/*.patch` here until the server moved to its own repo.
 
 ## Layout
 
 ```
-tools/build-release.sh       builds the portable server folder (from the Linux repo's sources)
+tools/build-release.sh       builds the portable server folder (from the server repo's sources)
 tools/setup-dotnet.sh        one-time .NET 10 SDK installer
 tools/fetch-upstream-db.sh   unpacks/verifies the pinned OpenDAoC-Database dump
 deploy/daoc-server.sh        start/stop/status (equivalent of the Linux launcher)
@@ -94,10 +94,9 @@ deploy/daoc-admin            admin TUI/CLI wrapper
 deploy/daoc-progress         world upgrade / progress import wrapper (macOS port addition)
 tools/ProgressImport/        daoc-progress source: upstream Offline DAoC's progress importer, ported
 deploy/navmesh-install.sh    navmesh installer (macOS port): --from-xz <world/navmesh>, --from-dir
-patches/<version>/*.patch    macOS patches applied to that game version's source snapshot
 world/editions/<version>/    the Sluaghbinder world overlay (daoc dev edition-sql)
 vendor/System.Data.SQLite    vendored System.Data.SQLite 1.0.119 source + arm64 patches
-build/src                    snapshot of the reference repo's source (created by the build)
+build/src                    snapshot of the server repo's source (created by the build)
 dist/                        build output (gitignored)
 ```
 
@@ -112,7 +111,7 @@ dist/                        build output (gitignored)
   `defaults/world-sluaghbinder.sqlite` the same world with the Sluaghbinder (its trainer, wisp
   and class rows, `enable_sluaghbinder = True`). `config/edition` (`sluaghbinder` or `classic`,
   written by `daoc`) picks the one a fresh save starts from.
-- **New world data** (a release whose world changed, e.g. the 0.36 sync): an existing `data/`
+- **New world data** (a release whose world changed, e.g. the 0.37 sync): an existing `data/`
   keeps the world it was created with. With the server stopped, `./daoc-progress upgrade
   [--edition=sluaghbinder|--edition=classic]` moves your progress into the new world of that
   edition (default: `config/edition`): accounts (roles kept), characters, items, money, houses,

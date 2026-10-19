@@ -1,17 +1,18 @@
 """`daoc server`: build the macOS server, and start/stop/status it.
 
 install:
-  1. Clone (or reuse) the pinned upstream in upstream/server/, verify the exact
-     commit, and pre-check the port patches against it.
+  1. Clone (or reuse) the pinned server repo in upstream/server/ and verify the
+     exact commit. The macOS changes are commits in that repo
+     (trozzelle/OfflineDAoC-macOS-server), so the pin names finished source.
   2. Install the .NET 10 SDK if missing (server/tools/setup-dotnet.sh).
-  3. Run the port's build pipeline (server/tools/build-release.sh), which applies
-     the macOS patches from server/patches/ and builds server/dist/daoc-server,
-     then record the pin it was built from in the install (pins.INSTALLED).
+  3. Run the port's build pipeline (server/tools/build-release.sh), which builds
+     server/dist/daoc-server, then record the pin it was built from in the
+     install (pins.INSTALLED).
 
 start/stop/status exec the install's own daoc-server.sh, which stays shell.
 
-update moves the install to upstream's latest after a patch pre-check, then
-rebuilds and records it as the Local pin (see update()).
+update moves the install to the server repo's latest main, then rebuilds and
+records it as the Local pin (see update()).
 """
 import argparse
 import os
@@ -56,10 +57,10 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.set_defaults(func=_handle_install)
     a = actions.add_parser(
         "update",
-        help="move the server to the fork's latest commit for the selected version and rebuild (Local pin)",
-        description="Resolve the fork's latest main commit, check it is synced to the selected "
-                    "game version, pre-check the port patches against it, record it as a Local "
-                    "pin and rebuild the Server install.",
+        help="move the server to the server repo's latest commit for the selected version and rebuild (Local pin)",
+        description="Resolve the server repo's latest main commit, check it is synced to the "
+                    "selected game version, record it as a Local pin and rebuild the Server "
+                    "install.",
     )
     a.add_argument("--check", action="store_true",
                    help="report Shipped, Local, built-from and latest; change nothing")
@@ -146,9 +147,8 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
     navmesh_ref = pin.get("navmesh_ref") or ref
     src = root / "upstream" / "server"
 
-    # 1. Fetch the pinned upstream as a git clone, verify the exact commit, and
-    #    pre-check the port patches against it (a ref change or an upstream edit
-    #    that breaks a patch fails here, loudly, before any build time is spent).
+    # 1. Fetch the pinned server repo as a git clone and verify the exact commit
+    #    (a ref the repo doesn't have fails here, loudly, before any build time is spent).
     say(f"install-server: pinned upstream {ref[:12]}")
     (root / "downloads").mkdir(parents=True, exist_ok=True)
     (root / "upstream").mkdir(parents=True, exist_ok=True)
@@ -159,6 +159,10 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
     if not (src / ".git").is_dir():
         say("cloning upstream (this downloads ~400 MB)")
         proc.run(["git", "clone", progress, url, str(src)], verbose=True)
+    elif proc.git(src, "remote", "get-url", "origin").stdout.strip() != url:
+        # A clone of the repo an older pin named (the Linux repo this one was forked from).
+        say(f"pointing upstream/server at {url}")
+        proc.git(src, "remote", "set-url", "origin", url)
     checked = proc.head(src)
     if checked != ref:
         say(f"checking out pinned {ref[:12]} (have {checked[:12]})")
@@ -171,12 +175,6 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
     actual = proc.head(src)
     if actual != ref:
         raise DaocError(f"upstream HEAD {actual[:12]} != pinned {ref[:12]}")
-
-    # Pre-check the macOS patches apply cleanly to this snapshot.
-    patches = [str(p) for p in _patches(root, version)]
-    if proc.git(src, "apply", "--check", *patches, verbose=True, check=False).returncode != 0:
-        raise DaocError("patches no longer apply to the pinned upstream — re-derive them")
-    say("patches apply cleanly")
 
     # 2. Toolchain: the port's own installer is idempotent and always safe to run.
     say(".NET 10 SDK (installed into ~/.dotnet if missing)")
@@ -225,41 +223,11 @@ def _export_navmesh(src: Path, navmesh_ref: str, ref: str, dest: Path, progress:
     tar.unlink()
 
 
-def _patches(root: Path, version: str) -> List[Path]:
-    """server/patches/<version>/*.patch in the order build-release.sh applies them."""
-    folder = root / "server" / "patches" / version
-    found = sorted(folder.glob("*.patch"))
-    if not found:
-        raise DaocError(f"no macOS patches for game version {version} in {folder}")
-    return found
-
-
 def _world_hash(checkout: Checkout) -> Optional[str]:
     path = checkout.server_dir / WORLD_DATA
     if not path.is_file():
         return None
     return files.sha256(path)
-
-
-def _precheck(url: str, ref: str, patches: List[Path], current: str) -> None:
-    """Clone ref into a temp dir and prove every port patch still applies, in
-    build order, each on top of the ones before it. Nothing outside the temp
-    dir is touched, so a failure leaves the pin where it was."""
-    with tempfile.TemporaryDirectory(prefix="daoc-server-update-") as tmp:
-        src = Path(tmp) / "upstream"
-        say(f"cloning upstream at {ref[:12]} to pre-check the port patches")
-        if proc.run(["git", "clone", "--quiet", "--filter=blob:none", url, str(src)],
-                    check=False).returncode != 0:
-            raise DaocError("upstream clone failed")
-        proc.git(src, "checkout", "--quiet", "--detach", ref)
-        for patch in patches:
-            if proc.git(src, "apply", "--check", str(patch), check=False).returncode != 0:
-                raise DaocError(
-                    f"{patch.name} no longer applies to {ref[:12]}; re-derive it against the "
-                    f"new source (pin not changed: still {current[:12]})"
-                )
-            proc.git(src, "apply", str(patch))
-    say(f"patches apply cleanly to {ref[:12]}")
 
 
 def _stop_first(checkout: Checkout) -> None:
@@ -291,15 +259,13 @@ fresh. The previous save is backed up to data/progress-backups/<time>/."""
 
 
 def update(checkout: Checkout) -> int:
-    """Move the Server install to the upstream's latest main and rebuild it,
+    """Move the Server install to the server repo's latest main and rebuild it,
     recording that commit as the Local pin unless the pin already names it. Exit 0
     (updated, or the install already built from latest); DaocError 1 on a
-    failing patch or build, 2 when stopping the server is refused."""
-    root = Path(os.path.realpath(checkout.root))
-
-    # 1. Resolve the upstream's latest main. Whether the install is already there
+    failing build, 2 when stopping the server is refused."""
+    # 1. Resolve the server repo's latest main. Whether the install is already there
     #    is read from the install, not the pin: a pull can move the pin alone.
-    say("resolving upstream main")
+    say("resolving server repo main")
     game = selection.load(checkout).game
     version, edition = game.version, game.edition
     current = pins.effective(checkout, "server", version)
@@ -313,15 +279,10 @@ def update(checkout: Checkout) -> int:
             say(f"server Local pin -> {latest['ref'][:12]}")
         return 0
 
-    # 2. Clone the new commit (blobless) and prove the port patches still apply to
-    #    it BEFORE moving the pin: an upstream change that breaks a patch fails
-    #    here, loudly, and the pin stays put.
-    _precheck(latest["upstream"], latest["ref"], _patches(root, version), current["ref"])
-
-    # 3. Never rebuild under a live server.
+    # 2. Never rebuild under a live server.
     _stop_first(checkout)
 
-    # 4. Rebuild against the new commit, then record it as the Local pin. A
+    # 3. Rebuild against the new commit, then record it as the Local pin. A
     #    failed build leaves the pin where it was, so a rerun retries the build.
     before = _world_hash(checkout)
     install(checkout, version, pin=latest)
@@ -330,7 +291,7 @@ def update(checkout: Checkout) -> int:
         pins.set_local(checkout, "server", latest, version)
         say(f"server Local pin -> {latest['ref'][:12]}")
 
-    # 5. New World data does not reach an existing save on its own: offer a
+    # 4. New World data does not reach an existing save on its own: offer a
     #    Progress upgrade, never run one unasked.
     after = _world_hash(checkout)
     if before is None or after == before:

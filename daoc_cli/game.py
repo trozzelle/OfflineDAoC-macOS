@@ -31,7 +31,7 @@ from daoc_cli.selection import Selection
 def register(groups: "argparse._SubParsersAction") -> None:
     p = groups.add_parser(
         "game",
-        help="choose the game version and edition (0.35, 0.35b, 0.36, 0.36b)",
+        help="choose the game version and edition (0.35, 0.35b, 0.36, 0.36b, 0.37, 0.37b)",
         description="List the games this checkout can be, or switch the server, the save and the "
                     "clients to another one.",
     )
@@ -42,7 +42,8 @@ def register(groups: "argparse._SubParsersAction") -> None:
         "switch", help="move this setup to another game",
         description="Move the server, the save and the installed clients to another game. "
                     "Re-run the same switch to finish one that was interrupted.")
-    a.add_argument("game_name", metavar="GAME", help="0.35, 0.35b, 0.36 or 0.36b (b: with the Sluaghbinder)")
+    a.add_argument("game_name", metavar="GAME",
+                   help="0.35, 0.35b, 0.36, 0.36b, 0.37 or 0.37b (b: with the Sluaghbinder)")
     a.add_argument("--client", choices=games.CLIENTS, default=None,
                    help="also make this the default client (installing it if needed)")
     a.add_argument("--leave-sluaghbinder-bots", action="store_true",

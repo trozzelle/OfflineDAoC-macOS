@@ -11,8 +11,8 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 | `daoc server start` | Start the server (holds the terminal with the admin screen) |
 | `daoc server stop` | Save and stop the server |
 | `daoc server status` | Print `running (pid N)` or `stopped` |
-| `daoc server update [--check]` | Move the server to the fork's latest commit for the selected version and rebuild |
-| `daoc game [list]` | The games (0.35, 0.35b, 0.36, 0.36b), their clients, the selected one |
+| `daoc server update [--check]` | Move the server to the server repo's latest commit for the selected version and rebuild |
+| `daoc game [list]` | The games (0.35, 0.35b, 0.36, 0.36b, 0.37, 0.37b), their clients, the selected one |
 | `daoc game switch GAME [--client original\|new] [--leave-sluaghbinder-bots] [--restore BACKUP \| --fresh-save]` | Move the server, the save and the installed clients to another game; re-run to finish an interrupted switch |
 | `daoc client install [--client original\|new] [--wine rosetta\|arm64] [--verbose]` | Install the selected game's client and make it the default; the original client with Wine, the Client patch and the Wine prefix (`--wine` picks and switches the Wine), or the new client (0.36 and later) under Godot |
 | `daoc client login` | Save or replace the Game account in the Keychain |

@@ -12,8 +12,7 @@ daoc-macos/
 ├── daoc_cli/                # the `daoc` command (Python 3.9 stdlib only)
 ├── manifest.json            # Shipped pins: upstream versions + hashes
 ├── version.txt              # this release of daoc (written by release-please)
-├── server/                  # macOS server port overlay, vendored from the port work
-│   ├── patches/             #   source patches applied to the upstream snapshot
+├── server/                  # macOS build around the server repo (OfflineDAoC-macOS-server)
 │   ├── vendor/              #   arm64-safe System.Data.SQLite (SQLITE_STANDARD build)
 │   ├── tools/               #   macOS build scripts (osx-arm64, libDetour.dylib, codesign),
 │   │                        #   ProgressImport/ (daoc-progress source)
@@ -101,7 +100,7 @@ default Game:
   "default": { "game": "0.35b", "client": "original" },
   "versions": {
     "0.35": {
-      "server": { "upstream": "<fork>", "ref": "<commit sha>", "navmesh_ref": "<commit sha>" },
+      "server": { "upstream": "<server repo>", "branch": "macos-0.35", "ref": "<commit sha>", "navmesh_ref": "<commit sha>" },
       "original_client": {
         "release_url": ".../releases/download/v0.35b/", "version": "0.35b",
         "root_folder": "OfflineDAoC-v0.35b", "archive_sha256": "…", "parts": [ … ],
@@ -113,12 +112,22 @@ default Game:
       "new_client": null
     },
     "0.36": {
-      "server": { "upstream": "<fork>", "ref": "<commit sha>" },
+      "server": { "upstream": "<server repo>", "branch": "macos-0.36", "ref": "<commit sha>" },
       "original_client": { "version": "0.36b", "…": "…" },
       "new_client": {
         "release_url": ".../releases/download/v0.36c/", "version": "0.36c",
         "unpacked_bytes": 33758711327, "parts": [ "19 × {name, bytes, sha256}" ],
         "godot": { "url": "<godot-builds mono macOS zip>", "bytes": 200756622, "sha256": "…" }
+      }
+    },
+    "0.37": {
+      "server": { "upstream": "<server repo>", "branch": "macos-0.37", "ref": "<commit sha>" },
+      "original_client": { "version": "0.36b", "…": "…" },
+      "new_client": {
+        "release_url": ".../releases/download/v0.37c/", "version": "0.37c",
+        "root_folder": "OfflineDAoC-v0.37c-client-patch", "parts": [ "2 × {name, bytes, sha256}" ],
+        "base": { "release_url": ".../releases/download/v0.36c/", "version": "0.36c", "…": "…" },
+        "godot": { "…": "…" }
       }
     }
   },
@@ -128,14 +137,21 @@ default Game:
 }
 ```
 
-Server pin = immutable git commit (`navmesh_ref`: the commit whose `world/navmesh/`
-the build uses, when the Version's own commit has none). Client pins = release tags;
-per-part (and, for the original client, whole-archive) SHA-256 come from the
-release's own `download-manifest.json` and are verified at install time (same scheme
-as upstream's `Get-OfflineDAoC.ps1`). Both Editions of a Version share the b
-release's archive; `editions` names each one's pristine `game.dll`. The Godot pin and
-the Wine pins = archive SHA-256 recorded here. Graphics pin = immutable git commit,
-pulled only by `daoc graphics`.
+Server pin = immutable git commit of the server repo
+([OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server)),
+with the macOS changes in it as commits; `branch` (default `main`; every shipped
+Version has its own protected `macos-<version>`) is the branch
+`daoc server update` follows for that Version, and `navmesh_ref` the commit whose
+`world/navmesh/` the build uses, when the Version's own commit has none. Client pins
+= release tags; per-part (and, for the original client, whole-archive) SHA-256 come
+from the release's own `download-manifest.json` and are verified at install time
+(same scheme as upstream's `Get-OfflineDAoC.ps1`). Both Editions of a Version share
+the b release's archive; `editions` names each one's pristine `game.dll`. From 0.37
+upstream ships a Version as an update to the 0.36 base (`"Mode": "patch"`): the
+original client pins the base release when the update leaves it unchanged (0.37),
+and a new client pin names its full release as `base` and the update's parts as its
+own. The Godot pin and the Wine pins = archive SHA-256 recorded here. Graphics pin =
+immutable git commit, pulled only by `daoc graphics`.
 
 ### Shipped pins and Local pins
 
@@ -176,14 +192,12 @@ the Selection.
 
 ## Update flows
 
-- **Server** (`daoc server update`): resolve the fork's latest `main` and read which
-  game Version it is synced to (`OfflineDaocVersion` in its admin host); another
-  Version than the selected one stops the update (a new Version needs a daoc
-  release). Then clone it
-  (blobless, `--filter=blob:none`) and check that every port patch still applies —
-  before the pin moves, so a breaking upstream change fails loudly and leaves the
-  install alone. A running server is stopped only after asking (off a terminal it
-  refuses). Then the server is rebuilt from the new commit, and only a successful build records
+- **Server** (`daoc server update`): resolve the head of the Version's server branch
+  (`server.branch`, default `main`) and read which game Version it is synced to
+  (`OfflineDaocVersion` in its admin host); another Version than the selected one
+  stops the update (a new Version needs a daoc release). A running server is
+  stopped only after asking (off a terminal it refuses). Then the server is rebuilt
+  from the new commit, and only a successful build records
   it as the Local pin, so a rerun after a failed build retries it. If the new build ships
   different world data, it explains the Progress upgrade and asks before running
   one (default no); otherwise it prints `daoc progress upgrade` for later.
@@ -237,14 +251,17 @@ interface the client update uses is there, before moving the pin.
 
 ## Server install
 
-The macOS server port is a source-patch port, not a fork:
+The server's source, macOS fixes included, is the server repo
+([OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server)):
+Offline DAoC's server code synced per release, its world data and navmeshes, the
+admin host and TUI, and the WorldBuilder. It started as a fork of catastrophic-impact's
+Linux repo; this repo keeps only the macOS build around it:
 
-1. Clone the selected Version's pinned upstream commit into `upstream/server/` and
-   check that Version's port patches (`patches/<version>/`) apply to it. Export the
+1. Clone the selected Version's pinned commit into `upstream/server/` (pointing an
+   older clone's `origin` at the pin's repo first) and verify it. Export the
    navmeshes (`world/navmesh/*.xz` and their manifest) from `navmesh_ref` (or the
    commit itself) for the build.
-2. Overlay `server/` (patch `patches/<version>/*.patch` via `git apply`, vendor
-   `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
+2. Overlay `server/` (vendor `System.Data.SQLite`, add macOS `tools/` + `deploy/`).
 3. Run the port's `tools/build-release.sh` → `server/dist/daoc-server/` (self-contained
    osx-arm64 .NET publish, cmake-built `libDetour.dylib`, ad-hoc codesigning).
    It snapshots the source from `DAOC_SOURCE_REPO`; `daoc server install` pins that
@@ -363,7 +380,13 @@ pinned macOS Godot .NET build (`dist/godot/Godot_mono.app`) and the 0.36c releas
 `new-client/godot/` tree into `dist/new-client/godot`: each of the 19 parts is
 downloaded, verified, extracted (mtimes kept) into `dist/.new-client.new`, then
 deleted, with a done marker per part, and the finished tree is swapped in. The
-Windows engine and launcher in the release are skipped.
+Windows engine and launcher in the release are skipped. From 0.37 the pin is an
+update of 0.36c (`base`): the 0.36c parts go first, then the update's parts, whose
+`patch.json` (kept in `downloads/v<version>/` until the swap) lists each replaced
+file with the hashes it may replace (`From`, or `absent`) and the one it writes;
+every file under `new-client/godot/` is checked against both, an entry it doesn't
+list is refused before anything is written, and the finished tree must hold every
+file it names. A rerun accepts files already at their new hash.
 
 `daoc client start --client new` runs `open -n Godot_mono.app --args --path
 <project> -- --server=127.0.0.1 --account=… --password=…` (`--custom-class=off` on a

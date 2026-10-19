@@ -4,9 +4,11 @@ e2e runs the scripted end-to-end acceptance (see e2e). ship-pins writes the
 effective pins into manifest.json, for a maintainer to commit.
 """
 import argparse
+from pathlib import Path
 
 from daoc_cli import e2e, edition_sql, pins
 from daoc_cli.checkout import Checkout
+from daoc_cli.errors import DaocError
 
 
 def register(groups: "argparse._SubParsersAction") -> None:
@@ -31,12 +33,15 @@ def register(groups: "argparse._SubParsersAction") -> None:
     a.set_defaults(func=_ship_pins)
     a = actions.add_parser(
         "edition-sql", help="write the Sluaghbinder world overlay for a game version",
-        description="Download the version's original_client release and write "
-                    "server/world/editions/<version>/sluaghbinder.sql from the difference "
-                    "between its Sluaghbinder and Classic classes databases.",
+        description="Write server/world/editions/<version>/sluaghbinder.sql from the difference "
+                    "between the version's Sluaghbinder and Classic classes databases: those in "
+                    "its original_client release, or the two given (a version whose release is "
+                    "an update of an older one ships none).",
     )
     # dest is not `version`: that name belongs to `daoc --version`.
     a.add_argument("game_version", metavar="VERSION", help="game version, e.g. 0.36")
+    a.add_argument("--b-db", type=Path, help="the Sluaghbinder database (with --plain-db)")
+    a.add_argument("--plain-db", type=Path, help="the Classic classes database (with --b-db)")
     a.set_defaults(func=_edition_sql)
 
 
@@ -57,5 +62,8 @@ def _ship_pins(args: argparse.Namespace, checkout: Checkout) -> int:
 
 
 def _edition_sql(args: argparse.Namespace, checkout: Checkout) -> int:
-    edition_sql.generate(checkout, args.game_version)
+    if (args.b_db is None) != (args.plain_db is None):
+        raise DaocError("give both --b-db and --plain-db, or neither", 2)
+    dbs = (args.b_db, args.plain_db) if args.b_db else None
+    edition_sql.generate(checkout, args.game_version, dbs=dbs)
     return 0

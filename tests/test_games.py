@@ -39,14 +39,14 @@ class CatalogueTest(unittest.TestCase):
         self.co = Checkout(make_checkout(tmp.name))
 
     def test_versions_sorted(self):
-        self.assertEqual(games.versions(self.co), ["0.35", "0.36"])
+        self.assertEqual(games.versions(self.co), ["0.35", "0.36", "0.37"])
 
     def test_unknown_version_names_known(self):
         with self.assertRaises(DaocError) as cm:
-            games.entry(self.co, "0.37")
+            games.entry(self.co, "0.99")
         self.assertEqual(cm.exception.code, 2)
-        self.assertIn("0.37", cm.exception.msg)
-        self.assertIn("0.35, 0.36", cm.exception.msg)
+        self.assertIn("0.99", cm.exception.msg)
+        self.assertIn("0.35, 0.36, 0.37", cm.exception.msg)
 
     def test_check_refuses_unknown_game(self):
         with self.assertRaises(DaocError):

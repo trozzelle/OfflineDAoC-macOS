@@ -2,7 +2,6 @@
 import io
 import os
 import subprocess
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -95,9 +94,6 @@ class InstallTest(unittest.TestCase):
         (src / ".git").mkdir(parents=True)
         tools = self.root / "server" / "tools"
         tools.mkdir(parents=True)
-        for version in ("0.35", "0.36"):
-            (self.root / "server" / "patches" / version).mkdir(parents=True)
-            (self.root / "server" / "patches" / version / f"{version}.patch").write_text("")
         # What `git archive` of the navmesh paths yields.
         fixture = Path(self.tmp.name) / "archive"
         (fixture / "world" / "navmesh").mkdir(parents=True)
@@ -106,6 +102,7 @@ class InstallTest(unittest.TestCase):
         build_env = Path(self.tmp.name) / "stubs" / "build.env"
         self.stubs = path_stubs(self.tmp.name, {
             "git": (f'[ "$3" = rev-parse ] && echo "${{HEAD_SHA:-{self.ref}}}"\n'
+                    '[ "$3" = remote ] && [ "$4" = get-url ] && echo "$ORIGIN_URL"\n'
                     'if [ "$3" = archive ]; then\n'
                     '  for a; do case $a in --output=*) out=${a#--output=};; esac; done\n'
                     f'  /usr/bin/tar -cf "$out" -C {fixture} world\n'
@@ -118,7 +115,8 @@ class InstallTest(unittest.TestCase):
         self.build_env = build_env
         for name in ("setup-dotnet.sh", "build-release.sh"):
             os.symlink(self.stubs / name, tools / name)
-        self.env = {"PATH": f"{self.stubs}:/usr/bin:/bin"}
+        self.env = {"PATH": f"{self.stubs}:/usr/bin:/bin",
+                    "ORIGIN_URL": self.co.manifest["versions"]["0.35"]["server"]["upstream"]}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -152,12 +150,20 @@ class InstallTest(unittest.TestCase):
         self.assertIn(self.ref, archive[0])
         self.assertEqual(archive[0][-2:], ["world/navmesh", "world/navmesh-manifest.sha256"])
 
-    def test_patch_precheck_uses_version_dir(self):
-        self.select("0.36")
+    def test_clone_of_another_repo_is_repointed_at_the_pin(self):
+        # A clone made when the pin named catastrophic-impact's repo: the pinned commits live in ours.
+        url = self.co.manifest["versions"]["0.35"]["server"]["upstream"]
+        old = "https://github.com/catastrophic-impact/daoc-offline-linux-server-bots"
+        code, _, err = run_cli(["server", "install"], self.root, env=dict(self.env, ORIGIN_URL=old))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.git_calls("remote")[-1][3:], ["remote", "set-url", "origin", url])
+        calls = stub_calls(self.stubs)
+        self.assertLess(calls.index(self.git_calls("remote")[-1]), calls.index(self.git_calls("fetch")[0]))
+
+    def test_clone_of_the_pinned_repo_is_left_alone(self):
         code, _, err = run_cli(["server", "install"], self.root, env=self.env)
         self.assertEqual(code, 0, err)
-        (apply,) = self.git_calls("apply")
-        self.assertEqual(apply[4:], ["--check", str(self.root / "server" / "patches" / "0.36" / "0.36.patch")])
+        self.assertEqual([c[3:5] for c in self.git_calls("remote")], [["remote", "get-url"]])
 
     def test_035_exports_navmesh_from_navmesh_ref(self):
         navmesh_ref = self.co.manifest["versions"]["0.35"]["server"]["navmesh_ref"]
@@ -168,13 +174,6 @@ class InstallTest(unittest.TestCase):
         (archive,) = self.git_calls("archive")
         self.assertIn(navmesh_ref, archive)
         self.assertNotIn(self.ref, archive)
-
-    def test_missing_patch_dir_is_error(self):
-        shutil.rmtree(self.root / "server" / "patches" / "0.35")
-        code, _, err = run_cli(["server", "install"], self.root, env=self.env)
-        self.assertEqual(code, 1)
-        self.assertIn("no macOS patches for game version 0.35", err)
-        self.assertFalse(self.build_env.exists())
 
     def test_verbose_passes_through(self):
         code, _, err = run_cli(["server", "install", "--verbose"], self.root, env=self.env)

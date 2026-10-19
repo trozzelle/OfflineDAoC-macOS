@@ -112,7 +112,7 @@ first. git's osxkeychain credential helper hits the same lock
 
 ## The Classic classes game.dll takes the same Client patch
 
-Upstream's classic-classes editions (0.35, 0.36) ship a different `game.dll`
+Upstream's classic-classes editions (0.35, 0.36, and 0.37, which keeps 0.36's client) ship a different `game.dll`
 (`f55ed6b0…`) than the Sluaghbinder ones (`e1d471bb…`), in the b release's
 `editions/<version>-no-custom-class/`. The two differ in 251 bytes, none of them at
 the patch sites: `0x11035` (`c705ac77040103000000`), `0x1102B` (`02`) and the `Shared`

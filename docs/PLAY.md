@@ -51,10 +51,10 @@ install (`admin`, `progress`) or Client install (`graphics`) exists.
 daoc server install
 ```
 
-Clones the pinned upstream, checks the macOS patches apply, builds
-`server/dist/daoc-server/`. Output is limited to progress steps and errors; add
-`--verbose` to also see git progress, compiler/MSBuild warnings and the build
-tools' own output.
+Clones the pinned commit of the [server repo](https://github.com/trozzelle/OfflineDAoC-macOS-server)
+(Offline DAoC's server with the macOS fixes) and builds `server/dist/daoc-server/`.
+Output is limited to progress steps and errors; add `--verbose` to also see git
+progress, compiler/MSBuild warnings and the build tools' own output.
 
 ## Install the client
 
@@ -102,11 +102,13 @@ measured against the default.
 | `0.35b` | 0.35 | with the Sluaghbinder | original |
 | `0.36` | 0.36 | classic classes only | original, new |
 | `0.36b` | 0.36 | with the Sluaghbinder | original, new |
+| `0.37` | 0.37 | classic classes only | original, new |
+| `0.37b` | 0.37 | with the Sluaghbinder | original, new |
 
 `daoc game` lists them and marks the selected one; a checkout starts as `0.35b`.
 
 ```bash
-daoc game switch 0.36b
+daoc game switch 0.37b
 ```
 
 The switch checks everything it can first and changes nothing when it refuses:
@@ -118,7 +120,11 @@ game's world (backed up first), and brings each installed client along. If it
 is interrupted, `daoc` says so; run the same switch again to finish it.
 
 Both editions of a version come from one download, so switching between `0.36`
-and `0.36b` downloads nothing and swaps only `game.dll`.
+and `0.36b` downloads nothing and swaps only `game.dll`. 0.37 changed the server,
+its world and the new client but not the original client, so 0.37's original
+client is 0.36's (`daoc` shows it as `0.36b`): moving between 0.36 and 0.37
+rebuilds the server and keeps the installed original client (its release is
+fetched again only if its download in `downloads/` was deleted).
 
 ## The new client
 
@@ -133,6 +139,9 @@ daoc client start                  # or: daoc client start --client new
 - The download comes in 19 parts; each one is checked, unpacked and deleted
   before the next, so the install needs about 36 GB free while it runs. If it is
   interrupted, run it again and it continues.
+- 0.37c is upstream's update of 0.36c: the same 19 parts, then 2 update parts
+  (about 1.7 GB) whose files are each checked against the 0.36c file they replace.
+  It needs about 40 GB free while it installs.
 - It always connects to port 10300 (it has no port setting), so the server must
   run on 10300.
 - `daoc client start` waits until the server accepts the login. The client then

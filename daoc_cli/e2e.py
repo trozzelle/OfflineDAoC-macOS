@@ -13,7 +13,7 @@ port explicitly.
 
 CAUTION: never delete run/admin.sock or run/server.pid while a CoreServer from
 this install is alive — shutdown needs the socket to wake a pending accept
-(patch 010). Check lsof before touching run/. Nothing here removes run/.
+(the server repo's macOS admin-socket fix). Check lsof before touching run/. Nothing here removes run/.
 """
 import os
 import re
@@ -98,10 +98,13 @@ class _Run:
     def server_install(self) -> None:
         self.step("server install")
         if not os.access(self.server_dir / "bin" / "CoreServer", os.X_OK):
+            game = selection.load(self.co).game
             try:
-                server.install(self.co, selection.load(self.co).game.version)
+                server.install(self.co, game.version)
             except DaocError as e:
                 self.abort(f"server install failed: {e.msg}")
+            # As `daoc server install`: the fresh save below starts as the selected edition.
+            server.set_edition(self.co, game.edition)
         else:
             self.say("server already installed")
 

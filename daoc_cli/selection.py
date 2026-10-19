@@ -93,13 +93,13 @@ def require_original(checkout: Checkout, what: str) -> None:
                         "daoc client install --client original", 2)
 
 
-def _version_of_release(checkout: Checkout, release_version: str) -> Optional[str]:
-    """The game Version whose original_client release is release_version."""
-    for version in games.versions(checkout):
-        client = games.entry(checkout, version).get("original_client") or {}
-        if client.get("version") == release_version:
-            return version
-    return None
+def _version_of_release(checkout: Checkout, release_version: str,
+                        prefer: Optional[str] = None) -> Optional[str]:
+    """The game Version whose original_client release is release_version: prefer
+    when it is one of them (0.37 keeps 0.36's release), else the oldest."""
+    found = [v for v in games.versions(checkout)
+             if (games.entry(checkout, v).get("original_client") or {}).get("version") == release_version]
+    return prefer if prefer in found else (found[0] if found else None)
 
 
 def _edition_on_disk(checkout: Checkout, version: str) -> Optional[str]:
@@ -115,8 +115,9 @@ def _edition_on_disk(checkout: Checkout, version: str) -> Optional[str]:
     return None
 
 
-def original_game(checkout: Checkout) -> Optional[Game]:
-    """The Game the Original client install holds; None when it holds no known build."""
+def original_game(checkout: Checkout, prefer: Optional[str] = None) -> Optional[Game]:
+    """The Game the Original client install holds; None when it holds no known build.
+    An install of a release several Versions share is the prefer Version's, when it is one."""
     if not checkout.app_dir.is_dir():
         return None
     record = pins.installed(checkout, "original_client")
@@ -127,7 +128,7 @@ def original_game(checkout: Checkout) -> Optional[Game]:
         if not dll.is_file() or sha256(dll) != pins.LEGACY_CLIENT["game_dll_sha256"]:
             return None
         record = pins.LEGACY_CLIENT
-    version = _version_of_release(checkout, str(record.get("version")))
+    version = _version_of_release(checkout, str(record.get("version")), prefer)
     if version is None:
         return None
     edition = record.get("edition")

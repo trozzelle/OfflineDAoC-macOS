@@ -25,7 +25,7 @@ change leaves them alone; if the new release ships new pins, `daoc` shows
 ## Switching games
 
 `daoc game switch <game>` moves this setup to another game: `0.35`, `0.35b`,
-`0.36` or `0.36b` (see [PLAY.md](PLAY.md#choose-the-game)). Your save moves into
+`0.36`, `0.36b`, `0.37` or `0.37b` (see [PLAY.md](PLAY.md#choose-the-game)). Your save moves into
 the new game's world with a Progress upgrade (below); the previous save is backed
 up first and labelled with the game it belonged to.
 
@@ -40,13 +40,13 @@ Backups are in the server's `data/progress-backups/`.
 
 ## Server, client and graphics
 
-Updates stay within the selected game version; a newer upstream version (0.37)
+Updates stay within the selected game version; a newer upstream version (0.38)
 needs a daoc release, and `--check` says when one is out. Each part has its own
 update:
 
 ```bash
 daoc server update --check     # report what moved upstream; change nothing
-daoc server update             # move the server to the fork's latest commit for this version, and rebuild
+daoc server update             # move the server to the server repo's latest commit for this version, and rebuild
 daoc client update             # take the default client's release again if upstream replaced its files
 daoc graphics update           # move the Graphics project to its latest commit
 ```
@@ -67,12 +67,19 @@ to the pin (the client keeps your graphics patches, as an update does).
 
 ### Server
 
-`daoc server update` follows the fork's `main` only while it is synced to the
-selected version (the fork says which in its source); once the fork moves on to a
-newer version, the update stops and says so. It checks the macOS patches still
-apply before it moves anything. If the server is running it asks before stopping it. The rebuild
+The server is built from [OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server),
+which carries the macOS fixes as commits on one `macos-<version>` branch per game
+version (its `main` is where the next upstream sync lands). `daoc server update` follows the
+selected version's branch only while it is synced to that version (the server
+says which in its source); a branch that moves on to a newer version stops the
+update, which says so. If the server is running it asks before stopping it. The rebuild
 replaces only the program files, so your `config/`, `data/` (accounts,
 characters, bots), `logs/` and `navmesh/` stay in place.
+
+Pins made before the server moved to its own repo named catastrophic-impact's
+fork; the first `daoc server install` after the move points `upstream/server/`
+at the new repo. A Server install built from one of those pins shows "rebuild
+due" until then.
 
 ### Client
 
@@ -83,6 +90,8 @@ original client it re-applies the Client patch to the new `game.dll`. If that
 shipped update" and leaves your client as it was. Graphics patches you had on
 are carried across to the new client. For the new client it downloads the release
 again and swaps it in only once complete; the installed client stays until then.
+From 0.37 the new client is an update of 0.36c: `daoc` installs the 0.36c release,
+then applies the update, checking each file it replaces is the released one.
 
 ## Saved progress
 

@@ -1,7 +1,8 @@
 // Ported from Offline DAoC's progress importer (shadowofze/OfflineDAoC,
 // source/tools/OfflineDaoc.ProgressImport/ImportEngine.cs at v0.35 d337d18, GPL-3.0; upstream's v0.36
 // changes (0c767c4) add only its release label and the Windows new-client process check, which
-// daoc covers on macOS by stopping the client first): the same table policy (progress-policy.json),
+// daoc covers on macOS by stopping the client first, and v0.37's (ab4df02) only its release label and
+// offline_world_bot_guild in progress-policy.json): the same table policy (progress-policy.json),
 // per-table row and content verification, item-template and house handling, Sluaghbinder edition
 // guard, and rollback. Adapted to this server folder (data/, defaults/, config/edition, run/): no
 // account.txt, account roles are kept, an in-place world upgrade keeps the install's own settings,
@@ -227,6 +228,9 @@ public static class ImportEngine
                     Exec(c, $"CREATE TEMP TABLE dropped_unique AS SELECT DISTINCT UTemplate_Id AS Id FROM main.Inventory WHERE OwnerID IN ({owners}) AND COALESCE(UTemplate_Id,'')<>''");
                     Exec(c, $"DELETE FROM main.Inventory WHERE OwnerID IN ({owners})");
                     Exec(c, "DELETE FROM main.ItemUnique WHERE Id_nb IN (SELECT Id FROM dropped_unique) AND Id_nb NOT IN (SELECT UTemplate_Id FROM main.Inventory WHERE COALESCE(UTemplate_Id,'')<>'')");
+                    // Their guild memberships (0.37 on) go with them.
+                    if (targetTables.Contains("offline_world_bot_guild"))
+                        Exec(c, $"DELETE FROM main.offline_world_bot_guild WHERE BotId IN (SELECT BotId FROM main.offline_world_bots WHERE ClassId={SluaghbinderClass})");
                     long bots = Scalar(c, $"SELECT count(*) FROM main.offline_world_bots WHERE ClassId={SluaghbinderClass}");
                     Exec(c, $"DELETE FROM main.offline_world_bots WHERE ClassId={SluaghbinderClass}; DROP TABLE dropped_unique;");
                     notes.Add($"Left behind by choice: {bots} autonomous Sluaghbinder bot(s) and the {items} item(s) they carried.");
