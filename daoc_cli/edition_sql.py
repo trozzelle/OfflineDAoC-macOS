@@ -1,12 +1,14 @@
 """`daoc dev edition-sql <version>`: the Sluaghbinder overlay for a game Version.
 
-The server fork builds the Classic classes world. Upstream ships both
+The server repo builds the Classic classes world. Upstream ships both
 Editions' databases inside the Version's b release archive:
 runtime/data/opendaoc.sqlite3.db (Sluaghbinder) and
 editions/<version>-no-custom-class/runtime/data/opendaoc.sqlite3.db (Classic
-classes). diff() turns what the Sluaghbinder database has on top of the
-Classic one into SQL, which build-release.sh applies to a copy of the fork's
-world (defaults/world-sluaghbinder.sqlite). It refuses any difference outside
+classes); from 0.37 a release is an update of an older one and ships none, so
+the two are given (made with the server repo's apply-release-update.py). diff()
+turns what the Sluaghbinder database has on top of the Classic one into SQL,
+which build-release.sh applies to a copy of the server repo's world
+(defaults/world-sluaghbinder.sqlite). It refuses any difference outside
 ALLOWED, so the overlay can never carry anything but the Edition's own rows;
 widen ALLOWED only for Sluaghbinder rows, with a comment saying why.
 """
@@ -30,8 +32,11 @@ ALLOWED: Dict[str, Optional[str]] = {
     "ClassXSpecialization": None,
 }
 # Tables whose rows are matched by a natural key rather than their primary key:
-# the fork's world builds its own ids for them.
+# the server repo's world builds its own ids for them.
 NATURAL_KEY = {"ServerProperty": "Key"}
+# Bookkeeping, not world: upstream's patcher records each world update it applied (with its
+# time) in offline_patch_log, so two databases updated apart never match there.
+NOT_WORLD = {"offline_patch_log"}
 
 OUT = Path("server") / "world" / "editions"
 DB = "runtime/data/opendaoc.sqlite3.db"
@@ -93,7 +98,7 @@ def diff(b_db: Path, plain_db: Path) -> List[str]:
     b = sqlite3.connect(f"file:{b_db}?mode=ro", uri=True)
     plain = sqlite3.connect(f"file:{plain_db}?mode=ro", uri=True)
     try:
-        b_tables, plain_tables = set(_tables(b)), set(_tables(plain))
+        b_tables, plain_tables = set(_tables(b)) - NOT_WORLD, set(_tables(plain)) - NOT_WORLD
         refused = [f"{t} (table only in one edition)" for t in sorted(b_tables ^ plain_tables)]
         statements: List[str] = []
         for table in sorted(b_tables & plain_tables):
@@ -162,17 +167,17 @@ def _extract(archive: Path, member: str, dest: Path) -> Path:
 
 
 def generate(checkout: Checkout, version: str,
-             fetch_url: Optional[release.Downloader] = None) -> Path:
+             fetch_url: Optional[release.Downloader] = None,
+             dbs: Optional[Tuple[Path, Path]] = None) -> Path:
     """Write server/world/editions/<version>/sluaghbinder.sql from the Version's
-    original_client release; returns its path."""
-    pin = pins.effective(checkout, "original_client", version)
-    archive = release.download_release(pin, checkout.downloads / f"v{pin['version']}",
-                                       fetch_url=fetch_url or release.download)
-    root = pin["root_folder"]
+    original_client release, or from dbs (Sluaghbinder, Classic classes) when
+    given; returns its path. A Version whose release is an update of an older
+    one's (0.37 on) ships no databases, so it needs dbs."""
     with tempfile.TemporaryDirectory(prefix="daoc-edition-") as tmp:
-        b_db = _extract(archive, f"{root}/{DB}", Path(tmp) / "b.db")
-        plain_db = _extract(archive, f"{root}/editions/{version}-no-custom-class/{DB}",
-                            Path(tmp) / "plain.db")
+        if dbs is None:
+            b_db, plain_db = _release_dbs(checkout, version, Path(tmp), fetch_url)
+        else:
+            b_db, plain_db = dbs
         statements = diff(b_db, plain_db)
         text = render(statements, sha256(b_db), sha256(plain_db))
     out = checkout.root / OUT / version / "sluaghbinder.sql"
@@ -180,3 +185,19 @@ def generate(checkout: Checkout, version: str,
     out.write_text(text, encoding="utf-8")
     say(f"wrote {out.relative_to(checkout.root)} ({len(statements)} statements)")
     return out
+
+
+def _release_dbs(checkout: Checkout, version: str, tmp: Path,
+                 fetch_url: Optional[release.Downloader]) -> Tuple[Path, Path]:
+    pin = pins.effective(checkout, "original_client", version)
+    if pin["version"].rstrip("bc") != version:
+        raise DaocError(
+            f"game version {version}'s original client is the v{pin['version']} release, so its "
+            "databases are that version's; give this version's own with --b-db and --plain-db "
+            "(the server repo's tools/world/apply-release-update.py makes them from the "
+            "release's game patch)", 2)
+    archive = release.download_release(pin, checkout.downloads / f"v{pin['version']}",
+                                       fetch_url=fetch_url or release.download)
+    root = pin["root_folder"]
+    return (_extract(archive, f"{root}/{DB}", tmp / "b.db"),
+            _extract(archive, f"{root}/editions/{version}-no-custom-class/{DB}", tmp / "plain.db"))

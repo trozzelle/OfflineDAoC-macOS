@@ -5,11 +5,11 @@
 > original client and game data remain their property.
 
 Run the [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC) server and game
-clients on Apple Silicon. Choose the game, 0.35 or 0.36, with the Sluaghbinder
-(`0.35b`, `0.36b`) or the classic classes only (`0.35`, `0.36`). The server builds
-natively for arm64. The original 1.127 Windows client runs under Wine, by default
-an x86_64 Wine under Rosetta 2, or an arm64 Wine with FEX instead, which needs no
-Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)). From 0.36,
+clients on Apple Silicon. Choose the game, 0.35, 0.36 or 0.37, with the Sluaghbinder
+(`0.35b`, `0.36b`, `0.37b`) or the classic classes only (`0.35`, `0.36`, `0.37`). The
+server builds natively for arm64. The original 1.127 Windows client runs under Wine, by
+default an x86_64 Wine under Rosetta 2, or an arm64 Wine with FEX instead, which needs
+no Rosetta (opt-in, see [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta)). From 0.36,
 upstream's new Godot client runs natively too, beside the original one.
 
 <p align="center">
@@ -17,14 +17,17 @@ upstream's new Godot client runs natively too, beside the original one.
 
 ## Built on
 
-This repo only adds install scaffolding and macOS compatibility patches. Go
-support the upstream projects:
+This repo adds install scaffolding and macOS compatibility; the server's macOS
+changes live in its own repo. Go support the upstream projects:
 
 - [OpenDAoC](https://github.com/OpenDAoC/OpenDAoC-Core): the open DAoC server emulator
 - [OfflineDAoC](https://github.com/shadowofze/OfflineDAoC): the offline bundle
   built on OpenDAoC, and the source of the client
-- [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots):
-  the pinned OpenDAoC fork (Offline DAoC 0.35 and 0.36) the server builds from
+- [OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server):
+  the server the build uses: Offline DAoC's server code, world data and navmeshes,
+  with its admin host, synced to each Offline DAoC version, plus the macOS fixes. It
+  started as a fork of catastrophic-impact's
+  [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots)
 - [athei/wine-build](https://github.com/athei/wine-build): the CrossOver-based
   macOS Wine, with [x87sidecar](https://github.com/athei/x87sidecar) (fast x87
   math on ARM64) and [mtld3d](https://github.com/athei/mtld3d) (Direct3D 9 on Metal)
@@ -80,8 +83,8 @@ and clients together:
 
 ```bash
 daoc game                         # the games and which one is selected
-daoc game switch 0.36b            # 0.35, 0.35b, 0.36 or 0.36b
-daoc client install --client new  # 0.36 and later: the new client (about 34 GB), now the default
+daoc game switch 0.37b            # 0.35, 0.35b, 0.36, 0.36b, 0.37 or 0.37b
+daoc client install --client new  # 0.36 and later: the new client (about 34 GB; 0.37: 36 GB), now the default
 daoc client start                 # the default client; --client original|new picks one
 ```
 

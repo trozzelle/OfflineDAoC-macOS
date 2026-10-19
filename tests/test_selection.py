@@ -56,6 +56,14 @@ class SelectionTest(unittest.TestCase):
         self.original_install({"version": "0.36b", "edition": "classic"})
         self.assertEqual(selection.infer(self.co), Selection(Game("0.36", "classic"), "original"))
 
+    def test_a_release_two_versions_share_is_the_preferred_versions(self):
+        # 0.37's original client is the v0.36b release: an install of it serves both Versions.
+        self.original_install({"version": "0.36b", "edition": "sluaghbinder"})
+        self.assertEqual(selection.original_game(self.co, prefer="0.37"), Game("0.37", "sluaghbinder"))
+        self.assertEqual(selection.original_game(self.co, prefer="0.36"), Game("0.36", "sluaghbinder"))
+        self.assertEqual(selection.original_game(self.co, prefer="0.35"), Game("0.36", "sluaghbinder"))
+        self.assertEqual(selection.infer(self.co).game, Game("0.36", "sluaghbinder"))
+
     def test_infer_legacy_record_without_edition(self):
         self.original_install({"version": "0.35b"}, game_dll="ff" * 32,
                               game_dll_orig=pins.LEGACY_CLIENT["game_dll_sha256"])

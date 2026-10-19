@@ -3,7 +3,7 @@
 #
 #   tools/build-release.sh [--verbose] -> dist/daoc-server/ and dist/daoc-server-<version>-macos-arm64.zip
 #
-#   --verbose   show compiler/MSBuild warnings, cmake, patch and WorldBuilder output, and
+#   --verbose   show compiler/MSBuild warnings, cmake and WorldBuilder output, and
 #               database download progress
 #
 # Needs the .NET 10 SDK, cmake, clang (Xcode Command Line Tools) and curl. The result needs none
@@ -12,7 +12,7 @@
 # Navmeshes come from DAOC_NAVMESH_SRC/world/navmesh (installed into dist/daoc-server); no client
 # files are included.
 #
-# macOS port of the Linux repo's tools/build-release.sh. Differences from Linux:
+# macOS port of the server repo's (Linux) tools/build-release.sh. Differences from Linux:
 #   - RID is osx-arm64 (Apple Silicon; the Linux repo targets linux-x64).
 #   - The native pathing library builds as libDetour.dylib and ships as bin/lib/Detour.dylib.
 #     .NET probes "lib/Detour" as "lib/Detour.dylib" on macOS, matching the Linux behaviour where
@@ -43,11 +43,11 @@ DOTNET="${DOTNET:-${DOTNET_ROOT:-$HOME/.dotnet}/dotnet}"
 [[ -x $DOTNET ]] || DOTNET="${DOTNET:-$(command -v dotnet || true)}"
 VERSION="${VERSION:-$(git -C "$HERE" describe --tags --always 2>/dev/null || echo dev)}"
 OUT="$HERE/dist/daoc-server"
-# The game Version being built (`daoc server install` sets both): its port patches live in
-# patches/<version>/, and its navmeshes in DAOC_NAVMESH_SRC/world/navmesh/.
+# The game Version being built (`daoc server install` sets both): its Sluaghbinder overlay lives in
+# world/editions/<version>/, and its navmeshes in DAOC_NAVMESH_SRC/world/navmesh/. The macOS source
+# changes are commits in the server repo itself (trozzelle/OfflineDAoC-macOS-server).
 GAME_VERSION="${DAOC_GAME_VERSION:?build-release: set DAOC_GAME_VERSION (daoc server install does)}"
 NAVMESH_SRC="${DAOC_NAVMESH_SRC:?build-release: set DAOC_NAVMESH_SRC (daoc server install does)}"
-[[ -d $HERE/patches/$GAME_VERSION ]] || { echo "build-release: no patches/$GAME_VERSION" >&2; exit 1; }
 [[ -f $HERE/world/editions/$GAME_VERSION/sluaghbinder.sql ]] ||
   { echo "build-release: no world/editions/$GAME_VERSION/sluaghbinder.sql (daoc dev edition-sql $GAME_VERSION)" >&2; exit 1; }
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
@@ -83,9 +83,9 @@ if ((${#missing[@]})); then
   exit 1
 fi
 
-# Build from a snapshot of the reference repo's source so the macOS patches in patches/ can be
-# applied without touching the reference checkout. Only source projects are copied (no build
-# outputs); SNAPSHOT is reused between runs (rsync-style refresh) to keep rebuilds fast.
+# Build from a snapshot of the server repo's source so build outputs never land in the reference
+# checkout. Only source projects are copied (no build outputs); SNAPSHOT is reused between runs
+# (rsync-style refresh) to keep rebuilds fast.
 SNAPSHOT="$HERE/build/src"
 mkdir -p "$SNAPSHOT"
 echo "== Syncing source snapshot from $REPO/src"
@@ -96,11 +96,6 @@ rsync -a --delete \
 # The WorldBuilder needs a config dir for its serverconfig (the build only needs it to exist).
 [[ -f $SNAPSHOT/CoreServer/config/serverconfig.xml ]] ||
   cp "$SNAPSHOT/CoreServer/config/serverconfig.example.xml" "$SNAPSHOT/CoreServer/config/serverconfig.xml"
-for p in "$HERE/patches/$GAME_VERSION"/*.patch; do
-  [[ -e $p ]] || break
-  echo "== Applying $(basename "$p")"
-  quiet patch -p1 -d "$SNAPSHOT/.." -i "$p" --forward || { echo "build-release: patch failed: $p" >&2; exit 1; }
-done
 
 # Never replace bin/ under a live server.
 if [[ -x $OUT/daoc-server.sh ]] && DAOC_HOME="$OUT" "$OUT/daoc-server.sh" status | grep -q '^running'; then
@@ -181,7 +176,7 @@ mkdir -p "$OUT/defaults"
 
 # The Sluaghbinder Edition's world: the Classic world above plus upstream's Edition rows
 # (world/editions/<version>/sluaghbinder.sql, written by `daoc dev edition-sql`). A statement that
-# fails (e.g. a key the fork's world already uses) fails the build: the fork's world diverged.
+# fails (e.g. a key the server repo's world already uses) fails the build: that world diverged.
 echo "== Sluaghbinder world (world/editions/$GAME_VERSION)"
 overlay="$HERE/world/editions/$GAME_VERSION/sluaghbinder.sql"
 sluagh="$OUT/defaults/world-sluaghbinder.sqlite"
@@ -198,6 +193,12 @@ ln -s ../logs "$OUT/bin/logs"
 
 cp "$REPO/deploy/serverconfig.template.xml" "$OUT/defaults/serverconfig.xml"
 cp "$SNAPSHOT/GameServer/config/logconfig.xml" "$SNAPSHOT/GameServer/config/invalidnames.txt" "$OUT/defaults/"
+# The classic quests' data, which the server reads next to the program: classic-quests.json (step
+# markers, event spawns, quest monsters; ClassicQuests) and classic-quest-guides.json (the Quest
+# Guide's pages; QuestGuide). Shipped by the server repo from 0.37 on; without them those are off.
+for f in classic-quests.json classic-quest-guides.json; do
+  if [[ -f $REPO/world/$f ]]; then cp "$REPO/world/$f" "$OUT/bin/"; fi
+done
 cp "$HERE/deploy/daoc-server.sh" "$HERE/deploy/daoc-admin" "$HERE/deploy/daoc-progress" "$HERE/deploy/navmesh-install.sh" \
   "$REPO/deploy/release.conf" "$OUT/"
 cp "$REPO/deploy/README-release.md" "$OUT/README.md"
@@ -211,13 +212,13 @@ find "$OUT/bin" -type f \( -perm -111 -o -name '*.dylib' \) -print0 | while IFS=
   file "$f" | grep -q Mach-O && codesign --force --sign - "$f" >/dev/null 2>&1 || true
 done
 
-# Navmeshes come from the fork's world/navmesh/ (one .xz per mesh plus navmesh-manifest.sha256),
+# Navmeshes come from the server repo's world/navmesh/ (one .xz per mesh plus navmesh-manifest.sha256),
 # exported by `daoc server install` into DAOC_NAVMESH_SRC from the Version's navmesh commit.
 # Verify them and install them into the folder so dist/daoc-server is ready to start.
 echo "== Navmeshes (world/navmesh)"
 DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-xz "$NAVMESH_SRC/world/navmesh"
 
-# The release zip leaves the navmeshes out (they come from the fork's world/navmesh/).
+# The release zip leaves the navmeshes out (they come from the server repo's world/navmesh/).
 zipfile="$HERE/dist/daoc-server-$VERSION-macos-arm64.zip"
 rm -f "$zipfile"
 # User state (config/, data/, logs/, run/) never goes into the release zip. -y stores the bin/ links

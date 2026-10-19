@@ -1,4 +1,4 @@
-"""daoc server update: patch pre-check, stop-and-ask, Local pin + rebuild, Progress upgrade ask.
+"""daoc server update: stop-and-ask, Local pin + rebuild, Progress upgrade ask.
 
 git, the build (server.install), daoc-server.sh status and the GitHub lookup are stubbed.
 """
@@ -34,10 +34,6 @@ class ServerUpdateTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = make_checkout(self.tmp.name)
         self.co = Checkout(self.root)
-        patches = self.root / "server" / "patches" / "0.35"
-        patches.mkdir(parents=True)
-        for name in ("020-b.patch", "010-a.patch", "README.md"):
-            (patches / name).write_text("patch\n")
         self.co.server_dir.mkdir(parents=True)
         for name in ("daoc-server.sh", "daoc-progress"):
             (self.co.server_dir / name).write_text("#!/bin/sh\n")
@@ -47,7 +43,6 @@ class ServerUpdateTest(unittest.TestCase):
         self.world.write_bytes(b"old world")
         self.manifest = (self.root / "manifest.json").read_bytes()
         self.latest = {"upstream": self.co.manifest["versions"]["0.35"]["server"]["upstream"], "ref": NEW_SHA}
-        self.failing = None
         self.states = [(False, "stopped")]
         self.new_world = b"new world"
         self.build_fails = False
@@ -60,10 +55,7 @@ class ServerUpdateTest(unittest.TestCase):
     def fake_run(self, argv, cwd=None, env=None, verbose=False, check=True):
         args = [str(a) for a in argv]
         self.calls.append(args)
-        rc = 0
-        if args[0] == "git" and "--check" in args and args[-1].endswith(str(self.failing)):
-            rc = 1
-        return subprocess.CompletedProcess(args, rc, "", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
 
     def fake_status(self, checkout):
         return self.states.pop(0) if len(self.states) > 1 else self.states[0]
@@ -124,23 +116,6 @@ class ServerUpdateTest(unittest.TestCase):
         self.assertNotIn("already at", err)
         self.assertEqual(self.installs, [self.latest])
         self.assertIsNone(self.local())
-
-    def test_failing_patch_leaves_the_pin_unchanged(self) -> None:
-        self.failing = "020-b.patch"
-        code, _, err = self.update()
-        self.assertEqual(code, 1)
-        self.assertIn("020-b.patch no longer applies", err)
-        self.assertIsNone(self.local())
-        self.assertEqual(self.installs, [])
-        patches = self.co.root / "server" / "patches" / "0.35"
-        calls = self.git_calls()
-        self.assertEqual(calls[0][:4], ["clone", "--quiet", "--filter=blob:none", self.latest["upstream"]])
-        self.assertEqual(calls[1:], [
-            ["checkout", "--quiet", "--detach", NEW_SHA],
-            ["apply", "--check", str(patches / "010-a.patch")],
-            ["apply", str(patches / "010-a.patch")],
-            ["apply", "--check", str(patches / "020-b.patch")],
-        ])
 
     def test_running_off_a_tty_is_refused_without_a_rebuild(self) -> None:
         self.states = [(True, "running (pid 42)")]

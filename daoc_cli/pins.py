@@ -85,7 +85,7 @@ def short(group: str, fields: Optional[Dict[str, Any]]) -> str:
 
 # Fields that also tell two client pins of one tag apart: upstream can replace a
 # tag's assets. Compared only when both pins carry them (an old install record may not).
-_IDENTITY = {"original_client": ("archive_sha256",), "new_client": ("parts",)}
+_IDENTITY = {"original_client": ("archive_sha256",), "new_client": ("parts", "base")}
 
 
 def same(group: str, a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:

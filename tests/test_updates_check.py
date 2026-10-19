@@ -17,7 +17,7 @@ from daoc_cli.selection import Selection
 API = "https://api.github.com/repos/"
 RAW = "https://raw.githubusercontent.com/"
 NEW_SHA = "1234567890ab" + "c" * 28
-FORK = "catastrophic-impact/daoc-offline-linux-server-bots"
+FORK = "trozzelle/OfflineDAoC-macOS-server"
 
 
 def marker(version):
@@ -43,6 +43,18 @@ def newclient_manifest(pin):
     }
 
 
+def client_patch_manifest(pin, parts=None):
+    """An update release's (0.37 on) download-manifest.json, its ClientPatch as pinned."""
+    parts = parts or [{"Name": p["name"], "Bytes": p["bytes"], "SHA256": p["sha256"].upper(),
+                       "UnpackedBytes": 0, "Files": 1} for p in pin["parts"]]
+    parts[0]["UnpackedBytes"] = pin["unpacked_bytes"]
+    return {
+        "Version": pin["version"], "Mode": "patch", "BaseVersions": ["0.36"],
+        "GamePatch": {"Release": pin["version"][:-1] + "b"},
+        "ClientPatch": {"Release": pin["version"], "RootFolder": pin["root_folder"], "Parts": parts},
+    }
+
+
 def snapshot(root: Path):
     return {str(p.relative_to(root)): p.read_bytes() if p.is_file() else None
             for p in sorted(root.rglob("*"))}
@@ -54,7 +66,6 @@ class Base(unittest.TestCase):
         self.root = make_checkout(self.tmp.name)
         self.co = Checkout(self.root)
         m = self.co.manifest
-        self.server_api = API + FORK + "/commits/main"
         self.gfx_api = API + m["graphics"]["repo"][len("https://github.com/"):] + "/commits/main"
         self.releases_api = API + "shadowofze/OfflineDAoC/releases?per_page=30"
         self.responses = {self.releases_api: [{"tag_name": t} for t in ("v0.36c", "v0.36b", "v0.36", "v0.35b")]}
@@ -65,6 +76,10 @@ class Base(unittest.TestCase):
 
     def select(self, game, client="original"):
         selection.save(self.co, Selection(games.parse(game), client))
+
+    def server_api(self, version="0.36"):
+        """Where the server pin of version resolves its branch head."""
+        return API + FORK + "/commits/" + self.pin("server", version).get("branch", "main")
 
     def raw(self, sha, path="src/Admin.Host/AdminService.cs"):
         return f"{RAW}{FORK}/{sha}/{path}"
@@ -92,7 +107,7 @@ class Base(unittest.TestCase):
         """Latest == Shipped for every pin of version unless told otherwise."""
         sha = main or self.pin("server", version)["ref"]
         self.responses.update({
-            self.server_api: {"sha": sha},
+            self.server_api(version): {"sha": sha},
             self.raw(sha): marker(marked or version),
             self.gfx_api: {"sha": gfx or self.co.manifest["graphics"]["ref"]},
         })
@@ -100,40 +115,50 @@ class Base(unittest.TestCase):
         self.responses[self.asset(original)] = release_manifest(original)
         if games.new_client_supported(self.co, version):
             new = self.pin("new_client", version)
-            self.responses[self.asset(new)] = newclient_manifest(new)
+            if new.get("base"):
+                self.responses[self.asset(new)] = client_patch_manifest(new)
+                self.responses[self.asset(new["base"])] = newclient_manifest(new["base"])
+            else:
+                self.responses[self.asset(new)] = newclient_manifest(new)
 
 
 class ResolveLatestTest(Base):
-    def test_server_latest_ok_when_marker_matches(self) -> None:
-        self.responses.update({self.server_api: {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.36")})
+    def test_server_follows_its_versions_branch(self) -> None:
+        # 0.36's fixes land on macos-0.36 while main has moved on to a newer version.
+        self.responses.update({self.server_api("0.36"): {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.36"),
+                               API + FORK + "/commits/main": {"sha": "f" * 40}, self.raw("f" * 40): marker("0.37")})
         with self.serve():
             server = updates.resolve_latest(self.co, "server", "0.36")
-        self.assertEqual(server, {"upstream": self.pin("server", "0.36")["upstream"], "ref": NEW_SHA})
+        self.assertEqual(server, dict(self.pin("server", "0.36"), ref=NEW_SHA))
+        self.assertEqual(server["branch"], "macos-0.36")
 
-    def test_marker_in_the_older_layout(self) -> None:
-        self.responses.update({self.server_api: {"sha": NEW_SHA},
+    def test_marker_in_the_older_layout_keeps_navmesh_ref(self) -> None:
+        self.responses.update({self.server_api("0.35"): {"sha": NEW_SHA},
                                self.raw(NEW_SHA, "src/GameServer/admin/AdminService.cs"): marker("0.35")})
         with self.serve():
-            self.assertEqual(updates.resolve_latest(self.co, "server", "0.35")["ref"], NEW_SHA)
+            server = updates.resolve_latest(self.co, "server", "0.35")
+        self.assertEqual(server["ref"], NEW_SHA)
+        # The 0.35 branch has no navmeshes of its own: a Local pin must keep naming the commit that has.
+        self.assertEqual(server["navmesh_ref"], self.pin("server", "0.35")["navmesh_ref"])
 
     def test_server_other_version_refused(self) -> None:
-        self.responses.update({self.server_api: {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.37")})
+        self.responses.update({self.server_api("0.37"): {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.38")})
         with self.serve(), self.assertRaises(updates.OtherVersion) as cm:
-            updates.resolve_latest(self.co, "server", "0.36")
-        self.assertEqual((cm.exception.found, cm.exception.code), ("0.37", 2))
-        self.assertIn("fork main is now 0.37; this daoc release doesn't support it yet", cm.exception.msg)
+            updates.resolve_latest(self.co, "server", "0.37")
+        self.assertEqual((cm.exception.found, cm.exception.code), ("0.38", 2))
+        self.assertIn("server main is now 0.38; this daoc release doesn't support it yet", cm.exception.msg)
 
     def test_server_update_refuses_other_version_before_anything(self) -> None:
-        self.select("0.36b")
-        self.responses.update({self.server_api: {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.37")})
+        self.select("0.37b")
+        self.responses.update({self.server_api("0.37"): {"sha": NEW_SHA}, self.raw(NEW_SHA): marker("0.38")})
         with self.serve():
             code, _, err = run_cli(["server", "update"], self.root)
         self.assertEqual(code, 2)
-        self.assertIn("fork main is now 0.37", err)
+        self.assertIn("server main is now 0.38", err)
         self.assertFalse((self.root / "upstream").exists())
 
     def test_marker_missing_refused(self) -> None:
-        self.responses.update({self.server_api: {"sha": NEW_SHA}})
+        self.responses.update({self.server_api(): {"sha": NEW_SHA}})
         with self.serve(), self.assertRaises(updates.OtherVersion) as cm:
             updates.resolve_latest(self.co, "server", "0.36")
         self.assertIsNone(cm.exception.found)
@@ -177,16 +202,32 @@ class ResolveLatestTest(Base):
         self.assertEqual(latest["parts"][0]["sha256"], new["parts"][0]["sha256"].lower())
         self.assertEqual(latest["unpacked_bytes"], 33758711327)
 
+    def test_update_release_new_client_round_trips(self) -> None:
+        # 0.37c is an update of 0.36c: its ClientPatch and the base release re-read into the pin's shape.
+        new = self.pin("new_client", "0.37")
+        self.responses[self.asset(new)] = client_patch_manifest(new)
+        self.responses[self.asset(new["base"])] = newclient_manifest(new["base"])
+        with self.serve():
+            self.assertEqual(updates.resolve_latest(self.co, "new_client", "0.37"), new)
+        replaced = dict(new["parts"][1], sha256="a" * 64)
+        self.responses[self.asset(new)] = client_patch_manifest(new, parts=[
+            {"Name": p["name"], "Bytes": p["bytes"], "SHA256": p["sha256"], "UnpackedBytes": 0}
+            for p in (new["parts"][0], replaced)])
+        with self.serve():
+            latest = updates.resolve_latest(self.co, "new_client", "0.37")
+        self.assertFalse(pins.same("new_client", new, latest))
+        self.assertEqual(latest["base"], new["base"])
+
     def test_newer_upstream_named(self) -> None:
         with self.serve():
             self.assertIsNone(updates.newer_upstream(self.co))
-        self.responses[self.releases_api] = [{"tag_name": t} for t in ("v0.37b", "v0.37", "v0.36c", "v0.36")]
+        self.responses[self.releases_api] = [{"tag_name": t} for t in ("v0.38b", "v0.38", "v0.37c", "v0.36")]
         with self.serve():
-            self.assertEqual(updates.newer_upstream(self.co), "0.37")
+            self.assertEqual(updates.newer_upstream(self.co), "0.38")
 
     def test_rate_limit_is_named(self) -> None:
         for code in (403, 429):
-            self.responses = {self.server_api: code}
+            self.responses = {self.server_api(): code}
             with self.serve(), self.assertRaises(DaocError) as e:
                 updates.resolve_latest(self.co, "server", "0.36")
             self.assertIn("rate limit", e.exception.msg)
@@ -221,21 +262,22 @@ class CheckTest(Base):
         self.assertIn("original_client@0.36  Shipped 0.36b", results[1][1])
 
     def test_check_reports_other_version_without_raising(self) -> None:
-        # 0.35 is selected; the fork's main has moved on to 0.36.
-        self.serve_shipped("0.35", main=NEW_SHA, marked="0.36")
+        # 0.37 is selected; the server repo's main has moved on to 0.38.
+        self.select("0.37b")
+        self.serve_shipped("0.37", main=NEW_SHA, marked="0.38")
         server, client, _ = self.check_all()
         self.assertEqual(server[0], 0)
-        self.assertIn("server@0.35", server[1])
+        self.assertIn("server@0.37", server[1])
         self.assertTrue(server[1].rstrip().endswith(
-            "fork main is now 0.36; this daoc release doesn't support it yet"), server[1])
+            "server main is now 0.38; this daoc release doesn't support it yet"), server[1])
         self.assertTrue(client[1].rstrip().endswith("up to date"), client[1])
 
     def test_newer_upstream_is_appended(self) -> None:
         self.select("0.36b")
         self.serve_shipped()
-        self.responses[self.releases_api] = [{"tag_name": "v0.37b"}]
+        self.responses[self.releases_api] = [{"tag_name": "v0.38b"}]
         server, client, gfx = self.check_all()
-        note = "(0.37 is out upstream; this daoc release doesn't support it yet)"
+        note = "(0.38 is out upstream; this daoc release doesn't support it yet)"
         self.assertTrue(server[1].rstrip().endswith(note), server[1])
         self.assertTrue(client[1].rstrip().endswith(note), client[1])
         self.assertNotIn(note, gfx[1])

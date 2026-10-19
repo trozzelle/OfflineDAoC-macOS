@@ -3,10 +3,11 @@
 Updates stay within the selected game Version. resolve_latest asks GitHub
 (unauthenticated) for a pin's latest upstream and returns it in the shape of
 its manifest.json entry:
-  - server: the `main` sha of the Version's `server.upstream`, but only while
-    that commit says it is synced to the Version (OfflineDaocVersion in the
-    fork's admin host, MARKER_PATHS); otherwise OtherVersion: a newer game
-    Version needs a daoc release, not a Local pin.
+  - server: the head of the Version's `server.branch` (default `main`) in its
+    `server.upstream`, but only while that commit says it is synced to the
+    Version (OfflineDaocVersion in the server repo's admin host, MARKER_PATHS);
+    otherwise OtherVersion: a newer game Version needs a daoc release, not a
+    Local pin.
   - original_client / new_client: the Version's pinned release tag re-read, since
     upstream can replace a tag's assets. The editions' pristine game.dll hashes
     are kept only while the archive is the same one.
@@ -60,14 +61,14 @@ def _repo(url: str, what: str) -> Tuple[str, str]:
     return parts[0], repo
 
 
-def _main_sha(owner: str, repo: str) -> str:
-    sha = _get_json(f"{API}/{owner}/{repo}/commits/main").get("sha")
+def _head_sha(owner: str, repo: str, branch: str = "main") -> str:
+    sha = _get_json(f"{API}/{owner}/{repo}/commits/{branch}").get("sha")
     if not isinstance(sha, str) or not sha:
-        raise DaocError(f"GitHub returned no sha for {owner}/{repo} main")
+        raise DaocError(f"GitHub returned no sha for {owner}/{repo} {branch}")
     return sha
 
 
-# Where the server fork names the game Version a commit is synced to: the admin
+# Where the server repo names the game Version a commit is synced to: the admin
 # host's OfflineDaocVersion, in its 0.36 layout first, then the 0.35 one.
 MARKER_PATHS = ("src/Admin.Host/AdminService.cs", "src/GameServer/admin/AdminService.cs")
 _MARKER = re.compile(r'OfflineDaocVersion\s*=\s*"(\d+\.\d+)"')
@@ -76,11 +77,11 @@ NOT_YET = "this daoc release doesn't support it yet"
 
 
 class OtherVersion(DaocError):
-    """The fork's latest commit is synced to another game Version than the selected one."""
+    """The server branch's latest commit is synced to another game Version than the selected one."""
 
-    def __init__(self, found: Optional[str], version: Optional[str]) -> None:
+    def __init__(self, found: Optional[str], version: Optional[str], branch: str = "main") -> None:
         what = f"is now {found}" if found else "names no game version"
-        super().__init__(f"fork main {what}; {NOT_YET} (selected game version {version})", 2)
+        super().__init__(f"server {branch} {what}; {NOT_YET} (selected game version {version})", 2)
         self.found = found
 
 
@@ -99,7 +100,7 @@ def _get_text(url: str) -> Optional[str]:
 
 
 def fork_version(upstream: str, ref: str) -> Optional[str]:
-    """The game Version the fork's commit ref says it is synced to; None when it names none."""
+    """The game Version the server repo's commit ref says it is synced to; None when it names none."""
     owner, repo = _repo(upstream, "server.upstream")
     for path in MARKER_PATHS:
         text = _get_text(f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}")
@@ -153,8 +154,8 @@ def _latest_original(checkout: Checkout, version: str) -> Dict[str, Any]:
     return fields
 
 
-def _latest_new(checkout: Checkout, version: str) -> Dict[str, Any]:
-    shipped = pins.shipped(checkout, "new_client", version)
+def _latest_new_release(shipped: Dict[str, Any]) -> Dict[str, Any]:
+    """A full new-client release (Mode newclient), re-read."""
     rm, asset = _release_manifest(shipped, "new client")
     if rm.get("Mode") != "newclient":
         raise DaocError(f"{asset} of v{shipped['version']} is not a new-client release")
@@ -166,6 +167,30 @@ def _latest_new(checkout: Checkout, version: str) -> Dict[str, Any]:
             "root_folder": release.plain_name(rm["RootFolder"], f"{asset} RootFolder"),
             "unpacked_bytes": rm["UnpackedBytes"],
             "parts": _parts(rm, asset),
+        }
+    except (KeyError, TypeError) as e:
+        raise DaocError(f"{asset} of v{shipped['version']} is missing {e}") from None
+
+
+def _latest_new(checkout: Checkout, version: str) -> Dict[str, Any]:
+    """The new client's pinned release re-read; for an update release (Mode patch,
+    0.37 on) its ClientPatch, on its base release re-read the same way."""
+    shipped = pins.shipped(checkout, "new_client", version)
+    if not shipped.get("base"):
+        return dict(_latest_new_release(shipped), godot=shipped["godot"])
+    rm, asset = _release_manifest(shipped, "new client")
+    patch = rm.get("ClientPatch") if rm.get("Mode") == "patch" else None
+    if not isinstance(patch, dict) or patch.get("Release") != shipped["version"]:
+        raise DaocError(f"{asset} of v{shipped['version']} is not a new-client update release")
+    try:
+        return {
+            "release_url": shipped["release_url"],
+            "version": shipped["version"],
+            "manifest_asset": asset,
+            "root_folder": release.plain_name(patch["RootFolder"], f"{asset} ClientPatch RootFolder"),
+            "unpacked_bytes": sum(int(p["UnpackedBytes"]) for p in patch["Parts"]),
+            "parts": _parts(patch, asset),
+            "base": _latest_new_release(shipped["base"]),
             "godot": shipped["godot"],
         }
     except (KeyError, TypeError) as e:
@@ -174,22 +199,24 @@ def _latest_new(checkout: Checkout, version: str) -> Dict[str, Any]:
 
 def resolve_latest(checkout: Checkout, group: str, version: Optional[str] = None) -> Dict[str, Any]:
     """The pin's latest upstream, in its manifest entry's shape. The server
-    follows the fork's main only while main is synced to version (else
+    follows its branch only while the branch is synced to version (else
     OtherVersion); the clients re-read version's pinned release tags."""
     if group == "server":
-        url = pins.shipped(checkout, "server", version)["upstream"]
-        sha = _main_sha(*_repo(url, "server.upstream"))
+        shipped = pins.shipped(checkout, "server", version)
+        url, branch = shipped["upstream"], shipped.get("branch", "main")
+        sha = _head_sha(*_repo(url, "server.upstream"), branch)
         found = fork_version(url, sha)
         if found != version:
-            raise OtherVersion(found, version)
-        return {"upstream": url, "ref": sha}
+            raise OtherVersion(found, version, branch)
+        # Every other field (branch, navmesh_ref) stays the Shipped pin's: only the commit moves.
+        return dict(shipped, ref=sha)
     if group == "original_client":
         return _latest_original(checkout, version)
     if group == "new_client":
         return _latest_new(checkout, version)
     if group == "graphics":
         url = pins.shipped(checkout, "graphics")["repo"]
-        return {"repo": url, "ref": _main_sha(*_repo(url, "graphics.repo"))}
+        return {"repo": url, "ref": _head_sha(*_repo(url, "graphics.repo"))}
     raise DaocError(f"no update for pin group {group!r}")
 
 

@@ -271,5 +271,94 @@ class NewClientInstallTest(unittest.TestCase):
         self.assertEqual(self.fetch.urls, [])
 
 
+PATCH_URL = "https://example.invalid/0.37c/"
+PATCH_ROOT = "OfflineDAoC-v0.37c-client-patch"
+
+
+class UpdateReleaseInstallTest(unittest.TestCase):
+    """0.37c: the 0.36c base, then the update's files checked against its patch.json."""
+    install = NewClientInstallTest.install
+    files = NewClientInstallTest.files
+
+    def setUp(self):
+        NewClientInstallTest.setUp(self)  # the 0.36c base release as self.pin
+        self.base = {k: v for k, v in self.pin.items() if k != "godot"}
+        files = {"content/zone2.png": b"zone 2, 0.37", "content/new.png": b"new in 0.37"}
+        self.listed = [
+            {"Path": "new-client/godot/content/zone2.png", "Sha256": sha(files["content/zone2.png"]),
+             "Bytes": len(files["content/zone2.png"]), "From": [sha(b"zone 2")]},
+            {"Path": "new-client/godot/content/new.png", "Sha256": sha(files["content/new.png"]),
+             "Bytes": len(files["content/new.png"]), "From": ["absent"]},
+            {"Path": "new-client/VERSION.txt", "Sha256": sha(b"0.37c"), "Bytes": 5, "From": [sha(b"0.36c")]},
+        ]
+        self.patch_files = files
+        self.serve_update()
+
+    def serve_update(self, listed=None, extra=None):
+        patch = {"Version": "0.37", "Kind": "new-client", "Files": listed or self.listed, "Remove": []}
+        part1 = {f"{PATCH_ROOT}/patch.json": json.dumps(patch).encode(),
+                 f"{PATCH_ROOT}/files/new-client/godot/content/zone2.png": self.patch_files["content/zone2.png"],
+                 f"{PATCH_ROOT}/patcher/OfflineDaoc.Patcher.dll": b"windows"}
+        part2 = dict({f"{PATCH_ROOT}/files/new-client/godot/content/new.png": self.patch_files["content/new.png"],
+                      f"{PATCH_ROOT}/files/new-client/VERSION.txt": b"0.37c"}, **(extra or {}))
+        parts = {f"{PATCH_ROOT}-part0{n}.zip": zip_bytes(p) for n, p in ((1, part1), (2, part2))}
+        self.served.update({PATCH_URL + name: data for name, data in parts.items()})
+        godot = self.pin["godot"]
+        self.pin = {
+            "release_url": PATCH_URL, "version": "0.37c", "manifest_asset": "download-manifest.json",
+            "root_folder": PATCH_ROOT, "unpacked_bytes": 100,
+            "parts": [{"name": n, "bytes": len(d), "sha256": sha(d)} for n, d in parts.items()],
+            "base": self.base, "godot": godot,
+        }
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["versions"]["0.36"]["new_client"] = self.pin
+        path.write_text(json.dumps(manifest))
+        self.co = Checkout(self.root)
+
+    def test_update_lands_on_the_base(self):
+        self.install()
+        self.assertEqual(self.files(), ["content/new.png", "content/zone1.png", "content/zone2.png",
+                                        "content/zone3.png", "project.godot"])
+        project = self.co.new_client_project
+        self.assertEqual((project / "content" / "zone2.png").read_bytes(), b"zone 2, 0.37")
+        self.assertEqual((project / "content" / "zone3.png").read_bytes(), b"zone 3")
+        self.assertEqual(time.localtime((project / "content" / "new.png").stat().st_mtime)[:6], STAMP)
+        self.assertEqual(pins.installed(self.co, "new_client")["version"], "0.37c")
+        # Base parts from the base release, update parts from the update's.
+        self.assertEqual([u.rsplit("/", 1)[0] + "/" for u in self.fetch.urls if u.endswith(".zip")
+                          and u != GODOT_URL], [URL] * 3 + [PATCH_URL] * 2)
+        self.assertEqual(list(self.co.downloads.glob("v*/*")), [])
+
+    def test_a_base_file_that_is_not_the_released_one_is_refused(self):
+        listed = [dict(self.listed[0], From=[sha(b"another zone 2")]), *self.listed[1:]]
+        self.serve_update(listed=listed)
+        with self.assertRaises(DaocError) as cm:
+            self.install()
+        self.assertIn("content/zone2.png is not the file this update replaces", cm.exception.msg)
+        self.assertFalse(self.co.new_client_root.exists())
+
+    def test_a_file_patch_json_does_not_list_is_refused_before_writing(self):
+        self.serve_update(extra={f"{PATCH_ROOT}/files/new-client/godot/content/sneaky.png": b"x"})
+        with self.assertRaises(DaocError) as cm:
+            self.install()
+        self.assertIn("content/sneaky.png, which its patch.json does not list", cm.exception.msg)
+        staged = self.co.new_client_root.parent / ".new-client.new" / "godot" / "content"
+        self.assertFalse((staged / "new.png").exists())
+        self.assertFalse(self.co.new_client_root.exists())
+
+    def test_rerun_after_an_interrupted_update_finishes_it(self):
+        self.fetch.fail.add(PATCH_URL + self.pin["parts"][1]["name"])
+        with self.assertRaises(DaocError):
+            self.install()
+        self.fetch.fail.clear()
+        self.fetch.urls.clear()
+        self.install()
+        # Only the update part that never arrived is fetched again; patch.json came with part 1.
+        self.assertEqual([u for u in self.fetch.urls if u != GODOT_URL], [PATCH_URL + self.pin["parts"][1]["name"]])
+        self.assertEqual((self.co.new_client_project / "content" / "new.png").read_bytes(), b"new in 0.37")
+
+
+
 if __name__ == "__main__":
     unittest.main()

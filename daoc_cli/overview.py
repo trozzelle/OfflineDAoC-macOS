@@ -71,7 +71,7 @@ def _game_lines(checkout: Checkout, sel: Selection) -> List[Tuple[str, str]]:
     if not checkout.client_root.is_dir():
         out.append(("Original client:", pins.NOT_INSTALLED))
     else:
-        built = selection.original_game(checkout)
+        built = selection.original_game(checkout, prefer=sel.game.version)
         if built is None:
             out.append(("Original client:", "present (not a known build)"))
         else:

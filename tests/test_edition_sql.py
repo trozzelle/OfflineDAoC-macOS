@@ -4,7 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import make_checkout
+
 from daoc_cli import edition_sql
+from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
 SCHEMA = """
@@ -102,6 +105,40 @@ class DiffTest(unittest.TestCase):
                          .fetchone(), ("True",))
         self.assertEqual(con.execute("SELECT Name FROM Mob WHERE Mob_ID='wisp'").fetchone(), ("Wisp",))
         con.close()
+
+    def test_patch_log_is_not_world(self):
+        # Upstream's patcher stamps each database with when it applied a world update.
+        log = "CREATE TABLE offline_patch_log (Version TEXT PRIMARY KEY, AppliedUtc TEXT, Notes TEXT);"
+        b = self.b(log + "INSERT INTO offline_patch_log VALUES ('0.37', '2026-10-18T01:00:00Z', '');")
+        plain = self.db("plain-log.db", PLAIN_ROWS + log
+                        + "INSERT INTO offline_patch_log VALUES ('0.37', '2026-10-18T02:00:00Z', '');")
+        self.assertEqual(edition_sql.diff(b, plain), [])
+
+
+class GenerateTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.co = Checkout(make_checkout(tmp.name))
+
+    def test_a_version_on_an_older_release_needs_its_own_databases(self):
+        # 0.37's original client is the v0.36b release: its databases are 0.36's.
+        def no_download(url, dest):
+            raise AssertionError(f"downloaded {url}")
+        with self.assertRaises(DaocError) as cm:
+            edition_sql.generate(self.co, "0.37", fetch_url=no_download)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--b-db and --plain-db", cm.exception.msg)
+        self.assertFalse((self.co.root / edition_sql.OUT / "0.37").exists())
+
+    def test_given_databases_are_diffed(self):
+        d = DiffTest("test_added_rows_become_inserts")
+        d.setUp()
+        self.addCleanup(d.doCleanups)
+        b = d.b("INSERT INTO Mob VALUES ('wisp', 'Wisp', 1, NULL);")
+        out = edition_sql.generate(self.co, "0.37", dbs=(b, d.plain))
+        self.assertIn("INSERT INTO \"Mob\"", out.read_text())
+        self.assertEqual(out, self.co.root / edition_sql.OUT / "0.37" / "sluaghbinder.sql")
 
 
 if __name__ == "__main__":
