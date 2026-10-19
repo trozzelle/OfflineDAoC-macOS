@@ -9,9 +9,9 @@
       "server": {
         "upstream": "https://github.com/trozzelle/OfflineDAoC-macOS-server",
         "branch": "macos-0.35",
-        "ref": "32bd530a1824cf337651cac62dd873bb4003e7c3",
+        "ref": "5e94ddb5bdfc19bbfa628bf6a6fa765a7c7a1035",
         "navmesh_ref": "18498aefc9f8d0d65a6e8ed0ee5d9def63782037",
-        "note": "Branch macos-0.35: catastrophic-impact's upstream-0.35 (12a0846, Offline DAoC 0.35, d337d18) plus the macOS admin-socket fix and its OfflineDaocVersion marker. That repo's 2026-10-17 history rewrite dropped the 0.35 navmesh archives, so the navmeshes come from navmesh_ref (its 0.36 sync's classic-si-3 set: the .nav files are byte-identical to 0.35's classic-si-2; pockets.json differs; roads.json is new)."
+        "note": "Branch macos-0.35: catastrophic-impact's upstream-0.35 (12a0846, Offline DAoC 0.35, d337d18) plus the macOS admin-socket fix, its OfflineDaocVersion marker and the v0.35b release's classic-quests.json and classic-quest-guides.json. That repo's 2026-10-17 history rewrite dropped the 0.35 navmesh archives, so the navmeshes come from navmesh_ref (its 0.36 sync's classic-si-3 set: the .nav files are byte-identical to 0.35's classic-si-2; pockets.json differs; roads.json is new)."
       },
       "original_client": {
         "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.35b/",
@@ -43,8 +43,8 @@
       "server": {
         "upstream": "https://github.com/trozzelle/OfflineDAoC-macOS-server",
         "branch": "macos-0.36",
-        "ref": "f6027c62d70580d091a03242be08ad77a7d2944f",
-        "note": "Branch macos-0.36: catastrophic-impact's main at 18498ae (synced to Offline DAoC v0.36, d88b7b2; navmesh set classic-si-3) plus the macOS admin-socket fix and the lazy LoginRequestHandler logger."
+        "ref": "22bbc664a7e1c6a3840e13882c45003751babd46",
+        "note": "Branch macos-0.36: catastrophic-impact's main at 18498ae (synced to Offline DAoC v0.36, d88b7b2; navmesh set classic-si-3) plus the macOS admin-socket fix, the lazy LoginRequestHandler logger and the v0.36b release's classic-quests.json and classic-quest-guides.json."
       },
       "original_client": {
         "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.36b/",

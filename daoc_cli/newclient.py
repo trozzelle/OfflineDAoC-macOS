@@ -25,7 +25,8 @@ install, in order (re-runs resume):
      (dist/.new-client.new) keeping mtimes (an update's files checked against its
      patch.json, kept in downloads/v<version>/), delete the zip, write
      downloads/v<version>/<part>.done. A done part is not fetched again; a
-     staging folder that went missing restarts them all.
+     staging folder that went missing restarts them all. An installed base
+     (0.36c, for 0.37c) is APFS-cloned into staging instead of downloaded.
   4. Record the pin (plus the Game) in the staged install, then swap it in for
      dist/new-client (the previous one moved aside, then removed).
 download_only stops after step 3: the staged install is complete, and the next
@@ -49,6 +50,7 @@ KEEP = "new-client/godot/"
 MARGIN = 2 * 1024 ** 3
 DITTO = "/usr/bin/ditto"
 GODOT_RECORD = ".daoc-godot.json"
+CP = "/bin/cp"
 DONE = ".done"
 PATCH_JSON = "patch.json"
 ABSENT = "absent"
@@ -170,14 +172,29 @@ def apply_update_part(zip_path: Path, root_folder: str, dest: Path, patch: Dict[
                 raise DaocError(f"the new client's {rel} is not the file this update replaces "
                                 f"({current[:12]}); reinstall the base with daoc client install --client new")
             target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(info) as src, target.open("wb") as out:
+            # Beside the target, then renamed over it: an interruption leaves the old file or the
+            # new one, never a half-written one that neither hash matches.
+            tmp = target.with_name(target.name + ".daoc-tmp")
+            with zf.open(info) as src, tmp.open("wb") as out:
                 shutil.copyfileobj(src, out, 1 << 20)
-            if sha256(target) != want["Sha256"]:
+            if sha256(tmp) != want["Sha256"]:
+                tmp.unlink()
                 raise DaocError(f"{rel} from {zip_path.name} failed SHA-256 verification")
             stamp = time.mktime(info.date_time + (0, 0, -1))
-            os.utime(target, (stamp, stamp))
+            os.utime(tmp, (stamp, stamp))
+            os.replace(tmp, target)
             written += 1
     return written
+
+
+def _clone_tree(src: Path, dest: Path) -> bool:
+    """Copy src to dest as APFS clones (no extra disk, mtimes kept); False, leaving
+    no dest, when the volume can't clone."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if proc.run([CP, "-c", "-R", "-p", src, dest], check=False).returncode == 0:
+        return True
+    shutil.rmtree(dest, ignore_errors=True)
+    return False
 
 
 def finish_update(dest: Path, patch: Dict[str, Any]) -> None:
@@ -270,11 +287,22 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
         for cache in caches:
             for marker in [*cache.glob(f"*{DONE}"), cache / PATCH_JSON]:
                 marker.unlink(missing_ok=True)
-    _requirements(checkout, game, pin, fresh=not staging.exists())
+    # An update release on the installed base (0.36c to 0.37c): clone that tree instead of
+    # downloading the base again; the update still checks every file it replaces.
+    reuse = (not staging.exists() and len(stages) > 1 and checkout.new_client_project.is_dir()
+             and pins.same("new_client", record, pin["base"]))
+    own = {k: v for k, v in pin.items() if k != "base"}
+    _requirements(checkout, game, own if reuse else pin, fresh=not staging.exists())
     install_godot(checkout, pin, fetch_url)
     project = staging / "godot"
+    if reuse and _clone_tree(checkout.new_client_project, project):
+        say(f"  the installed {pin['base']['version']} client is the update's base: reusing it")
+        caches[0].mkdir(parents=True, exist_ok=True)
+        for part in pin["base"]["parts"]:
+            (caches[0] / (release.plain_name(part["name"], "new client part") + DONE)).touch()
     project.mkdir(parents=True, exist_ok=True)
-    parts = [p for r, _ in stages for p in r["parts"]]
+    parts = [p for (r, _), cache in zip(stages, caches) for p in r["parts"]
+             if not (cache / (release.plain_name(p["name"], "new client part") + DONE)).exists()]
     say(f"fetching the new client (about {sum(p['bytes'] for p in parts) / 1024 ** 3:.0f} GB "
         f"in {len(parts)} parts; {sum(r['unpacked_bytes'] for r, _ in stages) / 1024 ** 3:.0f} GB installed)")
     n = 0
@@ -283,11 +311,11 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
         if is_update:
             say(f"  then the {rel['version']} update of {stages[0][0]['version']}")
         for part in rel["parts"]:
-            n += 1
             name = release.plain_name(part["name"], "new client part")
             done = cache / (name + DONE)
             if done.exists():
                 continue
+            n += 1
             zip_path = cache / name
             say(f"  part {n}/{len(parts)}: {name}")
             _fetch_verified(rel["release_url"] + name, zip_path, part.get("bytes"), part["sha256"], fetch_url)
@@ -296,6 +324,9 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
                 if found is not None:
                     atomic_write(cache / PATCH_JSON, json.dumps(found))
                 if not (cache / PATCH_JSON).is_file():
+                    # Part 1 carries it: forget the done parts so the rerun reads it again.
+                    for marker in cache.glob(f"*{DONE}"):
+                        marker.unlink()
                     raise DaocError(f"{name}: no patch.json from this update's earlier parts; "
                                     "rerun to fetch them again", 1)
                 apply_update_part(zip_path, rel["root_folder"], project,

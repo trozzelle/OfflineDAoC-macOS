@@ -13,7 +13,7 @@ port explicitly.
 
 CAUTION: never delete run/admin.sock or run/server.pid while a CoreServer from
 this install is alive — shutdown needs the socket to wake a pending accept
-(patch 010). Check lsof before touching run/. Nothing here removes run/.
+(the server repo's macOS admin-socket fix). Check lsof before touching run/. Nothing here removes run/.
 """
 import os
 import re

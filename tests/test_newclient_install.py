@@ -358,6 +358,57 @@ class UpdateReleaseInstallTest(unittest.TestCase):
         self.assertEqual([u for u in self.fetch.urls if u != GODOT_URL], [PATCH_URL + self.pin["parts"][1]["name"]])
         self.assertEqual((self.co.new_client_project / "content" / "new.png").read_bytes(), b"new in 0.37")
 
+    def set_new_client_pin(self, pin):
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["versions"]["0.36"]["new_client"] = pin
+        path.write_text(json.dumps(manifest))
+        self.co = Checkout(self.root)
+
+    def staged(self, rel):
+        return self.co.new_client_root.parent / ".new-client.new" / "godot" / rel
+
+    def test_an_installed_base_is_cloned_not_downloaded(self):
+        update = self.pin
+        self.set_new_client_pin(dict(self.base, godot=update["godot"]))
+        self.install()  # 0.36c, as a 0.36 user has it
+        self.set_new_client_pin(update)
+        self.fetch.urls.clear()
+        out = self.install()
+        self.assertIn("the installed 0.36c client is the update's base: reusing it", out)
+        self.assertEqual([u for u in self.fetch.urls if u != GODOT_URL], [PATCH_URL + p["name"] for p in update["parts"]])
+        project = self.co.new_client_project
+        self.assertEqual((project / "content" / "zone2.png").read_bytes(), b"zone 2, 0.37")
+        # Untouched base files keep their mtimes through the clone (Godot's import cache reads them).
+        self.assertEqual(time.localtime((project / "content" / "zone3.png").stat().st_mtime)[:6], STAMP)
+        self.assertEqual(pins.installed(self.co, "new_client")["version"], "0.37c")
+
+    def test_a_write_cut_off_midway_leaves_the_old_file_and_the_rerun_finishes(self):
+        real = shutil.copyfileobj
+
+        def cut_off(src, out, size=0):
+            if out.name.endswith("zone2.png.daoc-tmp"):
+                out.write(src.read(3))
+                raise OSError("disk went away")
+            return real(src, out, size)
+
+        with mock.patch.object(newclient.shutil, "copyfileobj", cut_off), self.assertRaises(OSError):
+            self.install()
+        self.assertEqual(self.staged("content/zone2.png").read_bytes(), b"zone 2")
+        self.install()
+        self.assertEqual((self.co.new_client_project / "content" / "zone2.png").read_bytes(), b"zone 2, 0.37")
+
+    def test_a_lost_patch_json_is_read_again_on_the_next_run(self):
+        self.fetch.fail.add(PATCH_URL + self.pin["parts"][1]["name"])
+        with self.assertRaises(DaocError):
+            self.install()
+        self.fetch.fail.clear()
+        (self.co.downloads / "v0.37c" / newclient.PATCH_JSON).unlink()
+        with self.assertRaises(DaocError) as cm:
+            self.install()
+        self.assertIn("no patch.json", cm.exception.msg)
+        self.install()
+        self.assertEqual((self.co.new_client_project / "content" / "new.png").read_bytes(), b"new in 0.37")
 
 
 if __name__ == "__main__":
