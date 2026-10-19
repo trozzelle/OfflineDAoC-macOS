@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/trozzelle/OfflineDAoC-macOS/compare/v0.3.0...v0.4.0) (2026-10-19)
+
+
+### Features
+
+* Offline DAoC 0.37, with the server built from our own server repo ([02952dc](https://github.com/trozzelle/OfflineDAoC-macOS/commit/02952dccf2794c760dba00769b58253e05f42846))
+* Offline DAoC 0.37, with the server built from our own server repo ([f0ec4a1](https://github.com/trozzelle/OfflineDAoC-macOS/commit/f0ec4a1858a3b36ac83e9b6bc9c6c0a7ce8cf92b))
+* **server:** 0.35 and 0.36 ship the classic quests' data; new client update fixes ([e39f15b](https://github.com/trozzelle/OfflineDAoC-macOS/commit/e39f15b6bb42aa0d15f0008ef7792286210087a4))
+* **server:** 0.37 follows its own macos-0.37 branch ([e4f82c0](https://github.com/trozzelle/OfflineDAoC-macOS/commit/e4f82c009b6721ab5a36eff3bd9003dec4dfaabf))
+
+
+### Bug Fixes
+
+* **client:** no fetch line when the new client has nothing left to fetch ([90b3db1](https://github.com/trozzelle/OfflineDAoC-macOS/commit/90b3db1e2a84cc3021937bda71a7d0f22915bfdf))
+* **e2e:** its own server install records the selected edition ([7418850](https://github.com/trozzelle/OfflineDAoC-macOS/commit/741885025a8f62f8c54f174fc6867c5c6be61be3))
+
 ## [0.3.0](https://github.com/trozzelle/OfflineDAoC-macOS/compare/v0.2.0...v0.3.0) (2026-10-18)
 
 
