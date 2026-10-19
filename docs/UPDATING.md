@@ -68,8 +68,8 @@ to the pin (the client keeps your graphics patches, as an update does).
 ### Server
 
 The server is built from [OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server),
-which carries the macOS fixes as commits: `main` for the newest version and a
-`macos-<version>` branch for each older one. `daoc server update` follows the
+which carries the macOS fixes as commits on one `macos-<version>` branch per game
+version (its `main` is where the next upstream sync lands). `daoc server update` follows the
 selected version's branch only while it is synced to that version (the server
 says which in its source); a branch that moves on to a newer version stops the
 update, which says so. If the server is running it asks before stopping it. The rebuild

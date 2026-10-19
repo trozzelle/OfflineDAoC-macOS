@@ -146,7 +146,7 @@ class ResolveLatestTest(Base):
         with self.serve(), self.assertRaises(updates.OtherVersion) as cm:
             updates.resolve_latest(self.co, "server", "0.37")
         self.assertEqual((cm.exception.found, cm.exception.code), ("0.38", 2))
-        self.assertIn("server main is now 0.38; this daoc release doesn't support it yet", cm.exception.msg)
+        self.assertIn("server macos-0.37 is now 0.38; this daoc release doesn't support it yet", cm.exception.msg)
 
     def test_server_update_refuses_other_version_before_anything(self) -> None:
         self.select("0.37b")
@@ -154,7 +154,7 @@ class ResolveLatestTest(Base):
         with self.serve():
             code, _, err = run_cli(["server", "update"], self.root)
         self.assertEqual(code, 2)
-        self.assertIn("server main is now 0.38", err)
+        self.assertIn("server macos-0.37 is now 0.38", err)
         self.assertFalse((self.root / "upstream").exists())
 
     def test_marker_missing_refused(self) -> None:
@@ -269,7 +269,7 @@ class CheckTest(Base):
         self.assertEqual(server[0], 0)
         self.assertIn("server@0.37", server[1])
         self.assertTrue(server[1].rstrip().endswith(
-            "server main is now 0.38; this daoc release doesn't support it yet"), server[1])
+            "server macos-0.37 is now 0.38; this daoc release doesn't support it yet"), server[1])
         self.assertTrue(client[1].rstrip().endswith("up to date"), client[1])
 
     def test_newer_upstream_is_appended(self) -> None:

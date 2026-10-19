@@ -5,8 +5,8 @@ DAoC server: one portable folder, no .NET install needed, with the Classic + Shr
 world, autonomous gamebots, and the admin TUI/CLI.
 
 The server repo holds the server source (Offline DAoC's, synced per release), its world data and
-navmeshes, and the macOS source fixes as commits (`main` for the newest game version,
-`macos-<version>` for older ones). It started as a fork of catastrophic-impact's
+navmeshes, and the macOS source fixes as commits on one `macos-<version>` branch per game version
+(`main` is where the next upstream sync lands). It started as a fork of catastrophic-impact's
 [daoc-offline-linux-server-bots](https://github.com/catastrophic-impact/daoc-offline-linux-server-bots),
 a Linux build of the same server. This folder contains only the macOS-specific build pipeline,
 launcher scripts and documentation; the server source is compiled from a snapshot of the pinned

@@ -108,8 +108,9 @@
     "0.37": {
       "server": {
         "upstream": "https://github.com/trozzelle/OfflineDAoC-macOS-server",
-        "ref": "9b74ecd10d956161b5d3e6b3277c3dd905606f57",
-        "note": "main, synced to Offline DAoC v0.37 (ab4df02): the 0.37 world (0.36 base plus the game patch's db-0.37.json), navmesh set classic-si-4, classic-quests.json and classic-quest-guides.json, with the macOS fixes."
+        "branch": "macos-0.37",
+        "ref": "2637a4059d42d2b1cbd1aef5bee8151257edf6b8",
+        "note": "Branch macos-0.37, synced to Offline DAoC v0.37 (ab4df02): the 0.37 world (0.36 base plus the game patch's db-0.37.json), navmesh set classic-si-4, classic-quests.json and classic-quest-guides.json, with the macOS fixes."
       },
       "original_client": {
         "release_url": "https://github.com/shadowofze/OfflineDAoC/releases/download/v0.36b/",

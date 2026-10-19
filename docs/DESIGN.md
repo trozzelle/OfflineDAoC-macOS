@@ -121,7 +121,7 @@ default Game:
       }
     },
     "0.37": {
-      "server": { "upstream": "<server repo>", "ref": "<commit sha>" },
+      "server": { "upstream": "<server repo>", "branch": "macos-0.37", "ref": "<commit sha>" },
       "original_client": { "version": "0.36b", "…": "…" },
       "new_client": {
         "release_url": ".../releases/download/v0.37c/", "version": "0.37c",
@@ -139,7 +139,8 @@ default Game:
 
 Server pin = immutable git commit of the server repo
 ([OfflineDAoC-macOS-server](https://github.com/trozzelle/OfflineDAoC-macOS-server)),
-with the macOS changes in it as commits; `branch` (default `main`) is the branch
+with the macOS changes in it as commits; `branch` (default `main`; every shipped
+Version has its own protected `macos-<version>`) is the branch
 `daoc server update` follows for that Version, and `navmesh_ref` the commit whose
 `world/navmesh/` the build uses, when the Version's own commit has none. Client pins
 = release tags; per-part (and, for the original client, whole-archive) SHA-256 come
