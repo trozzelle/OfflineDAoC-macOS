@@ -303,12 +303,13 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
     project.mkdir(parents=True, exist_ok=True)
     parts = [p for (r, _), cache in zip(stages, caches) for p in r["parts"]
              if not (cache / (release.plain_name(p["name"], "new client part") + DONE)).exists()]
-    say(f"fetching the new client (about {sum(p['bytes'] for p in parts) / 1024 ** 3:.0f} GB "
-        f"in {len(parts)} parts; {sum(r['unpacked_bytes'] for r, _ in stages) / 1024 ** 3:.0f} GB installed)")
+    if parts:
+        say(f"fetching the new client (about {sum(p['bytes'] for p in parts) / 1024 ** 3:.0f} GB "
+            f"in {len(parts)} parts; {sum(r['unpacked_bytes'] for r, _ in stages) / 1024 ** 3:.0f} GB installed)")
     n = 0
     for (rel, is_update), cache in zip(stages, caches):
         cache.mkdir(parents=True, exist_ok=True)
-        if is_update:
+        if is_update and any(p in parts for p in rel["parts"]) and n:
             say(f"  then the {rel['version']} update of {stages[0][0]['version']}")
         for part in rel["parts"]:
             name = release.plain_name(part["name"], "new client part")
