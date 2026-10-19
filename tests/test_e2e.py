@@ -16,8 +16,10 @@ from unittest import mock
 
 from tests.support import make_checkout, run_cli
 
-from daoc_cli import e2e
+from daoc_cli import e2e, games, selection
+from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
+from daoc_cli.selection import Selection
 
 ACCOUNT = "probeacct"
 PASSWORD = "s3cret-pw"
@@ -229,6 +231,17 @@ class E2ETest(unittest.TestCase):
         (self.sd / "config" / "edition").write_text("sluaghbinder\n")
         code, out, err = self.run_e2e()
         self.assertEqual(code, 0, err)
+        self.assertEqual((self.sd / "data" / "opendaoc.sqlite3.db").read_text(), "sluaghbinder world")
+
+    def test_its_own_server_install_records_the_selected_edition(self):
+        # A fresh checkout: e2e builds the server itself, so nothing else wrote config/edition.
+        (self.sd / "bin" / "CoreServer").unlink()
+        (self.sd / "defaults" / "world-sluaghbinder.sqlite").write_text("sluaghbinder world")
+        selection.save(Checkout(self.root), Selection(games.parse("0.37b"), "original"))
+        self.server_install.side_effect = lambda co, version: _exe(self.sd / "bin" / "CoreServer", "#!/bin/sh\n")
+        code, _, err = self.run_e2e()
+        self.assertEqual(code, 0, err)
+        self.server_install.assert_called_once_with(mock.ANY, "0.37")
         self.assertEqual((self.sd / "data" / "opendaoc.sqlite3.db").read_text(), "sluaghbinder world")
 
     def test_pass_moves_ports_reverts_them_and_writes_the_evidence(self):

@@ -98,10 +98,13 @@ class _Run:
     def server_install(self) -> None:
         self.step("server install")
         if not os.access(self.server_dir / "bin" / "CoreServer", os.X_OK):
+            game = selection.load(self.co).game
             try:
-                server.install(self.co, selection.load(self.co).game.version)
+                server.install(self.co, game.version)
             except DaocError as e:
                 self.abort(f"server install failed: {e.msg}")
+            # As `daoc server install`: the fresh save below starts as the selected edition.
+            server.set_edition(self.co, game.edition)
         else:
             self.say("server already installed")
 
