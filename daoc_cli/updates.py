@@ -208,8 +208,9 @@ def resolve_latest(checkout: Checkout, group: str, version: Optional[str] = None
         found = fork_version(url, sha)
         if found != version:
             raise OtherVersion(found, version, branch)
-        # Every other field (branch, navmesh_ref) stays the Shipped pin's: only the commit moves.
-        return dict(shipped, ref=sha)
+        # Every other field (branch, navmesh_ref) stays the Shipped pin's: only the commit
+        # moves. The Shipped prebuilt was built from the Shipped commit, so it does not come along.
+        return dict({k: v for k, v in shipped.items() if k != "prebuilt"}, ref=sha)
     if group == "original_client":
         return _latest_original(checkout, version)
     if group == "new_client":

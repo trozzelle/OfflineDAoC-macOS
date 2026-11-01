@@ -1,6 +1,7 @@
 """daoc server / admin / progress: passthrough argv, missing install, install build step."""
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -100,6 +101,7 @@ class InstallTest(unittest.TestCase):
         (src / ".git").mkdir(parents=True)
         tools = self.root / "server" / "tools"
         tools.mkdir(parents=True)
+        (self.root / "server" / "vendor").mkdir()   # a git Checkout has the build sources
         # What `git archive` of the navmesh paths yields.
         fixture = Path(self.tmp.name) / "archive"
         (fixture / "world" / "navmesh").mkdir(parents=True)
@@ -136,6 +138,13 @@ class InstallTest(unittest.TestCase):
 
     def git_calls(self, verb):
         return [c for c in stub_calls(self.stubs) if c[0] == "git" and c[3] == verb]
+
+    def test_building_from_source_needs_a_checkout_with_the_build_sources(self):
+        shutil.rmtree(self.root / "server" / "vendor")
+        code, _, err = run_cli(["server", "install"], self.root, env=self.env)
+        self.assertEqual(code, 2)
+        self.assertIn("needs a git checkout of daoc-macos", err)
+        self.assertEqual(stub_calls(self.stubs), [])
 
     def test_install_builds_with_resolved_cwd_and_pinned_repo(self):
         code, _, err = run_cli(["server", "install"], self.root,
