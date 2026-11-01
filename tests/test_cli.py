@@ -369,6 +369,17 @@ class LauncherTest(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertIn("xcode-select --install", result.stderr)
 
+    def test_a_bundled_python_beside_the_code_root_needs_no_command_line_tools(self):
+        python = self.tmp / "python" / "bin" / "python3"
+        python.parent.mkdir(parents=True)
+        marker = self.tmp / "bundled-python-ran"
+        python.write_text(f'#!/bin/sh\ntouch {shlex.quote(str(marker))}\nexec /usr/bin/python3 "$@"\n')
+        python.chmod(0o755)
+        seen = self.probe(DAOC_XCODE_SELECT=str(self.stubs / "xcode-select-fails"))
+        self.assertEqual(seen["package"], str(self.root / "daoc_cli"))
+        self.assertTrue(marker.exists())
+        self.assertEqual(stub_calls(self.stubs), [])
+
 
 if __name__ == "__main__":
     unittest.main()
