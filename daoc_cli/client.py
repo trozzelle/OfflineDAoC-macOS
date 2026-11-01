@@ -498,6 +498,7 @@ def _download(checkout: Checkout, url: str, name: str, sha: str, what: str,
     path = checkout.downloads / name
     if not path.is_file():
         say(f"downloading {what} ({name})")
+        events.emit("download", path=str(path), bytes=None, what=what)
         proc.run(["curl", "-fSL", "-#" if verbose else "-s", "--retry", "3", url,
                   "-o", path], verbose=verbose)
     actual = sha256(path)
