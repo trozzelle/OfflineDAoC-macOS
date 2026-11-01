@@ -66,7 +66,10 @@ def register(groups: "argparse._SubParsersAction") -> None:
                    help="report Shipped, Local, built-from and latest; change nothing")
     a.set_defaults(func=_handle_update)
     a = actions.add_parser("start", help="start the server (daoc-server.sh start)")
-    a.add_argument("--console", action="store_true", help="run in the foreground with its console")
+    how = a.add_mutually_exclusive_group()
+    how.add_argument("--console", action="store_true", help="run in the foreground with its console")
+    how.add_argument("--detach", action="store_true",
+                     help="start in the background, wait until it is ready, and return (no admin screen)")
     a.set_defaults(func=_handle_script)
     for name, text in (("stop", "stop the server"), ("status", "print running (pid N) or stopped")):
         actions.add_parser(name, help=text).set_defaults(func=_handle_script)
@@ -92,8 +95,9 @@ def _version(checkout: Checkout) -> str:
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
     argv: List[str] = [str(script(checkout)), args.action]
-    if getattr(args, "console", False):
-        argv.append("--console")
+    for flag in ("console", "detach"):
+        if getattr(args, flag, False):
+            argv.append(f"--{flag}")
     proc.execv(argv, cwd=checkout.server_dir)
 
 
