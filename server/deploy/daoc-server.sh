@@ -55,6 +55,24 @@ game_port() {
 
 port_in_use() { nc -z -w 1 127.0.0.1 "$(game_port)" >/dev/null 2>&1; }
 
+# Is the server listening? The admin socket exists and the console log says so.
+ready() {
+  [[ -S $DAOC_HOME/run/admin.sock ]] && grep -q "Server is now listening" "$DAOC_HOME/logs/console.out" 2>/dev/null
+}
+
+# Wait up to 180 s, one dot a second, for server $1 to be ready.
+# Returns 0 ready, 1 the process died, 2 still not ready after 180 s.
+wait_ready() {
+  local pid=$1 i
+  for ((i = 0; i < 180; i++)); do
+    kill -0 "$pid" 2>/dev/null || return 1
+    ready && return 0
+    printf '.'
+    sleep 1
+  done
+  return 2
+}
+
 start() {
   local mode=${1:-}
   # --detach: background start, wait until ready, return (the OfflineDAoC app).
@@ -66,9 +84,22 @@ start() {
     console=true
   fi
 
-  if running_pid >/dev/null; then
-    if $detach; then echo "already running (pid $(running_pid))"; exit 0; fi
-    $console && die "already running (pid $(running_pid))"
+  local pid rc
+  if pid=$(running_pid); then
+    if $detach; then
+      # A server that is still booting (a terminal start, or a detached start that timed out)
+      # is not ready yet: wait for it the way a fresh start does, but never kill it.
+      printf 'already running (pid %s)' "$pid"
+      wait_ready "$pid"; rc=$?
+      echo
+      [[ $rc == 0 ]] && exit 0
+      if [[ $rc == 1 ]]; then echo "The server (pid $pid) stopped before it was ready."
+      else echo "The server is not ready after 180 s."; fi >&2
+      echo "Last lines of $DAOC_HOME/logs/console.out:" >&2
+      tail -n 25 "$DAOC_HOME/logs/console.out" >&2
+      exit 1
+    fi
+    $console && die "already running (pid $pid)"
     exec "$DAOC_HOME/daoc-admin"   # already running: just open the admin screen
   fi
   [[ -x $DAOC_HOME/bin/CoreServer ]] || die "no server program in $DAOC_HOME/bin"
@@ -101,27 +132,23 @@ start() {
 
   # Default: server in the background (nohup so closing this terminal does not stop it),
   # then the admin screen in this terminal.
-  local log="$DAOC_HOME/logs/console.out" pid i
+  local log="$DAOC_HOME/logs/console.out"
   [[ -f $log ]] && mv -f "$log" "$DAOC_HOME/logs/console.prev.out"
   nohup ./CoreServer --start "-config=$DAOC_HOME/config/serverconfig.xml" </dev/null >"$log" 2>&1 &
   pid=$!
   disown "$pid" 2>/dev/null || true
   echo "$pid" > "$PIDFILE"
   printf 'Starting server (pid %s)' "$pid"
-  for ((i = 0; i < 180; i++)); do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo; echo "The server did not start. Last lines of $log:" >&2
-      tail -n 25 "$log" >&2
-      rm -f "$PIDFILE"
-      exit 1
-    fi
-    [[ -S $DAOC_ADMIN_SOCKET ]] && grep -q "Server is now listening" "$log" && break
-    printf '.'
-    sleep 1
-  done
+  wait_ready "$pid"; rc=$?
   echo
+  if [[ $rc == 1 ]]; then
+    echo "The server did not start. Last lines of $log:" >&2
+    tail -n 25 "$log" >&2
+    rm -f "$PIDFILE"
+    exit 1
+  fi
   if $detach; then
-    if [[ -S $DAOC_ADMIN_SOCKET ]] && grep -q "Server is now listening" "$log"; then
+    if [[ $rc == 0 ]]; then
       echo "Server running (pid $pid)"
       exit 0
     fi

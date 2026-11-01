@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,12 @@ import os, signal, socket, sys, time
 if os.environ.get("FAKE_SERVER") == "die":
     print("fake server: boom", flush=True)
     sys.exit(3)
+if os.environ.get("FAKE_SERVER") == "slow-die":
+    time.sleep(2)
+    print("fake server: late boom", flush=True)
+    sys.exit(3)
+if os.environ.get("FAKE_SERVER") == "slow":
+    time.sleep(2)
 path = os.environ["DAOC_ADMIN_SOCKET"]
 sock = socket.socket(socket.AF_UNIX)
 sock.bind(path)
@@ -66,11 +73,14 @@ class DetachTest(unittest.TestCase):
             except (OSError, ValueError):
                 pass
 
-    def sh(self, *args, **env):
+    def env(self, **extra):
         environ = {k: v for k, v in os.environ.items() if k != "DAOC_HOME"}
-        environ.update(env)
+        environ.update(extra)
+        return environ
+
+    def sh(self, *args, **env):
         return subprocess.run([str(self.dir / "daoc-server.sh"), *args], stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True, env=environ, timeout=60)
+                              capture_output=True, text=True, env=self.env(**env), timeout=60)
 
     def test_detach_returns_once_ready_without_the_admin_screen(self):
         result = self.sh("start", "--detach")
@@ -85,6 +95,34 @@ class DetachTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("already running", again.stdout)
         self.assertNotIn("ADMIN-SCREEN", again.stdout)
+
+    def start_in_background(self, mode):
+        first = subprocess.Popen([str(self.dir / "daoc-server.sh"), "start", "--detach"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, env=self.env(FAKE_SERVER=mode))
+        self.addCleanup(first.wait)
+        pid_file = self.dir / "run" / "server.pid"
+        deadline = time.time() + 10
+        while not pid_file.is_file() and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(pid_file.is_file(), "the first start never launched the server")
+
+    def test_detach_on_a_booting_server_waits_until_it_is_ready(self):
+        self.start_in_background("slow")
+        sock = self.dir / "run" / "admin.sock"
+        self.assertFalse(sock.exists(), "the fake server must still be booting")
+        again = self.sh("start", "--detach")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("already running", again.stdout)
+        self.assertTrue(sock.exists(), "returned before the server was listening")
+        self.assertIn("Server is now listening", (self.dir / "logs" / "console.out").read_text())
+
+    def test_detach_on_a_booting_server_that_dies_exits_1(self):
+        self.start_in_background("slow-die")
+        again = self.sh("start", "--detach")
+        self.assertEqual(again.returncode, 1)
+        self.assertIn("stopped before it was ready", again.stderr)
+        self.assertIn("fake server: late boom", again.stderr)
 
     def test_detach_reports_a_server_that_dies(self):
         result = self.sh("start", "--detach", FAKE_SERVER="die")
