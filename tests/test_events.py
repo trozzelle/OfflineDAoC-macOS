@@ -1,4 +1,5 @@
 """The OfflineDAoC app's event channel: DAOC_EVENTS=<fd> out, answers on stdin."""
+import hashlib
 import io
 import itertools
 import json
@@ -7,12 +8,13 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from tests.support import make_checkout, run_cli
+from tests.support import make_checkout, path_stubs, run_cli
 
-from daoc_cli import cli, client, errors, events, keychain, proc, server
+from daoc_cli import cli, client, errors, events, keychain, proc, release, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -165,6 +167,34 @@ class SecretTest(unittest.TestCase):
         with self.assertRaises(DaocError) as cm:
             self.login({"account": "", "password": "pw"})
         self.assertEqual((cm.exception.code, cm.exception.msg), (2, "no account name given"))
+
+
+class DownloadEventTest(unittest.TestCase):
+    def test_release_download_names_its_part_file_and_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.bin"
+            src.write_bytes(b"x" * 1000)
+            dest = Path(tmp) / "out.bin"
+            with channel() as ch, mock.patch("sys.stderr", io.StringIO()):
+                release.download(src.as_uri(), dest)
+        self.assertEqual(ch.events[-1], {"t": "download", "path": str(dest) + ".part",
+                                         "bytes": 1000, "what": "out.bin"})
+
+    def test_a_curl_download_names_its_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            co = Checkout(make_checkout(tmp))
+            co.downloads.mkdir(parents=True)
+            stubs = path_stubs(tmp, {"curl": 'for a; do [ "$prev" = -o ] && printf data > "$a"; prev=$a; done'})
+            want = sha256_bytes(b"data")
+            with channel() as ch, mock.patch("sys.stderr", io.StringIO()), \
+                    mock.patch.dict(os.environ, {"PATH": f"{stubs}:/usr/bin:/bin"}):
+                client._download(co, "https://example.invalid/w.tar.xz", "w.tar.xz", want, "Wine", False)
+        self.assertEqual(ch.events[-1], {"t": "download", "path": str(co.downloads / "w.tar.xz"),
+                                         "bytes": None, "what": "Wine"})
+
+
+def sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 if __name__ == "__main__":

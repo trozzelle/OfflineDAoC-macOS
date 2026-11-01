@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from daoc_cli import events
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import sha256, sha256_of
 
@@ -32,6 +33,9 @@ def download(url: str, dest: Path) -> None:
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
         with urllib.request.urlopen(req) as r, tmp.open("wb") as f:
+            length = r.headers.get("Content-Length") or ""
+            events.emit("download", path=str(tmp), bytes=int(length) if length.isdigit() else None,
+                        what=dest.name)
             shutil.copyfileobj(r, f, 1 << 20)
     except OSError as e:
         raise DaocError(f"download of {url} failed: {e}") from None
