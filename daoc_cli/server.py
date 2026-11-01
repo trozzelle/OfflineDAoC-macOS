@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from daoc_cli import files, games, pins, proc, selection, updates
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError, ask, say
+from daoc_cli.errors import DaocError, ask, interactive, say
 
 NO_INSTALL = "no Server install; run daoc server install"
 
@@ -241,7 +241,7 @@ def _stop_first(checkout: Checkout) -> None:
     if state is None:
         raise DaocError(f"cannot tell whether the server is running ({detail}); "
                         "stop it first (daoc server stop)", 2)
-    if not sys.stdin.isatty():
+    if not interactive():
         raise DaocError("the server is running; stop it first (daoc server stop)", 2)
     if not ask(f"The server is {detail}. Stop it to update?"):
         raise DaocError("server update refused: the server is running", 2)
@@ -298,7 +298,7 @@ def update(checkout: Checkout) -> int:
     after = _world_hash(checkout)
     if before is None or after == before:
         return 0
-    if not sys.stdin.isatty():
+    if not interactive():
         print("World data changed; to move your progress into the new world, run:  "
               "daoc progress upgrade", file=sys.stderr)
         return 0

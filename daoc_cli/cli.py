@@ -26,9 +26,9 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
 from daoc_cli.checkout import Checkout
-from daoc_cli import client, dev, game, graphics, overview, self_install, server
+from daoc_cli import client, dev, events, game, graphics, overview, self_install, server
 from daoc_cli.server_tools import admin, progress
-from daoc_cli.errors import DaocError, say
+from daoc_cli.errors import DaocError
 
 GROUPS = (
     ("server", server),
@@ -98,7 +98,8 @@ def main(argv: Optional[Sequence[str]] = None, *, root: Optional[Union[str, Path
     try:
         return _dispatch(sys.argv[1:] if argv is None else argv, root)
     except DaocError as e:
-        say(e.msg)
+        print(f"daoc: {e.msg}", file=sys.stderr, flush=True)
+        events.emit("error", msg=e.msg, code=e.code)
         return e.code
     except SystemExit as e:
         return _exit_code(e)
