@@ -11,7 +11,7 @@ from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import errors, games, keychain, proc, selection, server
+from daoc_cli import errors, games, keychain, pins, proc, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.selection import Selection
 
@@ -155,6 +155,7 @@ class InstallTest(unittest.TestCase):
         code, _, err = run_cli(["server", "install", "--from-source"], self.root, env=self.env)
         self.assertEqual(code, 0, err)
         self.assertEqual([c[0] for c in stub_calls(self.stubs)][-1], "build-release.sh")
+        self.assertNotIn("prebuilt", pins.installed(self.co, "server"))
 
     def test_install_builds_with_resolved_cwd_and_pinned_repo(self):
         code, _, err = run_cli(["server", "install"], self.root,

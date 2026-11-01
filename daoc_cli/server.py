@@ -51,7 +51,7 @@ def prebuilt_name(version: str, ref: str) -> str:
     return f"daoc-server-{version}-{ref[:12]}-osx-arm64.tar.xz"
 
 
-# tarfile's `filter="data"` where it exists (3.12+; 3.9 has neither the kwarg nor the warning).
+# tarfile's `filter="data"` where it exists: 3.12+, and backported to 3.9.17+/3.10.12+/3.11.4+.
 EXTRACT_FILTER: Dict[str, Any] = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
 
 
@@ -227,7 +227,7 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
         # A build that stops halfway leaves an install built from no pin.
         pins.forget_installed(checkout, "server")
         proc.run(build, cwd=code, env=env, verbose=True)
-    pins.record_installed(checkout, "server", pin)
+    pins.record_installed(checkout, "server", {k: v for k, v in pin.items() if k != "prebuilt"})
 
     say("install-server: done — server/dist/daoc-server; start it with daoc server start")
 
@@ -239,7 +239,7 @@ def _install_prebuilt(checkout: Checkout, pin: Dict[str, Any]) -> None:
     cache.mkdir(parents=True, exist_ok=True)
     tarball = cache / name
     say(f"fetching the server ({int(prebuilt['bytes']) // 1024 ** 2} MB, built from {pin['ref'][:12]})")
-    release.fetch_verified(prebuilt["url"], tarball, prebuilt.get("bytes"), prebuilt["sha256"],
+    release.fetch_verified(prebuilt["url"], tarball, prebuilt["bytes"], prebuilt["sha256"],
                            release.download)
     if running(checkout) is not False:
         raise DaocError("the server is running; stop it first (daoc server stop)", 2)
@@ -259,6 +259,7 @@ def _install_prebuilt(checkout: Checkout, pin: Dict[str, Any]) -> None:
             raise DaocError(f"{name} was built from {built[:12] or 'an unknown commit'}, "
                             f"not the pinned {pin['ref'][:12]}")
         pins.forget_installed(checkout, "server")
+        (stage / pins.INSTALLED).unlink()   # the record is written last: an interrupted swap stays unrecorded
         dest.mkdir(parents=True, exist_ok=True)
         for entry in sorted(stage.iterdir()):
             target = dest / entry.name
@@ -287,7 +288,7 @@ def _extract_prebuilt(tarball: Path, stage: Path) -> None:
             if len(parts) == 1:
                 continue
             rel = Path(*parts[1:])
-            if rel.parts[0] in USER_DIRS:
+            if rel.parts[0].lower() in USER_DIRS:   # APFS ignores case: Data/ would replace data/
                 raise DaocError(f"{tarball.name} holds {rel.parts[0]}/, which is the user's")
             if not (member.isfile() or member.isdir() or member.issym()):
                 raise DaocError(f"{tarball.name}: {member.name!r} is not a file, folder or symlink")
