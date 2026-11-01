@@ -139,12 +139,32 @@ class PrebuiltTest(unittest.TestCase):
         for tarball, words in ((self.adversarial("daoc-server/data/opendaoc.sqlite3.db"), "holds data/"),
                                (self.adversarial("daoc-server/../evil"), "unexpected member"),
                                (self.adversarial("elsewhere/x"), "unexpected member"),
+                               (self.adversarial("daoc-server/Data/x"), "holds Data/"),
                                (self.adversarial("daoc-server/bin/x", link="../../../etc"), "points outside")):
             self.ship(tarball)
             code, _, err = self.install(tarball)
             self.assertEqual(code, 1, err)
             self.assertIn(words, err)
             self.assertEqual((self.co.server_dir / "data" / "opendaoc.sqlite3.db").read_text(), "my save")
+
+    def test_an_interrupted_swap_leaves_no_record_of_the_pinned_commit(self):
+        tarball = self.built_tarball()
+        self.ship(tarball)
+        self.existing_install()
+        real, calls = Path.rename, []
+
+        def failing(path, target):
+            calls.append(path.name)
+            if len(calls) == 2:
+                raise OSError("disk went away")
+            return real(path, target)
+
+        with mock.patch.object(Path, "rename", failing):
+            with self.assertRaises(OSError):
+                self.install(tarball)
+        self.assertTrue((self.co.server_dir / "bin" / "CoreServer").is_file())   # swap began
+        self.assertIsNone(pins.installed(self.co, "server"))
+        self.assertFalse((self.co.server_dir / pins.INSTALLED).exists())
 
 
 if __name__ == "__main__":
