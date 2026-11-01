@@ -11,7 +11,7 @@ from unittest import mock
 
 from tests.support import make_checkout, run_cli
 
-from daoc_cli import cli, errors, events, proc, server
+from daoc_cli import cli, client, errors, events, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -102,6 +102,21 @@ class EventTest(unittest.TestCase):
             os.close(saved)
             os.close(r)
         self.assertEqual(result.stdout, "")
+
+    def test_wine_tools_cannot_read_the_answer_channel(self):
+        r, w = os.pipe()
+        os.write(w, b'{"id": 1, "answer": true}\n')
+        os.close(w)
+        saved = os.dup(0)
+        try:
+            os.dup2(r, 0)
+            with channel():
+                rc, output = client._wine_output(["/bin/cat"], {})
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+            os.close(r)
+        self.assertEqual((rc, output), (0, ""))
 
     def test_a_program_daoc_execs_does_not_inherit_the_channel(self):
         r, w = os.pipe()

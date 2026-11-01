@@ -55,8 +55,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-from daoc_cli import (bench, client_patch, client_runtime, games, graphics, newclient, pins, proc,
-                      release, selection, updates)
+from daoc_cli import (bench, client_patch, client_runtime, events, games, graphics, newclient, pins,
+                      proc, release, selection, updates)
 from daoc_cli.checkout import FLAVOURS, Checkout, wine_env, wine_is_arm64
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import atomic_write, sha256
@@ -422,10 +422,13 @@ def update(checkout: Checkout, fetch_url: Optional[release.Downloader] = None) -
 def _wine_output(argv: List[str], env: Mapping[str, str]) -> Tuple[int, str]:
     """Run a Wine tool with its output in a file, not a pipe: wineboot leaves
     wineserver running with the pipe inherited, so reading a pipe to EOF would
-    wait for wineserver."""
+    wait for wineserver. In event mode stdin is /dev/null: it is the app's answer
+    channel, and a wineserver that outlives the call would hold it."""
+    stdin = subprocess.DEVNULL if events.on() else None
     with tempfile.TemporaryFile() as log:
         try:
-            rc = subprocess.run(argv, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
+            rc = subprocess.run(argv, env=env, stdin=stdin, stdout=log,
+                                stderr=subprocess.STDOUT).returncode
         except OSError as e:
             raise DaocError(f"cannot run {argv[0]}: {e.strerror or e}") from None
         log.seek(0)
