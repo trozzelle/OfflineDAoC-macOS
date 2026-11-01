@@ -57,9 +57,15 @@ class PassthroughTest(unittest.TestCase):
         self.install()
         script = str(self.co.server_dir / "daoc-server.sh")
         for argv, want in ((["start", "--console"], ["start", "--console"]),
+                           (["start", "--detach"], ["start", "--detach"]),
                            (["start"], ["start"]), (["stop"], ["stop"]), (["status"], ["status"])):
             calls = self.execv_calls(["server", *argv])
             self.assertEqual(calls, [([script, *want], self.co.server_dir)])
+
+    def test_console_and_detach_are_mutually_exclusive(self):
+        self.install()
+        code, out, err = run_cli(["server", "start", "--console", "--detach"], self.root)
+        self.assertEqual(code, 2)
 
     def test_missing_install_exits_1(self):
         for argv in (["admin", "help"], ["progress"], ["server", "status"], ["server", "start"]):
