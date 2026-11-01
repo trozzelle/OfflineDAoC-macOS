@@ -42,7 +42,8 @@ SDS_PROJ="$SDS_SRC/System.Data.SQLite.NetStandard21.csproj"
 DOTNET="${DOTNET:-${DOTNET_ROOT:-$HOME/.dotnet}/dotnet}"
 [[ -x $DOTNET ]] || DOTNET="${DOTNET:-$(command -v dotnet || true)}"
 VERSION="${VERSION:-$(git -C "$HERE" describe --tags --always 2>/dev/null || echo dev)}"
-OUT="$HERE/dist/daoc-server"
+# The install folder: `daoc server install` sets DAOC_SERVER_OUT to its data home's server folder.
+OUT="${DAOC_SERVER_OUT:-$HERE/dist/daoc-server}"
 # The game Version being built (`daoc server install` sets both): its Sluaghbinder overlay lives in
 # world/editions/<version>/, and its navmeshes in DAOC_NAVMESH_SRC/world/navmesh/. The macOS source
 # changes are commits in the server repo itself (trozzelle/OfflineDAoC-macOS-server).
@@ -219,11 +220,11 @@ echo "== Navmeshes (world/navmesh)"
 DAOC_HOME="$OUT" "$OUT/navmesh-install.sh" --from-xz "$NAVMESH_SRC/world/navmesh"
 
 # The release zip leaves the navmeshes out (they come from the server repo's world/navmesh/).
-zipfile="$HERE/dist/daoc-server-$VERSION-macos-arm64.zip"
+zipfile="$(dirname "$OUT")/daoc-server-$VERSION-macos-arm64.zip"
 rm -f "$zipfile"
 # User state (config/, data/, logs/, run/) never goes into the release zip. -y stores the bin/ links
 # as links; following them would pack navmesh/, config/ and logs/ under bin/.
-(cd "$HERE/dist" && zip -ryq "$zipfile" daoc-server -x "daoc-server/navmesh/*" \
+(cd "$(dirname "$OUT")" && zip -ryq "$zipfile" daoc-server -x "daoc-server/navmesh/*" \
   -x "daoc-server/config/*" -x "daoc-server/data/*" -x "daoc-server/logs/*" -x "daoc-server/run/*")
 echo "== Done: $OUT"
 echo "         $zipfile ($(du -h "$zipfile" | cut -f1))"

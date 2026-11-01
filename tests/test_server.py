@@ -100,6 +100,7 @@ class InstallTest(unittest.TestCase):
         (fixture / "world" / "navmesh" / "zone000.nav.xz").write_bytes(b"xz")
         (fixture / "world" / "navmesh-manifest.sha256").write_text("x  zone000.nav\n")
         build_env = Path(self.tmp.name) / "stubs" / "build.env"
+        self.build_out = Path(self.tmp.name) / "stubs" / "build.out"
         self.stubs = path_stubs(self.tmp.name, {
             "git": (f'[ "$3" = rev-parse ] && echo "${{HEAD_SHA:-{self.ref}}}"\n'
                     '[ "$3" = remote ] && [ "$4" = get-url ] && echo "$ORIGIN_URL"\n'
@@ -110,7 +111,8 @@ class InstallTest(unittest.TestCase):
             "cmake": "exit 0",
             "setup-dotnet.sh": "exit 0",
             "build-release.sh": (f'm=$DAOC_NAVMESH_SRC/world/navmesh-manifest.sha256; [ -f "$m" ] && m=present\n'
-                                 f'echo "$PWD|$DAOC_SOURCE_REPO|$DAOC_GAME_VERSION|$m" >> {build_env}'),
+                                 f'echo "$PWD|$DAOC_SOURCE_REPO|$DAOC_GAME_VERSION|$m" >> {build_env}\n'
+                                 f'echo "$DAOC_SERVER_OUT" >> {self.build_out}'),
         })
         self.build_env = build_env
         for name in ("setup-dotnet.sh", "build-release.sh"):
@@ -139,6 +141,17 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(stub_calls(self.stubs)[-1][1:], [])
         env = self.build_env.read_text().strip()
         self.assertEqual(env, f"{self.root}|{self.root / 'upstream' / 'server'}|0.35|present")
+
+    def test_a_data_home_holds_the_clone_and_the_install(self):
+        data = Path(os.path.realpath(self.tmp.name)) / "data"
+        src = data / "upstream" / "server"
+        (src / ".git").mkdir(parents=True)
+        code, _, err = run_cli(["server", "install"], self.root, env=dict(self.env, DAOC_DATA=str(data)))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.build_env.read_text().strip(), f"{self.root}|{src}|0.35|present")
+        self.assertEqual(self.build_out.read_text().strip(), str(data / "server" / "dist" / "daoc-server"))
+        self.assertEqual((data / "server" / "dist" / "daoc-server" / "config" / "edition").read_text(),
+                         "sluaghbinder\n")
 
     def test_install_passes_version_and_navmesh_src(self):
         self.select("0.36b")

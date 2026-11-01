@@ -140,18 +140,19 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
     """Build the Server install of game version from pin (default: its effective
     server pin)."""
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
-    root = Path(os.path.realpath(checkout.root))
+    code = Path(os.path.realpath(checkout.root))
+    home = Path(os.path.realpath(checkout.home))
     progress = "--progress" if verbose else "--quiet"
     pin = pin if pin is not None else pins.effective(checkout, "server", version)
     url, ref = pin["upstream"], pin["ref"]
     navmesh_ref = pin.get("navmesh_ref") or ref
-    src = root / "upstream" / "server"
+    src = home / "upstream" / "server"
 
     # 1. Fetch the pinned server repo as a git clone and verify the exact commit
     #    (a ref the repo doesn't have fails here, loudly, before any build time is spent).
     say(f"install-server: pinned upstream {ref[:12]}")
-    (root / "downloads").mkdir(parents=True, exist_ok=True)
-    (root / "upstream").mkdir(parents=True, exist_ok=True)
+    (home / "downloads").mkdir(parents=True, exist_ok=True)
+    (home / "upstream").mkdir(parents=True, exist_ok=True)
     if src.is_dir() and not (src / ".git").is_dir():
         # Tarball-era extract (pre-git pinning): replace it with a proper clone.
         say("replacing tarball-era upstream extract with a git clone")
@@ -178,7 +179,7 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
 
     # 2. Toolchain: the port's own installer is idempotent and always safe to run.
     say(".NET 10 SDK (installed into ~/.dotnet if missing)")
-    proc.run([root / "server" / "tools" / "setup-dotnet.sh"], cwd=root, verbose=verbose)
+    proc.run([code / "server" / "tools" / "setup-dotnet.sh"], cwd=code, verbose=verbose)
     if shutil.which("cmake") is None:
         raise DaocError("cmake missing (brew install cmake)")
 
@@ -187,13 +188,14 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
         # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
         #    fetcher it calls) can't pick up a different tree from an inherited environment.
         env = dict(os.environ, DAOC_SOURCE_REPO=str(src), DAOC_GAME_VERSION=version,
-                   DAOC_NAVMESH_SRC=navmesh_src)
-        build = [str(root / "server" / "tools" / "build-release.sh")]
+                   DAOC_NAVMESH_SRC=navmesh_src,
+                   DAOC_SERVER_OUT=os.path.realpath(checkout.server_dir))
+        build = [str(code / "server" / "tools" / "build-release.sh")]
         if verbose:
             build.append("--verbose")
         # A build that stops halfway leaves an install built from no pin.
         pins.forget_installed(checkout, "server")
-        proc.run(build, cwd=root, env=env, verbose=True)
+        proc.run(build, cwd=code, env=env, verbose=True)
     pins.record_installed(checkout, "server", pin)
 
     say("install-server: done — server/dist/daoc-server; start it with daoc server start")

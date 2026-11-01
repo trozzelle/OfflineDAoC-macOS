@@ -18,6 +18,11 @@ if str(ROOT) not in sys.path:
 
 from daoc_cli import cli  # noqa: E402
 
+# A developer's own data home or event channel must not leak into the tests;
+# a test that needs one sets it for its run.
+for _name in ("DAOC_DATA", "DAOC_EVENTS"):
+    os.environ.pop(_name, None)
+
 STUB_LOG = "calls.log"
 
 # Real git without the user's or the system's config (commit signing, hooks,

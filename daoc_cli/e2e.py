@@ -56,7 +56,7 @@ class _Run:
         self.account = account
         self.password = password
         self.server_dir = checkout.server_dir
-        self.evidence = checkout.root / "evidence"
+        self.evidence = checkout.home / "evidence"
         self.config = self.server_dir / "config" / "serverconfig.xml"
         self.failed = False
         self.step_name = ""
@@ -479,7 +479,7 @@ def run(checkout: Checkout, account: Optional[str] = None, password: Optional[st
         print(f"port {client_runtime.NEW_PORT} is in use (another server?); the new client only "
               "connects to it, so stop that server first", file=sys.stderr, flush=True)
         return 2
-    lock = checkout.root / ".e2e.lock"
+    lock = checkout.home / ".e2e.lock"
     # One run at a time: two concurrent runs would fight over the same wine
     # prefix, server ports, and logs.
     try:
