@@ -7,6 +7,8 @@
 #                                     screen here (quit it with Ctrl+Q: stop the server or leave it running)
 #   ./daoc-server.sh start --console  raw server console in the foreground instead (Ctrl+C, SIGTERM
 #                                     or "exit" stop it); also used automatically without a terminal
+#   ./daoc-server.sh start --detach   start in the background, wait until it is ready, and return
+#                                     (no admin screen; the OfflineDAoC app uses this)
 #   ./daoc-server.sh stop      stop a running server cleanly (saves first)
 #   ./daoc-server.sh status    is it running?
 #   ./daoc-admin               manage bots, population and accounts (terminal GUI or commands)
@@ -55,11 +57,17 @@ port_in_use() { nc -z -w 1 127.0.0.1 "$(game_port)" >/dev/null 2>&1; }
 
 start() {
   local mode=${1:-}
+  # --detach: background start, wait until ready, return (the OfflineDAoC app).
   # --console, or no terminal (init system, redirect): run the raw server console in the foreground.
-  local console=false
-  [[ $mode == --console || ! -t 0 || ! -t 1 ]] && console=true
+  local console=false detach=false
+  if [[ $mode == --detach ]]; then
+    detach=true
+  elif [[ $mode == --console || ! -t 0 || ! -t 1 ]]; then
+    console=true
+  fi
 
   if running_pid >/dev/null; then
+    if $detach; then echo "already running (pid $(running_pid))"; exit 0; fi
     $console && die "already running (pid $(running_pid))"
     exec "$DAOC_HOME/daoc-admin"   # already running: just open the admin screen
   fi
@@ -112,6 +120,15 @@ start() {
     sleep 1
   done
   echo
+  if $detach; then
+    if [[ -S $DAOC_ADMIN_SOCKET ]] && grep -q "Server is now listening" "$log"; then
+      echo "Server running (pid $pid)"
+      exit 0
+    fi
+    echo "The server is not ready after 180 s. Last lines of $log:" >&2
+    tail -n 25 "$log" >&2
+    exit 1
+  fi
   exec "$DAOC_HOME/daoc-admin"
 }
 
@@ -130,5 +147,5 @@ case "${1:-}" in
   start)  start "${2:-}" ;;
   stop)   stop ;;
   status) if pid=$(running_pid); then echo "running (pid $pid)"; else echo "stopped"; fi ;;
-  *) echo "usage: $0 start [--console] | stop | status"; exit 2 ;;
+  *) echo "usage: $0 start [--console|--detach] | stop | status"; exit 2 ;;
 esac
