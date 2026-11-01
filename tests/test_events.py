@@ -3,6 +3,7 @@ import io
 import itertools
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -11,7 +12,7 @@ from unittest import mock
 
 from tests.support import make_checkout, run_cli
 
-from daoc_cli import cli, client, errors, events, proc, server
+from daoc_cli import cli, client, errors, events, keychain, proc, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.errors import DaocError
 
@@ -128,6 +129,42 @@ class EventTest(unittest.TestCase):
         finally:
             os.close(r)
             os.close(w)
+
+
+class SecretTest(unittest.TestCase):
+    def login(self, answer):
+        calls = []
+
+        def run(argv, **kwargs):
+            argv = [os.fspath(a) for a in argv]
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0, "x\n", "")
+
+        with channel() as ch, mock.patch.object(events, "_ids", itertools.count(1)), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps(dict(answer, id=1)) + "\n")), \
+                mock.patch.object(keychain.proc, "run", run), mock.patch("sys.stderr", io.StringIO()):
+            keychain.save_interactive()
+        return calls, ch.events
+
+    def test_the_app_login_keeps_the_password_off_argv(self):
+        calls, sent = self.login({"account": "alice", "password": "s3 cret"})
+        self.assertEqual(sent, [{"t": "secret", "id": 1, "what": "login"}])
+        adds = [(argv, kw) for argv, kw in calls if argv[1] == "add-generic-password"]
+        self.assertEqual(adds[0][0][-2:], ["-w", "alice"])
+        argv, kw = adds[1]
+        self.assertEqual(argv[-3:], ["-a", "login_password", "-w"])
+        self.assertEqual((kw.get("input"), kw.get("new_session")), ("s3 cret\ns3 cret\n", True))
+        self.assertTrue(all("s3 cret" not in argv for argv, _ in calls))
+
+    def test_a_password_with_a_line_break_is_refused(self):
+        with self.assertRaises(DaocError) as cm:
+            self.login({"account": "alice", "password": "a\nb"})
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_no_answer_saves_nothing(self):
+        with self.assertRaises(DaocError) as cm:
+            self.login({"account": "", "password": "pw"})
+        self.assertEqual((cm.exception.code, cm.exception.msg), (2, "no account name given"))
 
 
 if __name__ == "__main__":
