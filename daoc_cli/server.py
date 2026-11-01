@@ -51,9 +51,11 @@ def register(groups: "argparse._SubParsersAction") -> None:
         description="Install, run and update the local OpenDAoC server.",
     )
     actions = p.add_subparsers(dest="action", title="actions")
-    a = actions.add_parser("install", help="build server/dist/daoc-server for the selected game version")
+    a = actions.add_parser("install", help="install the server for the selected game version")
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show git progress and the build's warnings and tool output")
+    a.add_argument("--from-source", action="store_true",
+                   help="build it from the server repo even when a prebuilt server is pinned")
     a.set_defaults(func=_handle_install)
     a = actions.add_parser(
         "update",
@@ -77,7 +79,7 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
     game = selection.load(checkout).game
-    install(checkout, game.version, verbose=args.verbose)
+    install(checkout, game.version, verbose=args.verbose, from_source=args.from_source)
     set_edition(checkout, game.edition)
     return 0
 
@@ -140,11 +142,15 @@ def running(checkout: Checkout) -> Optional[bool]:
 
 
 def install(checkout: Checkout, version: str, verbose: bool = False,
-            pin: Optional[Dict[str, Any]] = None) -> None:
-    """Build the Server install of game version from pin (default: its effective
-    server pin)."""
+            pin: Optional[Dict[str, Any]] = None, from_source: bool = False) -> None:
+    """Install the Server of game version from pin (default: its effective
+    server pin): its prebuilt tarball when the pin has one, else a build from
+    source (from_source forces the build)."""
     # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
     code = Path(os.path.realpath(checkout.root))
+    if not (code / "server" / "vendor").is_dir():
+        raise DaocError("building the server from source needs a git checkout of daoc-macos "
+                        f"(this daoc, {code}, has no server/vendor)", 2)
     home = Path(os.path.realpath(checkout.home))
     progress = "--progress" if verbose else "--quiet"
     pin = pin if pin is not None else pins.effective(checkout, "server", version)

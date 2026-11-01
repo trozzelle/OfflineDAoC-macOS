@@ -170,3 +170,16 @@ def extract(archive: Path, root_folder: str, dest_dir: Path) -> Path:
         zf.extractall(dest_dir)
     say(f"  extracted to {target}")
     return target
+
+
+def fetch_verified(url: str, dest: Path, size: Optional[int], want: str,
+                   fetch_url: Downloader) -> None:
+    """dest, fetched with fetch_url unless it is already there with size and
+    sha256 want; a download that fails the hash is deleted and refused."""
+    if dest.is_file() and (size is None or dest.stat().st_size == size) and sha256(dest) == want:
+        return
+    dest.unlink(missing_ok=True)
+    fetch_url(url, dest)
+    if sha256(dest) != want:
+        dest.unlink()
+        raise DaocError(f"{dest.name} failed SHA-256 verification")
