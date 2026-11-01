@@ -1,5 +1,6 @@
 """daoc server / admin / progress: passthrough argv, missing install, install build step."""
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -145,6 +146,15 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("needs a git checkout of daoc-macos", err)
         self.assertEqual(stub_calls(self.stubs), [])
+
+    def test_from_source_builds_even_with_a_prebuilt_pinned(self):
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["versions"]["0.35"]["server"]["prebuilt"] = {"url": "https://x/y.tar.xz", "bytes": 1, "sha256": "0" * 64}
+        path.write_text(json.dumps(manifest))
+        code, _, err = run_cli(["server", "install", "--from-source"], self.root, env=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c[0] for c in stub_calls(self.stubs)][-1], "build-release.sh")
 
     def test_install_builds_with_resolved_cwd_and_pinned_repo(self):
         code, _, err = run_cli(["server", "install"], self.root,
