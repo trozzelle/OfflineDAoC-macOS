@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from daoc_cli.errors import DaocError, ask
+from daoc_cli.errors import DaocError, ask, interactive
 from daoc_cli.files import atomic_write
 
 MARKER = "# daoc wrapper written by daoc self-install"
@@ -66,7 +66,7 @@ def _on_path(bin_dir: Path) -> bool:
 
 def _offer_path(home: Path) -> None:
     profile = home / ".zprofile"
-    if not sys.stdin.isatty():
+    if not interactive():
         print("~/.local/bin is not on PATH. Add this line to your shell profile (e.g. ~/.zprofile):",
               file=sys.stderr)
         print(f"  {PATH_LINE}", file=sys.stderr)
