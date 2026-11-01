@@ -45,6 +45,14 @@ class SelfInstallTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.wrapper.stat().st_mode), 0o755)
         self.assertEqual(subprocess.run(["/bin/sh", "-n", str(self.wrapper)]).returncode, 0)
 
+    def test_a_data_home_is_exported_by_the_wrapper(self):
+        data = self.tmp / "my data"
+        code, _, err = self.install(env={"DAOC_DATA": str(data)})
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"CHECKOUT={self.root}\nDAOC_DATA='{data}'\nexport DAOC_DATA\n",
+                      self.wrapper.read_text())
+        self.assertEqual(subprocess.run(["/bin/sh", "-n", str(self.wrapper)]).returncode, 0)
+
     def test_path_with_spaces_is_quoted(self):
         text = self_install.wrapper_text(Path("/a b/it's"))
         self.assertIn("CHECKOUT='/a b/it'\"'\"'s'\n", text)

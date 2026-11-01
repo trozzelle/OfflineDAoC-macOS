@@ -197,7 +197,7 @@ def _launch_once(checkout: Checkout, game_port: int, account: str, password: str
              f"{game_port} so you can create one")
     try:
         proc.run(launch_argv(checkout, account, password, chosen, game_port, dict(os.environ)),
-                 cwd=checkout.root)
+                 cwd=checkout.home)
     except DaocError as e:
         raise DaocError(e.msg, 2) from None
 
@@ -248,7 +248,7 @@ def _start_new(checkout: Checkout) -> None:
     before, log_offset = _logins(checkout, account), files.size(_server_log(checkout))
     say(f"launching the new client for {account} on port {NEW_PORT} (log: {NEW_LOG})")
     try:
-        proc.run(new_launch_argv(checkout, account, password, classic), cwd=checkout.root)
+        proc.run(new_launch_argv(checkout, account, password, classic), cwd=checkout.home)
     except DaocError as e:
         raise DaocError(e.msg, 2) from None
     waited = 0

@@ -256,7 +256,8 @@ def install_godot(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Do
 
 def _requirements(checkout: Checkout, game: Game, pin: Dict[str, Any], fresh: bool) -> None:
     if fresh:
-        free = shutil.disk_usage(checkout.root).free
+        checkout.home.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(checkout.home).free
         need = needed_bytes(pin)
         if free < need:
             raise DaocError(f"the new client needs {need / 1024 ** 3:.1f} GB free while it installs; "

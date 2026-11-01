@@ -170,6 +170,7 @@ class CheckoutTest(unittest.TestCase):
             root = make_checkout(tmp).resolve()
             co = Checkout(root)
             self.assertEqual(co.root, root)
+            self.assertEqual(co.home, root)
             self.assertEqual(co.server_dir, root / "server/dist/daoc-server")
             self.assertEqual(co.client_root, root / "dist/OfflineDAoC")
             self.assertEqual(co.app_dir, root / "dist/OfflineDAoC/runtime/client-opendaoc/app")
@@ -183,6 +184,34 @@ class CheckoutTest(unittest.TestCase):
             self.assertEqual(co.downloads, root / "downloads")
             self.assertEqual(co.state, root / ".daoc")
             self.assertEqual(co.manifest["schema"], 2)
+
+    def test_installs_and_state_follow_the_data_home(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            os.environ.pop("DAOC_WINE_HOME", None)
+            os.environ.pop("DAOC_WINEPREFIX", None)
+            root = make_checkout(tmp).resolve()
+            data = (Path(tmp) / "data").resolve()
+            co = Checkout(root, home=data)
+            self.assertEqual((co.root, co.home), (root, data))
+            self.assertEqual(co.server_dir, data / "server/dist/daoc-server")
+            self.assertEqual(co.client_root, data / "dist/OfflineDAoC")
+            self.assertEqual(co.new_client_root, data / "dist/new-client")
+            self.assertEqual(co.godot_app, data / "dist/godot/Godot_mono.app")
+            self.assertEqual(co.wine_home, data / "dist/wine")
+            self.assertEqual(co.prefix, data / "dist/prefix")
+            self.assertEqual(co.launcher_app, data / "dist/DAoCLauncher.app")
+            self.assertEqual(co.graphics_src, data / "upstream/graphics")
+            self.assertEqual(co.downloads, data / "downloads")
+            self.assertEqual(co.state, data / ".daoc")
+            self.assertEqual(co.launcher_src, root / "client/DAoCLauncher.app")
+            self.assertEqual(co.manifest["schema"], 2)
+
+    def test_daoc_data_names_the_home_unless_one_is_given(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            root = make_checkout(tmp).resolve()
+            os.environ["DAOC_DATA"] = str(Path(tmp) / "data")
+            self.assertEqual(Checkout(root).home, (Path(tmp) / "data").resolve())
+            self.assertEqual(Checkout(root, home=root).home, root)
 
     def test_default_root_is_this_checkout(self):
         self.assertEqual(Checkout().root, Path(__file__).resolve().parents[1])
