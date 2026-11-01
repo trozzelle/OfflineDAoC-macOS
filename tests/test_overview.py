@@ -251,5 +251,16 @@ class OverviewTest(unittest.TestCase):
         self.assertNotIn("server@0.35", out)
 
 
+class NoGitTest(unittest.TestCase):
+    def test_the_overview_runs_no_git_outside_a_git_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_checkout(tmp)
+            stubs = path_stubs(tmp, {"git": "exit 0"})
+            code, _, err = run_cli([], root, env={"PATH": f"{stubs}:/usr/bin:/bin"})
+            calls = stub_calls(stubs)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
 from daoc_cli.checkout import Checkout
-from daoc_cli import client, dev, events, game, graphics, overview, self_install, server
+from daoc_cli import client, dev, events, game, graphics, overview, self_install, server, status
 from daoc_cli.server_tools import admin, progress
 from daoc_cli.errors import DaocError
 
@@ -38,6 +38,7 @@ GROUPS = (
     ("progress", progress),
     ("graphics", graphics),
     ("self-install", self_install),
+    ("status", status),
     ("dev", dev),
 )
 PASSTHROUGH = frozenset(("admin", "progress", "graphics"))
