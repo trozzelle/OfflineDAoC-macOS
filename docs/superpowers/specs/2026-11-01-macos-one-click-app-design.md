@@ -175,8 +175,8 @@ With the server down, `daoc-admin` exits 5 with `error: …` on stderr.
 
 ### App build, signing, notarization
 
-`app.yml`, on `push` of a `v*` tag (release-please tags with the release App token, so the
-tag starts workflows):
+`app.yml`, when a `v*` release is published (release-please publishes with the release App
+token, not `GITHUB_TOKEN`, so publishing starts workflows; `server-*` prereleases are skipped):
 
 1. `app/build-app.sh`: `swift build -c release`, assemble the bundle (section 1), embed
    python-build-standalone (URL and SHA-256 pinned in `app/python.lock`).
