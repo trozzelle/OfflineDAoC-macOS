@@ -32,6 +32,17 @@ NOT_FOUND = 44     # errSecItemNotFound
 LOCKED = 36        # errSecInteractionNotAllowed: the keychain is locked for this session
 
 
+def saved() -> Optional[bool]:
+    """Whether a Game account is saved, read without its secret (no -w): True,
+    False, or None when the keychain is locked or security fails."""
+    result = proc.run([SECURITY, "find-generic-password", "-s", SERVICE, "-a", ACCOUNT], check=False)
+    if result.returncode == 0:
+        return True
+    if result.returncode == NOT_FOUND:
+        return False
+    return None
+
+
 class NotSaved(DaocError):
     """No Game account is saved."""
 
