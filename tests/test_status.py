@@ -34,6 +34,30 @@ class StatusJsonTest(unittest.TestCase):
         self.assertIsNone(status["save"])
         self.assertEqual(calls, [])
 
+    def test_the_original_client_is_installed_only_once_client_install_finished(self):
+        # client install swaps dist/OfflineDAoC in first and records the flavour last.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_checkout(tmp)
+            data = Path(tmp).resolve() / "data"
+            dist = data / "dist"
+            stubs = path_stubs(tmp, {"git": "exit 0"})
+            env = {"DAOC_DATA": str(data), "PATH": f"{stubs}:/usr/bin:/bin"}
+
+            def original_client():
+                with mock.patch.object(keychain, "saved", return_value=None):
+                    code, out, err = run_cli(["status", "--json"], root, env=env)
+                self.assertEqual(code, 0, err)
+                return json.loads(out)["installed"]["original_client"]
+
+            (dist / "OfflineDAoC").mkdir(parents=True)
+            self.assertFalse(original_client())
+            (dist / "DAoCLauncher.app").mkdir()
+            self.assertFalse(original_client())
+            (dist / ".wine-flavour").write_text("rosetta\n")
+            self.assertTrue(original_client())
+            (dist / "OfflineDAoC").rmdir()
+            self.assertFalse(original_client())
+
     def test_status_prints_json_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, out, err = run_cli(["status"], make_checkout(tmp))
