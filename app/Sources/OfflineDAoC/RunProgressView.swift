@@ -16,9 +16,7 @@ struct RunProgressView: View {
                         Text("\(Self.size(download.done)) of \(Self.size(total))")
                     }
                 } else {
-                    ProgressView {
-                        Text(download.what)
-                    }
+                    ProgressView { Text(download.what) }.progressViewStyle(.linear)
                     Text(Self.size(download.done)).font(.callout).foregroundStyle(.secondary)
                 }
                 Button("Stop") { model.stop() }
