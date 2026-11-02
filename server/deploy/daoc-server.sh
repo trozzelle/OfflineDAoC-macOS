@@ -123,8 +123,8 @@ start() {
   done
   ! port_in_use || die "port $(game_port) is already in use (another server is running; see <Port> in config/serverconfig.xml)"
 
-  # The admin socket (used by ./daoc-admin): run/admin.sock, or a short path in /tmp when that
-  # would be too long for a unix socket (see admin-socket.sh).
+  # The admin socket (used by ./daoc-admin): run/admin.sock, or a short path in the per-user
+  # temp folder when that would be too long for a unix socket (see admin-socket.sh).
   export DAOC_ADMIN_SOCKET="$ADMIN_SOCKET"
   cd "$DAOC_HOME/bin"
 
