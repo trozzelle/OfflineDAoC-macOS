@@ -143,6 +143,7 @@ final class AppModel: ObservableObject {
         switch event {
         case .step(let message):
             running?.step = message
+            running?.download = nil  // a step after a download means the download is over
         case .download(let path, let bytes, let what):
             running?.download = DownloadState(path: path, total: bytes, what: what)
         case .ask(let id, let question, let defaultAnswer):
