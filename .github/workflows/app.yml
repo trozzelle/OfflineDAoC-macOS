@@ -19,6 +19,15 @@ jobs:
     environment: release
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: The manifest has a prebuilt server
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          pin = json.load(open("manifest.json"))["versions"]["0.37"]["server"]
+          if not pin.get("prebuilt"):
+              sys.exit("manifest.json has no versions[0.37].server.prebuilt: the app cannot build a server. "
+                       "Run `gh workflow run server-prebuilt.yml -f version=0.37` and merge its PR first.")
+          PY
       - name: Swift tests
         run: swift test --package-path app
       - name: Build
