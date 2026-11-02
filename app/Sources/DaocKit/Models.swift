@@ -120,9 +120,16 @@ public enum SetupPlan {
         return commands
     }
 
+    /// Whether this install has an account to log in with. The Keychain item is global, shared by
+    /// every install on the Mac, so it counts only once this data home's server has created its
+    /// world (`save` is set): a fresh world has no accounts.
+    public static func hasAccount(_ status: StatusSnapshot) -> Bool {
+        status.accountSaved == true && status.save != nil
+    }
+
     public static func isComplete(_ status: StatusSnapshot) -> Bool {
         status.installed.server && (status.installed.originalClient || status.installed.newClient)
-            && status.accountSaved == true
+            && hasAccount(status)
     }
 }
 
