@@ -188,7 +188,7 @@ token, not `GITHUB_TOKEN`, so publishing starts workflows; `server-*` prerelease
 3. DMG (`hdiutil create`), `xcrun notarytool submit --wait`, `xcrun stapler staple`, upload to
    the tag's release.
 
-Secrets: `DEVELOPER_ID_P12`, `P12_PASSWORD`, `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `NOTARY_KEY_P8`.
+Secrets, in the repository's `release` environment (which admits `v*` tags; `main` admits only the branch): `DEVELOPER_ID_P12`, `P12_PASSWORD`, `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `NOTARY_KEY_P8`.
 
 `client/DAoCLauncher.app` ships inside the signed bundle; `daoc client install` copies it into
 the data home, where `daoc graphics` may rewrite its `launch` (`DESIGN.md:241`). The copy

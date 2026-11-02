@@ -50,6 +50,14 @@ rm -rf "$python"/lib/python3.*/test "$python"/lib/python3.*/idlelib "$python"/li
   "$python"/lib/itcl* "$python"/lib/thread* "$python"/lib/tdbc* \
   "$python"/bin/idle3* "$python"/bin/pip*
 
+# The tarball ships almost no compiled stdlib, and Python would write the missing .pyc
+# files into the bundle on first import, after signing. Compile them now, with hashes that
+# are never checked against the sources, so the signed bundle never changes (the launcher
+# also runs the bundled Python with -B).
+libs=("$python"/lib/python3.*)
+[[ ${#libs[@]} -eq 1 && -d ${libs[0]} ]] || { echo "build-app: expected one $python/lib/python3.* directory" >&2; exit 1; }
+"$python/bin/python3" -I -m compileall -q -f -j0 --invalidation-mode unchecked-hash "${libs[0]}" "$code/daoc_cli"
+
 # Smoke: the bundled launcher runs on the bundled Python.
 smoke="$(mktemp -d)"
 DAOC_DATA="$smoke" "$code/daoc" --version
