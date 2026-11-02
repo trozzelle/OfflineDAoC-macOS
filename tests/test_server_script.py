@@ -42,12 +42,20 @@ def free_port():
         return s.getsockname()[1]
 
 
-class DetachTest(unittest.TestCase):
-    def setUp(self):
+class ServerFolderCase(unittest.TestCase):
+    """A server folder with a fake CoreServer; subclasses choose where it lives."""
+
+    def make_dir(self):
+        """Return (the folder to clean up, the server folder)."""
         # Short path: a unix socket path must stay under 104 bytes.
-        self.dir = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocsrv."))
-        self.addCleanup(shutil.rmtree, self.dir, True)
+        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocsrv."))
+        return root, root
+
+    def setUp(self):
+        root, self.dir = self.make_dir()
+        self.addCleanup(shutil.rmtree, root, True)
         shutil.copy2(ROOT / "server" / "deploy" / "daoc-server.sh", self.dir / "daoc-server.sh")
+        shutil.copy2(ROOT / "server" / "deploy" / "admin-socket.sh", self.dir / "admin-socket.sh")
         core = self.dir / "bin" / "CoreServer"
         core.parent.mkdir()
         core.write_text(f"#!{sys.executable}\n{FAKE_SERVER}")
@@ -74,7 +82,7 @@ class DetachTest(unittest.TestCase):
                 pass
 
     def env(self, **extra):
-        environ = {k: v for k, v in os.environ.items() if k != "DAOC_HOME"}
+        environ = {k: v for k, v in os.environ.items() if k not in ("DAOC_HOME", "DAOC_ADMIN_SOCKET")}
         environ.update(extra)
         return environ
 
@@ -82,6 +90,8 @@ class DetachTest(unittest.TestCase):
         return subprocess.run([str(self.dir / "daoc-server.sh"), *args], stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, env=self.env(**env), timeout=60)
 
+
+class DetachTest(ServerFolderCase):
     def test_detach_returns_once_ready_without_the_admin_screen(self):
         result = self.sh("start", "--detach")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -128,6 +138,79 @@ class DetachTest(unittest.TestCase):
         result = self.sh("start", "--detach", FAKE_SERVER="die")
         self.assertEqual(result.returncode, 1)
         self.assertIn("fake server: boom", result.stderr)
+
+
+def admin_socket(folder):
+    """The path admin-socket.sh gives a server folder."""
+    out = subprocess.run(["bash", "-c", '. "$1/admin-socket.sh"; admin_socket "$1"', "_", str(folder)],
+                         capture_output=True, text=True, check=True)
+    return out.stdout.strip()
+
+
+class LongFolderTest(ServerFolderCase):
+    """A server folder deep enough that run/admin.sock would not fit a unix socket path."""
+
+    def make_dir(self):
+        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocsrv."))
+        folder = root / ("x" * 80)
+        folder.mkdir()
+        return root, folder
+
+    def test_the_socket_falls_back_to_a_short_path_in_tmp(self):
+        self.assertGreater(len(str(self.dir / "run" / "admin.sock")), 100)
+        expected = admin_socket(self.dir)
+        self.assertRegex(expected, rf"^/tmp/daoc-{os.getuid()}-\d+\.sock$")
+        self.addCleanup(lambda: os.path.lexists(expected) and os.unlink(expected))
+        result = self.sh("start", "--detach")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.sh("status").stdout.startswith("running (pid "))
+        self.assertTrue(os.path.exists(expected), "no socket at the short /tmp path")
+        self.assertFalse((self.dir / "run" / "admin.sock").exists())
+        self.assertEqual(self.sh("stop").returncode, 0)
+
+
+class AdminScriptSocketTest(unittest.TestCase):
+    """daoc-admin finds the same socket path daoc-server.sh uses."""
+
+    def folder(self, parent):
+        folder = parent / "srv"
+        (folder / "bin").mkdir(parents=True)
+        for name in ("daoc-admin", "admin-socket.sh"):
+            shutil.copy2(ROOT / "server" / "deploy" / name, folder / name)
+        stub = folder / "bin" / "DaocAdmin"
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$DAOC_ADMIN_SOCKET"\n')
+        stub.chmod(0o755)
+        return folder
+
+    def run_admin(self, folder, **extra):
+        environ = {k: v for k, v in os.environ.items() if k != "DAOC_ADMIN_SOCKET"}
+        environ.update(extra)
+        result = subprocess.run([str(folder / "daoc-admin")], capture_output=True, text=True,
+                                env=environ, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_short_folder_uses_run_admin_sock(self):
+        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
+        self.addCleanup(shutil.rmtree, root, True)
+        folder = self.folder(root)
+        self.assertEqual(self.run_admin(folder), f"{folder}/run/admin.sock")
+
+    def test_long_folder_uses_the_same_tmp_path_as_the_server_script(self):
+        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
+        self.addCleanup(shutil.rmtree, root, True)
+        long_parent = root / ("x" * 80)
+        long_parent.mkdir()
+        folder = self.folder(long_parent)
+        printed = self.run_admin(folder)
+        self.assertRegex(printed, rf"^/tmp/daoc-{os.getuid()}-\d+\.sock$")
+        self.assertEqual(printed, admin_socket(folder))
+
+    def test_an_explicit_socket_wins(self):
+        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
+        self.addCleanup(shutil.rmtree, root, True)
+        folder = self.folder(root)
+        self.assertEqual(self.run_admin(folder, DAOC_ADMIN_SOCKET="/x"), "/x")
 
 
 if __name__ == "__main__":
