@@ -4,6 +4,7 @@ import SwiftUI
 struct LauncherView: View {
     @EnvironmentObject var model: AppModel
     @State private var game = "0.37b"
+    private static let games = ["0.37b", "0.37"]
 
     private var busy: Bool { model.running != nil }
     private var serverRunning: Bool { model.status?.server.running == true }
@@ -61,29 +62,32 @@ struct LauncherView: View {
             VStack(alignment: .leading) {
                 HStack {
                     Picker("Game", selection: $game) {
-                        Text("0.37b").tag("0.37b")
-                        Text("0.37").tag("0.37")
+                        ForEach(Self.games, id: \.self) { Text($0).tag($0) }
                     }
                     .frame(width: 200)
                     Button("Switch") { Task { await model.run("Switch to \(game)", ["game", "switch", game]) } }
                         .disabled(busy || game == model.status?.game.name)
                 }
                 HStack {
-                    Button("Add the new client (34 GB)") {
+                    Button("Add the new client (36 GB), make it the default") {
                         Task { await model.run("Install the new client", ["client", "install", "--client", "new"]) }
                     }
                     .disabled(busy || model.status?.installed.newClient == true)
                     let wine = model.status?.wine == "arm64" ? "rosetta" : "arm64"
-                    Button(wine == "arm64" ? "Use the arm64 Wine" : "Use the Rosetta Wine") {
-                        Task { await model.run("Switch to the \(wine) Wine", ["client", "install", "--wine", wine]) }
+                    let wineName = wine == "arm64" ? "arm64" : "Rosetta"
+                    Button("Use the \(wineName) Wine") {
+                        Task { await model.run("Switch to the \(wineName) Wine", ["client", "install", "--wine", wine]) }
                     }
-                    .disabled(busy || (wine == "arm64" && SystemChecks.macOSMajor < 27))
+                    .disabled(busy || model.status?.client == "new" || (wine == "arm64" && SystemChecks.macOSMajor < 27))
+                    .help("The Wine choice applies to the original client")
                     Button("Change account…") { Task { await model.run("Change the game account", ["client", "login"]) } }
                         .disabled(busy)
                 }
             }
         }
-        .onAppear { game = model.status?.game.name ?? "0.37b" }
+        .onAppear {
+            if let name = model.status?.game.name, Self.games.contains(name) { game = name }
+        }
     }
 
     private var updates: some View {
