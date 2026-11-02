@@ -36,6 +36,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DAOC_HOME="${DAOC_HOME:-$HERE}"
 PIDFILE="$DAOC_HOME/run/server.pid"
+# shellcheck source=admin-socket.sh
+. "$HERE/admin-socket.sh"
+ADMIN_SOCKET=$(admin_socket "$DAOC_HOME")
 
 die() { echo "daoc-server: $*" >&2; exit 1; }
 
@@ -57,7 +60,7 @@ port_in_use() { nc -z -w 1 127.0.0.1 "$(game_port)" >/dev/null 2>&1; }
 
 # Is the server listening? The admin socket exists and the console log says so.
 ready() {
-  [[ -S $DAOC_HOME/run/admin.sock ]] && grep -q "Server is now listening" "$DAOC_HOME/logs/console.out" 2>/dev/null
+  [[ -S $ADMIN_SOCKET ]] && grep -q "Server is now listening" "$DAOC_HOME/logs/console.out" 2>/dev/null
 }
 
 # Wait up to 180 s, one dot a second, for server $1 to be ready.
@@ -120,8 +123,9 @@ start() {
   done
   ! port_in_use || die "port $(game_port) is already in use (another server is running; see <Port> in config/serverconfig.xml)"
 
-  # The admin socket (used by ./daoc-admin) lives in run/.
-  export DAOC_ADMIN_SOCKET="$DAOC_HOME/run/admin.sock"
+  # The admin socket (used by ./daoc-admin): run/admin.sock, or a short path in /tmp when that
+  # would be too long for a unix socket (see admin-socket.sh).
+  export DAOC_ADMIN_SOCKET="$ADMIN_SOCKET"
   cd "$DAOC_HOME/bin"
 
   if $console; then

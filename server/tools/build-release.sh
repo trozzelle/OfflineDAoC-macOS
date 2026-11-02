@@ -106,7 +106,7 @@ fi
 # The folder is also the user's install: replace only what the build owns (bin/, defaults/ and
 # the top-level EXTRAS). config/, data/ (accounts, characters, bots), logs/ and run/ are the
 # user's and survive every rebuild; navmesh/ is refreshed in place by the navmesh step below.
-EXTRAS=(daoc-server.sh daoc-admin daoc-progress navmesh-install.sh release.conf README.md README-MACOS.md VERSION)
+EXTRAS=(daoc-server.sh admin-socket.sh daoc-admin daoc-progress navmesh-install.sh release.conf README.md README-MACOS.md VERSION)
 rm -rf "$OUT/bin" "$OUT/defaults" "${EXTRAS[@]/#/$OUT/}"
 echo "== Publishing server (self-contained osx-arm64)"
 "$DOTNET" publish "$SNAPSHOT/CoreServer/CoreServer.csproj" -c Release -r osx-arm64 --self-contained true \
@@ -200,7 +200,7 @@ cp "$SNAPSHOT/GameServer/config/logconfig.xml" "$SNAPSHOT/GameServer/config/inva
 for f in classic-quests.json classic-quest-guides.json; do
   if [[ -f $REPO/world/$f ]]; then cp "$REPO/world/$f" "$OUT/bin/"; fi
 done
-cp "$HERE/deploy/daoc-server.sh" "$HERE/deploy/daoc-admin" "$HERE/deploy/daoc-progress" "$HERE/deploy/navmesh-install.sh" \
+cp "$HERE/deploy/daoc-server.sh" "$HERE/deploy/admin-socket.sh" "$HERE/deploy/daoc-admin" "$HERE/deploy/daoc-progress" "$HERE/deploy/navmesh-install.sh" \
   "$REPO/deploy/release.conf" "$OUT/"
 cp "$REPO/deploy/README-release.md" "$OUT/README.md"
 cp "$HERE/README.md" "$OUT/README-MACOS.md"
