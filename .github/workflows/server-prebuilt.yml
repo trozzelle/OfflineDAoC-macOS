@@ -13,6 +13,12 @@ on:
 
 permissions: {}
 
+# An explicit shell makes Actions run `bash --noprofile --norc -eo pipefail {0}`,
+# so a failing `daoc dev pack-server` fails its pipeline.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   prebuilt:
     runs-on: macos-latest
@@ -34,6 +40,7 @@ jobs:
           VERSION_INPUT: ${{ inputs.version }}
         run: |
           tarball=$(./daoc dev pack-server "$VERSION_INPUT" --out "$RUNNER_TEMP/out" | tail -n 1)
+          test -f "$tarball"
           echo "TARBALL=$tarball" >> "$GITHUB_ENV"
       - name: Publish
         env:
@@ -44,7 +51,9 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 ||
             gh release create "$tag" --prerelease --title "$tag" \
               --notes "Prebuilt macOS arm64 server, pinned by manifest.json. Not a daoc release."
-          gh release upload "$tag" "$TARBALL" --clobber
+          # No --clobber: a rebuild is not byte-identical, so replacing a published asset breaks
+          # every released manifest pinning the old hash. To rebuild, delete the asset deliberately first.
+          gh release upload "$tag" "$TARBALL"
           echo "URL=https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$name" >> "$GITHUB_ENV"
       - name: Open the pin PR
         env:
