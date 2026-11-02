@@ -494,15 +494,20 @@ def _requirements(checkout: Checkout, flavour: str) -> None:
 
 def _download(checkout: Checkout, url: str, name: str, sha: str, what: str,
               verbose: bool) -> Path:
-    """downloads/<name>, fetched when missing, verified against sha."""
+    """downloads/<name>, fetched when missing, verified against sha. curl writes
+    <name>.part, renamed only after curl succeeds, so an interrupted download is
+    never mistaken for a cached file; a file that fails the hash is deleted."""
     path = checkout.downloads / name
     if not path.is_file():
         say(f"downloading {what} ({name})")
-        events.emit("download", path=str(path), bytes=None, what=what)
+        part = path.with_name(name + ".part")
+        events.emit("download", path=str(part), bytes=None, what=what)
         proc.run(["curl", "-fSL", "-#" if verbose else "-s", "--retry", "3", url,
-                  "-o", path], verbose=verbose)
+                  "-o", part], verbose=verbose)
+        os.replace(part, path)
     actual = sha256(path)
     if actual != sha:
+        path.unlink()
         raise DaocError(f"{name} checksum mismatch\n  expected {sha}\n  actual   {actual}")
     return path
 

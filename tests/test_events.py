@@ -189,8 +189,48 @@ class DownloadEventTest(unittest.TestCase):
             with channel() as ch, mock.patch("sys.stderr", io.StringIO()), \
                     mock.patch.dict(os.environ, {"PATH": f"{stubs}:/usr/bin:/bin"}):
                 client._download(co, "https://example.invalid/w.tar.xz", "w.tar.xz", want, "Wine", False)
-        self.assertEqual(ch.events[-1], {"t": "download", "path": str(co.downloads / "w.tar.xz"),
+            self.assertEqual(sorted(p.name for p in co.downloads.iterdir()), ["w.tar.xz"])
+        self.assertEqual(ch.events[-1], {"t": "download", "path": str(co.downloads / "w.tar.xz.part"),
                                          "bytes": None, "what": "Wine"})
+
+    def download(self, co, stubs, want):
+        with mock.patch("sys.stderr", io.StringIO()), \
+                mock.patch.dict(os.environ, {"PATH": f"{stubs}:/usr/bin:/bin"}):
+            return client._download(co, "https://example.invalid/w.tar.xz", "w.tar.xz", want, "Wine", False)
+
+    def test_an_interrupted_curl_download_is_fetched_again(self):
+        write_o = 'for a; do [ "$prev" = -o ] && out=$a; prev=$a; done\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            co = Checkout(make_checkout(tmp))
+            co.downloads.mkdir(parents=True)
+            want = sha256_bytes(b"whole data")
+            stubs = path_stubs(tmp, {"curl": write_o + 'printf whole > "$out"; exit 130'})
+            with self.assertRaises(DaocError):
+                self.download(co, stubs, want)
+            self.assertFalse((co.downloads / "w.tar.xz").exists())
+            stubs = path_stubs(tmp, {"curl": write_o + 'printf "whole data" > "$out"'})
+            path = self.download(co, stubs, want)
+            self.assertEqual(path.read_bytes(), b"whole data")
+
+    def test_a_download_that_fails_its_checksum_is_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            co = Checkout(make_checkout(tmp))
+            co.downloads.mkdir(parents=True)
+            stubs = path_stubs(tmp, {"curl": 'for a; do [ "$prev" = -o ] && printf wrong > "$a"; prev=$a; done'})
+            with self.assertRaises(DaocError) as cm:
+                self.download(co, stubs, sha256_bytes(b"right"))
+            self.assertIn("checksum mismatch", cm.exception.msg)
+            self.assertEqual(list(co.downloads.iterdir()), [])
+
+    def test_a_cached_file_that_fails_its_checksum_is_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            co = Checkout(make_checkout(tmp))
+            co.downloads.mkdir(parents=True)
+            (co.downloads / "w.tar.xz").write_bytes(b"stale")
+            stubs = path_stubs(tmp, {"curl": "exit 99"})
+            with self.assertRaises(DaocError):
+                self.download(co, stubs, sha256_bytes(b"right"))
+            self.assertFalse((co.downloads / "w.tar.xz").exists())
 
 
 def sha256_bytes(data):
