@@ -9,11 +9,20 @@ struct AskSheet: View {
             Text(request.question).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                // Return picks daoc's own default; Escape picks the other answer.
+                // Escape always means No; Return picks daoc's own default. A button holds one
+                // shortcut, so when the default is No, Return goes to an invisible twin of No.
                 Button("No") { model.answer(request, false) }
-                    .keyboardShortcut(request.defaultAnswer ? .cancelAction : .defaultAction)
+                    .keyboardShortcut(.cancelAction)
+                    .background {
+                        if !request.defaultAnswer {
+                            Button("") { model.answer(request, false) }
+                                .keyboardShortcut(.defaultAction)
+                                .opacity(0)
+                                .accessibilityHidden(true)
+                        }
+                    }
                 Button("Yes") { model.answer(request, true) }
-                    .keyboardShortcut(request.defaultAnswer ? .defaultAction : .cancelAction)
+                    .keyboardShortcut(request.defaultAnswer ? .defaultAction : nil)
             }
         }
         .padding(24)
