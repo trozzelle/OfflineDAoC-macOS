@@ -3,14 +3,16 @@ import XCTest
 
 final class ModelTests: XCTestCase {
     private func status(server: Bool, original: Bool, game: String = "0.37b",
-                        switching: String? = nil, account: Bool? = nil) throws -> StatusSnapshot {
+                        switching: String? = nil, account: Bool? = nil,
+                        save: String? = nil) throws -> StatusSnapshot {
         let json = """
         {"schema": 1, "version": "0.4.0", "home": "/h",
          "game": {"name": "\(game)", "version": "0.37", "edition": "sluaghbinder"},
          "client": "original", "switching_to": \(switching.map { "\"\($0)\"" } ?? "null"),
          "installed": {"server": \(server), "original_client": \(original), "new_client": false},
          "wine": "rosetta", "server": {"running": null, "detail": "x"},
-         "client_running": null, "account_saved": \(account.map { "\($0)" } ?? "null"), "save": null}
+         "client_running": null, "account_saved": \(account.map { "\($0)" } ?? "null"),
+         "save": \(save.map { "\"\($0)\"" } ?? "null")}
         """
         return try StatusSnapshot.decode(Data(json.utf8))
     }
@@ -42,9 +44,20 @@ final class ModelTests: XCTestCase {
     }
 
     func testSetupIsCompleteWithAServerAClientAndASavedAccount() throws {
-        XCTAssertTrue(SetupPlan.isComplete(try status(server: true, original: true, account: true)))
-        XCTAssertFalse(SetupPlan.isComplete(try status(server: true, original: true, account: nil)))
-        XCTAssertFalse(SetupPlan.isComplete(try status(server: true, original: false, account: true)))
+        XCTAssertTrue(SetupPlan.isComplete(try status(server: true, original: true, account: true, save: "sluaghbinder")))
+        XCTAssertFalse(SetupPlan.isComplete(try status(server: true, original: true, account: nil, save: "sluaghbinder")))
+        XCTAssertFalse(SetupPlan.isComplete(try status(server: true, original: false, account: true, save: "sluaghbinder")))
+    }
+
+    /// The Keychain item is shared by every install on the Mac: an account saved by the CLI
+    /// does not exist in a data home whose server has not created its world yet.
+    func testAKeychainAccountFromAnotherInstallDoesNotCompleteSetup() throws {
+        let cliUser = try status(server: true, original: true, account: true, save: nil)
+        XCTAssertFalse(SetupPlan.isComplete(cliUser))
+        XCTAssertFalse(SetupPlan.hasAccount(cliUser))
+        XCTAssertTrue(SetupPlan.hasAccount(try status(server: true, original: true, account: true, save: "sluaghbinder")))
+        XCTAssertFalse(SetupPlan.hasAccount(try status(server: true, original: true, account: nil, save: "sluaghbinder")))
+        XCTAssertFalse(SetupPlan.hasAccount(try status(server: true, original: true, account: false, save: "sluaghbinder")))
     }
 
     func testRealmCountsLeaveOutBotsBeingDeleted() throws {

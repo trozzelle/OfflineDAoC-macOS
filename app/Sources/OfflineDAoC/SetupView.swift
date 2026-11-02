@@ -57,7 +57,7 @@ struct SetupView: View {
             choice.game = status.switchingTo ?? status.game.name
             choice.newClient = status.installed.newClient
         }
-        if page == .check, !needsInstall, status.accountSaved != true {
+        if page == .check, !needsInstall, !SetupPlan.hasAccount(status) {
             page = .account
         }
     }
@@ -158,7 +158,7 @@ struct SetupView: View {
                 return
             }
         }
-        page = model.status?.accountSaved == true ? .done : .account
+        page = model.status.map(SetupPlan.hasAccount) == true ? .done : .account
     }
 
     static func title(_ command: [String]) -> String {
