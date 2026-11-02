@@ -32,11 +32,14 @@ jobs:
           security create-keychain -p "" "$kc"
           security set-keychain-settings -lut 21600 "$kc"
           security unlock-keychain -p "" "$kc"
+          umask 077
           echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$kc"
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           identity=$(security find-identity -v -p codesigning "$kc" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          [ -n "$identity" ] || { echo "no Developer ID Application identity in DEVELOPER_ID_P12" >&2; exit 1; }
           echo "IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Sign
         run: app/sign-app.sh "$RUNNER_TEMP/out/OfflineDAoC.app" "$IDENTITY"
@@ -59,9 +62,19 @@ jobs:
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
           NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
         run: |
+          trap 'rm -f "$RUNNER_TEMP/notary.p8"' EXIT
+          umask 077
           echo "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
-          xcrun notarytool submit "$DMG" --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" \
-            --issuer "$NOTARY_ISSUER" --wait
+          auth=(--key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+          result=$(xcrun notarytool submit "$DMG" "${auth[@]}" --wait --output-format json) || true
+          echo "$result"
+          id=$(echo "$result" | /usr/bin/plutil -extract id raw -o - -) || true
+          status=$(echo "$result" | /usr/bin/plutil -extract status raw -o - -) || true
+          if [ "$status" != "Accepted" ]; then
+            [ -z "$id" ] || xcrun notarytool log "$id" "${auth[@]}"
+            echo "notarization $status" >&2
+            exit 1
+          fi
           xcrun stapler staple "$DMG"
       - name: Gatekeeper check
         run: |
@@ -76,3 +89,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: gh release upload "$TAG" "$DMG" --clobber
+      - name: Delete the temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
