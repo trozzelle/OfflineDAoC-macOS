@@ -4,6 +4,8 @@ The full walkthrough: setting up the `daoc` command, installing the server and
 client, playing, stopping, and what to do when something goes wrong. The
 [README](../README.md) has the short version.
 
+Using the app? Setup and the launcher do everything below; this page is the command-line way.
+
 - [Set up the `daoc` command](#set-up-the-daoc-command)
 - [Install the server](#install-the-server)
 - [Install the client](#install-the-client)

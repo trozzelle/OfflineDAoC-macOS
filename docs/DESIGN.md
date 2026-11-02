@@ -23,7 +23,9 @@ daoc-macos/
 │   ├── input-helper/        # SendInput helper run inside the prefix (mingw-w64)
 │   └── tools/frametime/     # per-present probe dylib for the benchmark gate
 ├── tests/                   # unit tests for daoc_cli
+├── app/                     # OfflineDAoC.app: SwiftPM package (DaocKit + SwiftUI), build/sign scripts, python.lock
 ├── .github/CODEOWNERS       # @trozzelle owns the repository
+├── .github/workflows/       # tests.yml, release-please.yml, server-prebuilt.yml, app.yml
 └── docs/
 ```
 
@@ -46,10 +48,12 @@ written at install time, never committed.
   first on the import path, so a `daoc_cli/` there (another checkout, say) would
   shadow this one. `-I` also keeps `PYTHONPATH` and user site-packages out, while
   child processes still see the caller's environment untouched.
-- **The Checkout is the home.** The git checkout holding `daoc_cli` also holds the
-  manifest, the Server install (`server/dist/daoc-server/`), the Client install
-  (`dist/`), the clones and the download caches. There is no separate home
-  directory and no option to pick one.
+- **Code root and data home.** The code root holds daoc itself (`daoc_cli/`, the manifest,
+  `client/DAoCLauncher.app`, `server/tools/`); the data home holds the installs, clones,
+  download caches and `.daoc/`. In a git Checkout both are the Checkout. OfflineDAoC.app
+  keeps the code root read-only in its bundle and sets `DAOC_DATA` to
+  `~/Library/Application Support/OfflineDAoC`. Not `DAOC_HOME`: `daoc-server.sh` and
+  `build-release.sh` read that as the server folder, and children inherit daoc's environment.
 - **Releases are tags.** Users clone and check out a release tag (`vX.Y.Z`), not
   `main`. `daoc --version` prints `version.txt`; the overview's `Checkout:` line
   names the newest local `v*` tag when HEAD does not contain it, so a checkout on
@@ -88,6 +92,39 @@ written at install time, never committed.
   variables pass through to the client; for the arm64 Wine they override
   `client_runtime.ARM64_ENV` (e.g. `FEX_X87REDUCEDPRECISION=0` for full x87
   precision).
+
+## The OfflineDAoC app
+
+`app/` is a SwiftUI shell over this CLI; it reimplements nothing. Each action spawns
+`Contents/Resources/daoc/daoc …` (this repo's `./daoc`, which runs the bundled
+python-build-standalone beside it) with `DAOC_DATA` and `DAOC_EVENTS=3`:
+
+- **Events** (`daoc_cli/events.py`): JSON lines on fd 3 — `step` (every `say`), `download`
+  (the file growing on disk, and its size when known), `ask` and `secret` (answered as JSON
+  lines on stdin), `error`. The exit status is the result. `errors.interactive()` (a tty, or
+  the app) decides between asking and refusing, so both modes share one logic. In event
+  mode children get `/dev/null` as stdin, and `execv` closes the channel first.
+- **State**: `daoc status --json` (hidden), offline and without git or secrets.
+- **Server**: `daoc server start --detach` returns once the server is ready; on an
+  already-running server it waits up to 180 s for it to be ready too, and never kills a
+  slow server. The admin socket is `run/admin.sock`, unless that path exceeds 100 bytes
+  (macOS caps unix-socket paths at 104): then `server/deploy/admin-socket.sh` puts it at
+  `$(getconf DARWIN_USER_TEMP_DIR)daoc-<cksum of the server folder>.sock` (the per-user
+  0700 temp folder). `daoc-server.sh` and `daoc-admin` compute the same path; an
+  explicit `DAOC_ADMIN_SOCKET` still wins in `daoc-admin`.
+- **Secrets**: the password goes to `security add-generic-password -w` on stdin, in a new
+  session (no controlling terminal), never on argv. Account creation goes through the
+  server's own admin CLI (`daoc admin accounts create <name> <password>`), which takes the
+  password as an argument: the Keychain write never puts it on argv, the server CLI's
+  argv does.
+- **Prebuilt server**: `server-prebuilt.yml` runs `daoc dev pack-server <version>` and
+  publishes `daoc-server-<version>-<ref12>-osx-arm64.tar.xz` on the release
+  `server-<version>-<ref12>`; `daoc dev ship-prebuilt` pins its url, size and SHA-256 as
+  `versions.<v>.server.prebuilt` in a PR. `daoc server install` uses it when the effective
+  pin has one (a Local pin never does) and replaces only the top-level entries the tarball
+  holds, after checking its `.daoc-pin.json` commit; `--from-source` builds instead.
+- **Release**: `app.yml`, when a `v*` release is published, builds, signs (Developer ID,
+  hardened runtime), self-tests, notarizes and staples the DMG and uploads it to the release.
 
 ## Manifest
 
@@ -272,6 +309,9 @@ Linux repo; this repo keeps only the macOS build around it:
    `config/edition` picks the world a fresh save starts from.
 
 Prerequisites: .NET 10 SDK, cmake, g++, python3 — all free.
+
+With a `prebuilt` pin, steps 1–3 are replaced by the tarball download described in
+[The OfflineDAoC app](#the-offlinedaoc-app).
 
 ## Server updates and saved progress
 

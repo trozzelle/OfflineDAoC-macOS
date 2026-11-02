@@ -108,8 +108,10 @@ Rules:
 - **Secret.** The account goes to `security add-generic-password … -w <account>` as today. The
   password goes to `security add-generic-password … -w` (bare `-w`, as today) on stdin, twice,
   in a new session (`start_new_session=True`): without a controlling terminal `security`
-  reads the prompt answers from stdin (verified on macOS 27.0.1). The password is never on
-  argv. A password containing a line break is refused.
+  reads the prompt answers from stdin (verified on macOS 27.0.1). The Keychain write never
+  puts the password on argv. Account creation goes through the server's own admin CLI
+  (`daoc admin accounts create <name> <password>`), which takes it as an argument, so there
+  it is on the server CLI's argv. A password containing a line break is refused.
 - `daoc status --json` (hidden group, offline) gives the launcher its state:
 
   ```json
@@ -295,16 +297,17 @@ its own work.
 ## Verified premises
 
 - `daoc game switch` on an empty data home: see Setup step 3 (`game.py:139-179`).
-- `daoc-admin` talks to the running server's socket (`daoc-admin:7`, `run/admin.sock`), so
+- `daoc-admin` talks to the running server's socket (`daoc-admin:8`, `run/admin.sock`), so
   account creation and the Bots panel need the server running.
 - `security add-generic-password -w` reads the password from stdin without a controlling
   terminal.
 - python-build-standalone 3.12 runs the existing suite and makes HTTPS requests.
 
-## Open premise (resolve in the plan)
+## Resolved premise
 
-- CPython from python-build-standalone runs under the hardened runtime without entitlements
-  (`--self-test` in CI decides; fallback in section 3).
+- CPython from python-build-standalone 3.12.16 runs under the hardened runtime with no
+  entitlements (verified by `--self-test` on an ad-hoc, runtime-signed bundle); the bundle
+  is about 59 MB.
 
 ## Spec 2 (later): Living Server on macOS
 
