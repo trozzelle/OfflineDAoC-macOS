@@ -29,11 +29,11 @@ class PassthroughTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def install(self):
+    def install(self, server_script="#!/bin/sh\n# daoc-server.sh start [--console|--detach] | stop | status\n"):
         self.co.server_dir.mkdir(parents=True)
         for name in ("daoc-server.sh", "daoc-admin", "daoc-progress"):
             p = self.co.server_dir / name
-            p.write_text("#!/bin/sh\n")
+            p.write_text(server_script if name == "daoc-server.sh" else "#!/bin/sh\n")
             p.chmod(0o755)
 
     def execv_calls(self, argv):
@@ -63,6 +63,17 @@ class PassthroughTest(unittest.TestCase):
                            (["start"], ["start"]), (["stop"], ["stop"]), (["status"], ["status"])):
             calls = self.execv_calls(["server", *argv])
             self.assertEqual(calls, [([script, *want], self.co.server_dir)])
+
+    def test_detach_on_a_script_that_predates_it_is_refused_before_any_exec(self):
+        self.install("#!/bin/sh\n# daoc-server.sh start [--console] | stop | status\n")
+        with mock.patch.object(proc, "execv", side_effect=Exec):
+            code, out, err = run_cli(["server", "start", "--detach"], self.root)
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "daoc: this server install predates start --detach; "
+                              "update it with daoc server install\n")
+        # The other actions still pass through to an old script.
+        calls = self.execv_calls(["server", "start", "--console"])
+        self.assertEqual(calls[0][0][1:], ["start", "--console"])
 
     def test_console_and_detach_are_mutually_exclusive(self):
         self.install()

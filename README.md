@@ -59,7 +59,10 @@ your launcher: Play, the server, bots per realm, and updates. Nothing to compile
 Terminal, Command Line Tools or Homebrew. Installs live in
 `~/Library/Application Support/OfflineDAoC`. "Install daoc Command…" in the app menu puts
 the `daoc` command below on your PATH for the same install. The Wine choice applies to
-the original client; adding the new client makes it the default client.
+the original client; adding the new client makes it the default client. The app can also
+adopt an existing command-line install. One made before this release has a server script
+that cannot start in the background: Play says so, and one `daoc server install` (then
+Setup's "Try again", if Setup stopped there) fixes it.
 
 The rest of this page is the command-line way, from a git checkout.
 
