@@ -41,12 +41,16 @@ public final class DaocProcess: @unchecked Sendable {
     private let queue = DispatchQueue(label: "daoc.process")
     private var pid: pid_t = 0
     private var stdinFD: Int32 = -1
+    private var pendingInterrupt = false
+    private var started = false
 
     public init(_ invocation: DaocInvocation) {
         self.invocation = invocation
     }
 
-    /// Runs the command; onEvent is called on a background queue, in order.
+    /// Runs the command; onEvent is called on a background queue, in order. A
+    /// DaocProcess runs one command: calling run again is a programmer error.
+    /// An interrupt() issued before the command is spawned is delivered right after the spawn.
     public func run(onEvent: @escaping @Sendable (DaocEvent) -> Void) async throws -> DaocResult {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -69,7 +73,9 @@ public final class DaocProcess: @unchecked Sendable {
 
     /// SIGINT to the command's process group: daoc exits 130 through its own Ctrl-C path.
     public func interrupt() {
-        queue.async { if self.pid > 0 { kill(-self.pid, SIGINT) } }
+        queue.async {
+            if self.pid > 0 { kill(-self.pid, SIGINT) } else { self.pendingInterrupt = true }
+        }
     }
 
     static func exitCode(_ status: Int32) -> Int32 {
@@ -79,6 +85,8 @@ public final class DaocProcess: @unchecked Sendable {
 
     private func start(onEvent: @escaping @Sendable (DaocEvent) -> Void,
                        done: @escaping (DaocResult) -> Void) throws {
+        precondition(!started, "DaocProcess.run is single-use")
+        started = true
         try FileManager.default.createDirectory(at: invocation.logFile.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         let logFD = open(invocation.logFile.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o644)
@@ -129,6 +137,9 @@ public final class DaocProcess: @unchecked Sendable {
         }
         pid = child
         stdinFD = input[1]
+        // A late answer to a command that already exited must fail with EPIPE, not kill the app.
+        _ = fcntl(input[1], F_SETNOSIGPIPE, 1)
+        if pendingInterrupt { kill(-child, SIGINT) }
 
         var decoder = EventLineDecoder()
         var events: [DaocEvent] = []
