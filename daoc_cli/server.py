@@ -114,7 +114,13 @@ def _version(checkout: Checkout) -> str:
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
-    argv: List[str] = [str(script(checkout)), args.action]
+    path = script(checkout)
+    # A daoc-server.sh from before --detach would start the console server in the
+    # foreground (it has no terminal here) and never return.
+    if getattr(args, "detach", False) and b"--detach" not in path.read_bytes():
+        raise DaocError("this server install predates start --detach; "
+                        "update it with daoc server install", 2)
+    argv: List[str] = [str(path), args.action]
     for flag in ("console", "detach"):
         if getattr(args, flag, False):
             argv.append(f"--{flag}")
