@@ -1,5 +1,6 @@
 """server/deploy/daoc-server.sh itself, against a fake CoreServer."""
 import os
+import re
 import shutil
 import signal
 import socket
@@ -147,6 +148,11 @@ def admin_socket(folder):
     return out.stdout.strip()
 
 
+# The fallback socket: in this user's private temp folder (getconf ends it with "/"), not world-writable /tmp.
+USER_TEMP_SOCKET = "^" + re.escape(subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                                   text=True, check=True).stdout.strip()) + r"daoc-\d+\.sock$"
+
+
 class LongFolderTest(ServerFolderCase):
     """A server folder deep enough that run/admin.sock would not fit a unix socket path."""
 
@@ -156,15 +162,15 @@ class LongFolderTest(ServerFolderCase):
         folder.mkdir()
         return root, folder
 
-    def test_the_socket_falls_back_to_a_short_path_in_tmp(self):
+    def test_the_socket_falls_back_to_a_short_path_in_the_user_temp_folder(self):
         self.assertGreater(len(str(self.dir / "run" / "admin.sock")), 100)
         expected = admin_socket(self.dir)
-        self.assertRegex(expected, rf"^/tmp/daoc-{os.getuid()}-\d+\.sock$")
+        self.assertRegex(expected, USER_TEMP_SOCKET)
         self.addCleanup(lambda: os.path.lexists(expected) and os.unlink(expected))
         result = self.sh("start", "--detach")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.sh("status").stdout.startswith("running (pid "))
-        self.assertTrue(os.path.exists(expected), "no socket at the short /tmp path")
+        self.assertTrue(os.path.exists(expected), "no socket at the short user-temp path")
         self.assertFalse((self.dir / "run" / "admin.sock").exists())
         self.assertEqual(self.sh("stop").returncode, 0)
 
@@ -190,26 +196,24 @@ class AdminScriptSocketTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
+        self.addCleanup(shutil.rmtree, self.root, True)
+
     def test_short_folder_uses_run_admin_sock(self):
-        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
-        self.addCleanup(shutil.rmtree, root, True)
-        folder = self.folder(root)
+        folder = self.folder(self.root)
         self.assertEqual(self.run_admin(folder), f"{folder}/run/admin.sock")
 
-    def test_long_folder_uses_the_same_tmp_path_as_the_server_script(self):
-        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
-        self.addCleanup(shutil.rmtree, root, True)
-        long_parent = root / ("x" * 80)
+    def test_long_folder_uses_the_same_temp_path_as_the_server_script(self):
+        long_parent = self.root / ("x" * 80)
         long_parent.mkdir()
         folder = self.folder(long_parent)
         printed = self.run_admin(folder)
-        self.assertRegex(printed, rf"^/tmp/daoc-{os.getuid()}-\d+\.sock$")
+        self.assertRegex(printed, USER_TEMP_SOCKET)
         self.assertEqual(printed, admin_socket(folder))
 
     def test_an_explicit_socket_wins(self):
-        root = Path(tempfile.mkdtemp(dir="/tmp", prefix="daocadm."))
-        self.addCleanup(shutil.rmtree, root, True)
-        folder = self.folder(root)
+        folder = self.folder(self.root)
         self.assertEqual(self.run_admin(folder, DAOC_ADMIN_SOCKET="/x"), "/x")
 
 
