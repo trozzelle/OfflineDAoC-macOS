@@ -22,8 +22,9 @@ struct OfflineDAoCApp: App {
         .commands {
             CommandGroup(after: .appSettings) {
                 Button("Install daoc Command…") {
-                    Task { await AppModel.shared.run("Install the daoc command", ["self-install"]) }
+                    Task { await model.run("Install the daoc command", ["self-install"]) }
                 }
+                .disabled(model.running != nil)
             }
         }
     }
