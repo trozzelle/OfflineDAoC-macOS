@@ -40,12 +40,14 @@ changes live in its own repo. Go support the upstream projects:
 ## Requirements
 
 - A Mac with Apple Silicon running macOS 26 or later, and Rosetta 2 (or, for
-  `--wine arm64`, macOS 27 or later and no Rosetta). That is all the app needs; the
-  command line from a git checkout also needs:
+  `--wine arm64`, macOS 27 or later and no Rosetta).
+- An internet connection for the ≈5 GB client download (the new client: about
+  30 GB more, 34 GB installed). The app needs this too.
+
+That is all the app needs. The command line from a git checkout also needs:
+
 - Xcode Command Line Tools (`xcode-select --install`)
 - cmake (`brew install cmake`)
-- An internet connection for the ≈5 GB client download (the new client: about
-  30 GB more, 34 GB installed)
 
 Everything else is fetched.
 
