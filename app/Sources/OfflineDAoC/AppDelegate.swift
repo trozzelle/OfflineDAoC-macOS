@@ -6,23 +6,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let model = AppModel.shared
-        if let run = model.running {
-            guard run.download != nil else {
-                _ = alert("Let it finish", "“\(run.title)” is changing your install. Quit when it is done.", ["OK"])
-                return .terminateCancel
-            }
-            model.stop()  // a download resumes from its finished parts next time
+        if let run = model.running, run.download == nil {
+            _ = alert("Let it finish", "“\(run.title)” is changing your install. Quit when it is done.", ["OK"])
+            return .terminateCancel
         }
-        guard model.status?.server.running == true else { return .terminateNow }
+        // A running download is interrupted only once a quit path is chosen: Cancel leaves it going.
+        guard model.status?.server.running == true else {
+            model.stop()  // a download resumes from its finished parts next time
+            return .terminateNow
+        }
         switch alert("Stop the server?", "The server keeps running after OfflineDAoC quits unless you stop it.",
                      ["Stop the server", "Leave it running", "Cancel"]) {
         case .alertFirstButtonReturn:
+            model.stop()
             Task { @MainActor in
-                _ = await model.capture(["server", "stop"])
-                sender.reply(toApplicationShouldTerminate: true)
+                if let log = await model.stopServer() {
+                    let choice = alert("The server did not stop", "daoc could not stop the server. It may still be running.",
+                                       ["Quit anyway", "Cancel", "Show log"])
+                    if choice == .alertThirdButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([log]) }
+                    sender.reply(toApplicationShouldTerminate: choice == .alertFirstButtonReturn)
+                } else {
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
             }
             return .terminateLater
         case .alertSecondButtonReturn:
+            model.stop()
             return .terminateNow
         default:
             return .terminateCancel

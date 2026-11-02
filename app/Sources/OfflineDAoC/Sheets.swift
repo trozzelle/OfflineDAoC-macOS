@@ -9,8 +9,11 @@ struct AskSheet: View {
             Text(request.question).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("No") { model.answer(request, false) }.keyboardShortcut(.cancelAction)
-                Button("Yes") { model.answer(request, true) }.keyboardShortcut(.defaultAction)
+                // Return picks daoc's own default; Escape picks the other answer.
+                Button("No") { model.answer(request, false) }
+                    .keyboardShortcut(request.defaultAnswer ? .cancelAction : .defaultAction)
+                Button("Yes") { model.answer(request, true) }
+                    .keyboardShortcut(request.defaultAnswer ? .defaultAction : .cancelAction)
             }
         }
         .padding(24)

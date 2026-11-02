@@ -16,7 +16,7 @@ struct OfflineDAoCApp: App {
     @StateObject private var model = AppModel.shared
 
     var body: some Scene {
-        WindowGroup("OfflineDAoC") {
+        Window("OfflineDAoC", id: "main") {
             RootView().environmentObject(model)
         }
         .commands {

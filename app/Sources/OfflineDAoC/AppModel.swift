@@ -18,6 +18,7 @@ struct RunState {
 struct AskRequest: Identifiable {
     let id: Int
     let question: String
+    let defaultAnswer: Bool
     let process: DaocProcess
 }
 
@@ -59,8 +60,13 @@ final class AppModel: ObservableObject {
     private(set) var paths = AppPaths.current()
     private var current: DaocProcess?
     private var timers: [Timer] = []
+    private var started = false
+    private var polling = false
 
+    /// Reads the install and starts the pollers; runs once however many times the window appears.
     func start() async {
+        guard !started else { return }
+        started = true
         guard await capture(["--version"]) != nil else {
             failure = Failure(title: "OfflineDAoC is damaged",
                               message: "Its bundled daoc does not run. Download OfflineDAoC again.", log: paths.logs)
@@ -69,17 +75,21 @@ final class AppModel: ObservableObject {
         await refreshStatus()
         mode = status.map(SetupPlan.isComplete) == true ? .launcher : .setup
         timers.append(Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-            Task { @MainActor in
-                let model = AppModel.shared
-                guard NSApp.windows.contains(where: { $0.isVisible && !$0.isMiniaturized }) else { return }
-                await model.refreshStatus()
-                await model.refreshBots()
-            }
+            Task { @MainActor in await AppModel.shared.poll() }
         })
         timers.append(Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in AppModel.shared.pollDownload() }
         })
         await checkAppRelease()
+    }
+
+    /// One status tick; skipped while the previous one is still running.
+    private func poll() async {
+        guard !polling, NSApp.windows.contains(where: { $0.isVisible && !$0.isMiniaturized }) else { return }
+        polling = true
+        defer { polling = false }
+        await refreshStatus()
+        await refreshBots()
     }
 
     func adopt(_ folder: URL) {
@@ -135,8 +145,8 @@ final class AppModel: ObservableObject {
             running?.step = message
         case .download(let path, let bytes, let what):
             running?.download = DownloadState(path: path, total: bytes, what: what)
-        case .ask(let id, let question, _):
-            pendingAsk = AskRequest(id: id, question: question, process: process)
+        case .ask(let id, let question, let defaultAnswer):
+            pendingAsk = AskRequest(id: id, question: question, defaultAnswer: defaultAnswer, process: process)
         case .secret(let id, _):
             if let login {
                 process.answer(DaocAnswer.secret(id: id, account: login.account, password: login.password))
@@ -164,6 +174,17 @@ final class AppModel: ObservableObject {
     }
 
     func stop() { current?.interrupt() }
+
+    /// `server stop` for quitting: logged like every command, and independent of `run`'s
+    /// one-command guard. Returns the log when it failed, nil when the server stopped.
+    func stopServer() async -> URL? {
+        let arguments = ["server", "stop"]
+        let log = paths.logFile(for: arguments)
+        let process = DaocProcess(DaocInvocation(launcher: paths.launcher, dataHome: paths.dataHome,
+                                                 arguments: arguments, logFile: log))
+        let result = try? await process.run(onEvent: { _ in })
+        return result?.status == 0 ? nil : log
+    }
 
     func pollDownload() {
         guard let path = running?.download?.path,
