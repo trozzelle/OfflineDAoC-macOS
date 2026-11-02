@@ -47,7 +47,10 @@ written at install time, never committed.
   by path through `runpy`: `python3 -m daoc_cli` would put the caller's directory
   first on the import path, so a `daoc_cli/` there (another checkout, say) would
   shadow this one. `-I` also keeps `PYTHONPATH` and user site-packages out, while
-  child processes still see the caller's environment untouched.
+  child processes still see the caller's environment untouched. Inside OfflineDAoC.app
+  the code root sits beside `Contents/Resources/python`; when
+  `$(dirname root)/python/bin/python3` is executable, that Python runs `daoc_cli` and
+  the Command Line Tools are neither checked nor needed.
 - **Code root and data home.** The code root holds daoc itself (`daoc_cli/`, the manifest,
   `client/DAoCLauncher.app`, `server/tools/`); the data home holds the installs, clones,
   download caches and `.daoc/`. In a git Checkout both are the Checkout. OfflineDAoC.app
@@ -63,7 +66,9 @@ written at install time, never committed.
   moves or is deleted the wrapper says so, names the fix (run `./daoc self-install`
   from the new place) and exits 127 instead of failing obscurely. A file at that
   path that `daoc` did not write is never replaced. If `~/.local/bin` is not on
-  `PATH`, a terminal user is offered the line for `~/.zprofile` (default no).
+  `PATH`, a terminal user is offered the line for `~/.zprofile` (default no). When the
+  data home is not the Checkout (the app's "Install daoc Command…"), the wrapper also
+  exports `DAOC_DATA` (`daoc_cli/self_install.py`).
 - **Passthrough.** `daoc admin`, `daoc progress` and `daoc graphics` hand every
   argument, `--` and options included, to the Server install's `daoc-admin` /
   `daoc-progress` and the pinned `daoc-gfx`.
