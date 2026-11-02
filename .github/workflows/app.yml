@@ -45,6 +45,8 @@ jobs:
         run: app/sign-app.sh "$RUNNER_TEMP/out/OfflineDAoC.app" "$IDENTITY"
       - name: Self-test under the hardened runtime
         run: '"$RUNNER_TEMP/out/OfflineDAoC.app/Contents/MacOS/OfflineDAoC" --self-test'
+      - name: The self-test left the signed bundle intact
+        run: codesign --verify --deep --strict "$RUNNER_TEMP/out/OfflineDAoC.app"
       - name: DMG
         run: |
           version=$(cat version.txt)

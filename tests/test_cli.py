@@ -291,7 +291,7 @@ import json, os, sys
 import daoc_cli
 print(json.dumps({"cwd": os.getcwd(), "pythonpath": os.environ.get("PYTHONPATH"),
                   "package": os.path.dirname(os.path.abspath(daoc_cli.__file__)),
-                  "argv": sys.argv[1:]}))
+                  "argv": sys.argv[1:], "dont_write_bytecode": sys.dont_write_bytecode}))
 """
 
 
@@ -379,6 +379,15 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(seen["package"], str(self.root / "daoc_cli"))
         self.assertTrue(marker.exists())
         self.assertEqual(stub_calls(self.stubs), [])
+
+    def test_the_bundled_python_never_writes_bytecode_into_the_signed_bundle(self):
+        python = self.tmp / "python" / "bin" / "python3"
+        python.parent.mkdir(parents=True)
+        flags = self.tmp / "bundled-python-flags"
+        python.write_text(f'#!/bin/sh\necho "$1 $2" > {shlex.quote(str(flags))}\nexec /usr/bin/python3 "$@"\n')
+        python.chmod(0o755)
+        self.assertTrue(self.probe()["dont_write_bytecode"])
+        self.assertEqual(flags.read_text().split(), ["-B", "-I"])
 
 
 if __name__ == "__main__":
