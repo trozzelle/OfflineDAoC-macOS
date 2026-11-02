@@ -21,3 +21,27 @@ jobs:
       # System interpreter on purpose (no setup-python): daoc runs on the Command Line Tools' /usr/bin/python3.
       - name: Unit tests
         run: /usr/bin/python3 -m unittest discover -s tests -v
+
+  unittest-bundled-python:
+    # The interpreter OfflineDAoC.app ships (app/python.lock).
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Fetch the bundled Python
+        run: |
+          . app/python.lock
+          curl -fsSL "$PYTHON_URL" -o "$RUNNER_TEMP/python.tar.gz"
+          echo "$PYTHON_SHA256  $RUNNER_TEMP/python.tar.gz" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/python"
+          tar -xzf "$RUNNER_TEMP/python.tar.gz" -C "$RUNNER_TEMP/python" --strip-components 1
+      - name: Unit tests
+        run: '"$RUNNER_TEMP/python/bin/python3" -m unittest discover -s tests -v'
+
+  swift:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Swift tests
+        run: swift test --package-path app
