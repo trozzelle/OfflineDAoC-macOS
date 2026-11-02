@@ -11,7 +11,8 @@ NOTE on ports: the user's own server may be running on 10300/10400; this test
 moves its server instance to 20300/20400 and the client launch passes the
 port explicitly.
 
-CAUTION: never delete run/admin.sock or run/server.pid while a CoreServer from
+CAUTION: never delete the admin socket (run/admin.sock, or the daoc-<n>.sock in the per-user temp
+folder when that path is too long for a unix socket) or run/server.pid while a CoreServer from
 this install is alive — shutdown needs the socket to wake a pending accept
 (the server repo's macOS admin-socket fix). Check lsof before touching run/. Nothing here removes run/.
 """
