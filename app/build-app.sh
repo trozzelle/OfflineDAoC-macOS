@@ -33,17 +33,25 @@ cp "$repo/server/tools/setup-dotnet.sh" "$code/server/tools/"
 cache="$here/.cache"
 mkdir -p "$cache"
 tarball="$cache/$(basename "${PYTHON_URL//%2B/+}")"
-[[ -f $tarball ]] || curl -fsSL "$PYTHON_URL" -o "$tarball"
+if [[ ! -f $tarball ]]; then
+  curl -fsSL "$PYTHON_URL" -o "$tarball.tmp"
+  echo "$PYTHON_SHA256  $tarball.tmp" | shasum -a 256 -c - >/dev/null
+  mv "$tarball.tmp" "$tarball"
+fi
 echo "$PYTHON_SHA256  $tarball" | shasum -a 256 -c - >/dev/null
 python="$app/Contents/Resources/python"
 mkdir -p "$python"
 tar -xzf "$tarball" -C "$python" --strip-components 1
-# Nothing daoc_cli imports: tests, IDLE, Tk, pip.
+# Nothing daoc_cli imports: tests, IDLE, Tk and its Tcl extensions, pip, build configuration.
 rm -rf "$python"/lib/python3.*/test "$python"/lib/python3.*/idlelib "$python"/lib/python3.*/tkinter \
   "$python"/lib/python3.*/ensurepip "$python"/lib/python3.*/lib-dynload/_tkinter* \
+  "$python"/lib/python3.*/config-3.*-darwin \
   "$python"/lib/libtcl* "$python"/lib/libtk* "$python"/lib/tcl* "$python"/lib/tk* \
+  "$python"/lib/itcl* "$python"/lib/thread* "$python"/lib/tdbc* \
   "$python"/bin/idle3* "$python"/bin/pip*
 
 # Smoke: the bundled launcher runs on the bundled Python.
-DAOC_DATA="$(mktemp -d)" "$code/daoc" --version
+smoke="$(mktemp -d)"
+DAOC_DATA="$smoke" "$code/daoc" --version
+rm -rf "$smoke"
 echo "$app"
