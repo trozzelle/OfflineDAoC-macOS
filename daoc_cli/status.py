@@ -52,7 +52,9 @@ def snapshot(checkout: Checkout) -> Dict[str, Any]:
         "switching_to": sel.switching_to.name if sel.switching_to else None,
         "installed": {
             "server": (checkout.server_dir / "daoc-server.sh").is_file(),
-            "original_client": checkout.client_root.is_dir(),
+            # client install records the flavour last: until then it is not installed.
+            "original_client": (checkout.client_root.is_dir() and checkout.launcher_app.is_dir()
+                                and checkout.flavour_file.is_file()),
             "new_client": checkout.new_client_root.is_dir(),
         },
         "wine": wine,
