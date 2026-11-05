@@ -104,7 +104,10 @@ def _game_lines(checkout: Checkout, sel: Selection) -> List[Tuple[str, str]]:
 
 
 def show(checkout: Checkout) -> int:
-    lines = [f"daoc checkout {checkout.root}", ""]
+    lines = [f"daoc checkout {checkout.root}"]
+    if checkout.home != checkout.root:
+        lines.append(f"data {checkout.home}")
+    lines.append("")
     sel = selection.load(checkout)
     status = [
         ("Server install:", _server_install(checkout)),

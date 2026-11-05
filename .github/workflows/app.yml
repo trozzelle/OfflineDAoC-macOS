@@ -1,0 +1,105 @@
+name: app
+
+# OfflineDAoC.app for each daoc release: build, Developer ID signature, notarization,
+# Gatekeeper check, DMG on the release. release-please publishes releases with the
+# release App's token (not GITHUB_TOKEN), so publishing starts this workflow; the
+# server-<version>-<ref12> prereleases are skipped by the job's `if`.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: The manifest has a prebuilt server
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          pin = json.load(open("manifest.json"))["versions"]["0.37"]["server"]
+          if not pin.get("prebuilt"):
+              sys.exit("manifest.json has no versions[0.37].server.prebuilt: the app cannot build a server. "
+                       "Run `gh workflow run server-prebuilt.yml -f version=0.37` and merge its PR first.")
+          PY
+      - name: Swift tests
+        run: swift test --package-path app
+      - name: Build
+        run: app/build-app.sh "$RUNNER_TEMP/out"
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "" "$kc"
+          umask 077
+          echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$kc" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          [ -n "$identity" ] || { echo "no Developer ID Application identity in DEVELOPER_ID_P12" >&2; exit 1; }
+          echo "IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Sign
+        run: app/sign-app.sh "$RUNNER_TEMP/out/OfflineDAoC.app" "$IDENTITY"
+      - name: Self-test under the hardened runtime
+        run: '"$RUNNER_TEMP/out/OfflineDAoC.app/Contents/MacOS/OfflineDAoC" --self-test'
+      - name: The self-test left the signed bundle intact
+        run: codesign --verify --deep --strict "$RUNNER_TEMP/out/OfflineDAoC.app"
+      - name: DMG
+        run: |
+          version=$(cat version.txt)
+          stage="$RUNNER_TEMP/dmg"
+          mkdir "$stage"
+          ditto "$RUNNER_TEMP/out/OfflineDAoC.app" "$stage/OfflineDAoC.app"
+          ln -s /Applications "$stage/Applications"
+          dmg="$RUNNER_TEMP/OfflineDAoC-$version.dmg"
+          hdiutil create -volname "OfflineDAoC $version" -srcfolder "$stage" -ov -format UDZO "$dmg"
+          codesign --sign "$IDENTITY" --timestamp "$dmg"
+          echo "DMG=$dmg" >> "$GITHUB_ENV"
+      - name: Notarize
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/notary.p8"' EXIT
+          umask 077
+          echo "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          auth=(--key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+          result=$(xcrun notarytool submit "$DMG" "${auth[@]}" --wait --output-format json) || true
+          echo "$result"
+          id=$(echo "$result" | /usr/bin/plutil -extract id raw -o - -) || true
+          status=$(echo "$result" | /usr/bin/plutil -extract status raw -o - -) || true
+          if [ "$status" != "Accepted" ]; then
+            [ -z "$id" ] || xcrun notarytool log "$id" "${auth[@]}"
+            echo "notarization $status" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+      - name: Gatekeeper check
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$DMG"
+          spctl --assess --type execute -v "$mnt/OfflineDAoC.app"
+          codesign --verify --deep --strict "$mnt/OfflineDAoC.app"
+          hdiutil detach "$mnt"
+      - name: Upload to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "$DMG" --clobber
+      - name: Delete the temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true

@@ -300,5 +300,19 @@ class CheckTest(Base):
         self.assertIn(f"latest {'e' * 12}  UPDATE AVAILABLE", gfx[1])
 
 
+class LocalServerPinTest(unittest.TestCase):
+    def test_the_latest_server_pin_never_carries_a_prebuilt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_checkout(tmp)
+            manifest = json.loads((root / "manifest.json").read_text())
+            manifest["versions"]["0.37"]["server"]["prebuilt"] = {"url": "https://x/y", "bytes": 1, "sha256": "0" * 64}
+            (root / "manifest.json").write_text(json.dumps(manifest))
+            with mock.patch.object(updates, "_head_sha", return_value="a" * 40), \
+                    mock.patch.object(updates, "fork_version", return_value="0.37"):
+                latest = updates.resolve_latest(Checkout(root), "server", "0.37")
+        self.assertEqual(latest["ref"], "a" * 40)
+        self.assertNotIn("prebuilt", latest)
+
+
 if __name__ == "__main__":
     unittest.main()

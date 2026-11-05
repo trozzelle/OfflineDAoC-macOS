@@ -40,13 +40,33 @@ changes live in its own repo. Go support the upstream projects:
 ## Requirements
 
 - A Mac with Apple Silicon running macOS 26 or later, and Rosetta 2 (or, for
-  `--wine arm64`, macOS 27 or later and no Rosetta)
+  `--wine arm64`, macOS 27 or later and no Rosetta).
+- An internet connection for the ≈5 GB client download (the new client: about
+  30 GB more, 34 GB installed). The app needs this too.
+
+That is all the app needs. The command line from a git checkout also needs:
+
 - Xcode Command Line Tools (`xcode-select --install`)
 - cmake (`brew install cmake`)
-- An internet connection for the ≈5 GB client download (the new client: about
-  30 GB more, 34 GB installed)
 
 Everything else is fetched.
+
+## The app
+
+Download `OfflineDAoC-<version>.dmg` from the
+[latest release](https://github.com/trozzelle/OfflineDAoC-macOS/releases/latest), drag
+OfflineDAoC into Applications and open it. Setup installs the server, the client and Wine
+for 0.37b or 0.37 (the new client optional), creates your account, and then the window is
+your launcher: Play, the server, bots per realm, and updates. Nothing to compile; no
+Terminal, Command Line Tools or Homebrew. Installs live in
+`~/Library/Application Support/OfflineDAoC`. "Install daoc Command…" in the app menu puts
+the `daoc` command below on your PATH for the same install. The Wine choice applies to
+the original client; adding the new client makes it the default client. The app can also
+adopt an existing command-line install. One made before this release has a server script
+that cannot start in the background: Play says so, and one `daoc server install` (then
+Setup's "Try again", if Setup stopped there) fixes it.
+
+The rest of this page is the command-line way, from a git checkout.
 
 ## Quick start
 

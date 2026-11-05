@@ -1,0 +1,69 @@
+name: server-prebuilt
+
+# Build a game version's Shipped server pin, publish it as a prebuilt tarball on
+# the release server-<version>-<ref12>, and open a PR pinning it in manifest.json.
+# A release tag's manifest cannot name a hash of something built from that tag,
+# so the prebuilt is published first and pinned by an ordinary reviewed commit.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "game version, e.g. 0.37"
+        required: true
+
+permissions: {}
+
+# An explicit shell makes Actions run `bash --noprofile --norc -eo pipefail {0}`,
+# so a failing `daoc dev pack-server` fails its pipeline.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prebuilt:
+    runs-on: macos-latest
+    environment: main
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+      - name: Build tools
+        run: brew list cmake >/dev/null 2>&1 || brew install cmake
+      - name: Build and pack
+        env:
+          DAOC_DATA: ${{ runner.temp }}/daoc-data
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          tarball=$(./daoc dev pack-server "$VERSION_INPUT" --out "$RUNNER_TEMP/out" | tail -n 1)
+          test -f "$tarball"
+          echo "TARBALL=$tarball" >> "$GITHUB_ENV"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          name=$(basename "$TARBALL")
+          tag=${name#daoc-}; tag=${tag%-osx-arm64.tar.xz}     # server-<version>-<ref12>
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --prerelease --title "$tag" \
+              --notes "Prebuilt macOS arm64 server, pinned by manifest.json. Not a daoc release."
+          # No --clobber: a rebuild is not byte-identical, so replacing a published asset breaks
+          # every released manifest pinning the old hash. To rebuild, delete the asset deliberately first.
+          gh release upload "$tag" "$TARBALL"
+          echo "URL=https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$name" >> "$GITHUB_ENV"
+      - name: Open the pin PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          ./daoc dev ship-prebuilt "$VERSION_INPUT" "$TARBALL" "$URL"
+          branch="prebuilt/server-$VERSION_INPUT-$(date -u +%Y%m%d%H%M%S)"
+          git switch -c "$branch"
+          git -c user.name="daoc-release[bot]" -c user.email="daoc-release[bot]@users.noreply.github.com" \
+            commit -am "feat(server): prebuilt server for $VERSION_INPUT"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --fill

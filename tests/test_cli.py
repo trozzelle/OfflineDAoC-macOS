@@ -170,6 +170,7 @@ class CheckoutTest(unittest.TestCase):
             root = make_checkout(tmp).resolve()
             co = Checkout(root)
             self.assertEqual(co.root, root)
+            self.assertEqual(co.home, root)
             self.assertEqual(co.server_dir, root / "server/dist/daoc-server")
             self.assertEqual(co.client_root, root / "dist/OfflineDAoC")
             self.assertEqual(co.app_dir, root / "dist/OfflineDAoC/runtime/client-opendaoc/app")
@@ -183,6 +184,34 @@ class CheckoutTest(unittest.TestCase):
             self.assertEqual(co.downloads, root / "downloads")
             self.assertEqual(co.state, root / ".daoc")
             self.assertEqual(co.manifest["schema"], 2)
+
+    def test_installs_and_state_follow_the_data_home(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            os.environ.pop("DAOC_WINE_HOME", None)
+            os.environ.pop("DAOC_WINEPREFIX", None)
+            root = make_checkout(tmp).resolve()
+            data = (Path(tmp) / "data").resolve()
+            co = Checkout(root, home=data)
+            self.assertEqual((co.root, co.home), (root, data))
+            self.assertEqual(co.server_dir, data / "server/dist/daoc-server")
+            self.assertEqual(co.client_root, data / "dist/OfflineDAoC")
+            self.assertEqual(co.new_client_root, data / "dist/new-client")
+            self.assertEqual(co.godot_app, data / "dist/godot/Godot_mono.app")
+            self.assertEqual(co.wine_home, data / "dist/wine")
+            self.assertEqual(co.prefix, data / "dist/prefix")
+            self.assertEqual(co.launcher_app, data / "dist/DAoCLauncher.app")
+            self.assertEqual(co.graphics_src, data / "upstream/graphics")
+            self.assertEqual(co.downloads, data / "downloads")
+            self.assertEqual(co.state, data / ".daoc")
+            self.assertEqual(co.launcher_src, root / "client/DAoCLauncher.app")
+            self.assertEqual(co.manifest["schema"], 2)
+
+    def test_daoc_data_names_the_home_unless_one_is_given(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ):
+            root = make_checkout(tmp).resolve()
+            os.environ["DAOC_DATA"] = str(Path(tmp) / "data")
+            self.assertEqual(Checkout(root).home, (Path(tmp) / "data").resolve())
+            self.assertEqual(Checkout(root, home=root).home, root)
 
     def test_default_root_is_this_checkout(self):
         self.assertEqual(Checkout().root, Path(__file__).resolve().parents[1])
@@ -262,7 +291,7 @@ import json, os, sys
 import daoc_cli
 print(json.dumps({"cwd": os.getcwd(), "pythonpath": os.environ.get("PYTHONPATH"),
                   "package": os.path.dirname(os.path.abspath(daoc_cli.__file__)),
-                  "argv": sys.argv[1:]}))
+                  "argv": sys.argv[1:], "dont_write_bytecode": sys.dont_write_bytecode}))
 """
 
 
@@ -339,6 +368,26 @@ class LauncherTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1, stub)
             self.assertEqual(result.stdout, "")
             self.assertIn("xcode-select --install", result.stderr)
+
+    def test_a_bundled_python_beside_the_code_root_needs_no_command_line_tools(self):
+        python = self.tmp / "python" / "bin" / "python3"
+        python.parent.mkdir(parents=True)
+        marker = self.tmp / "bundled-python-ran"
+        python.write_text(f'#!/bin/sh\ntouch {shlex.quote(str(marker))}\nexec /usr/bin/python3 "$@"\n')
+        python.chmod(0o755)
+        seen = self.probe(DAOC_XCODE_SELECT=str(self.stubs / "xcode-select-fails"))
+        self.assertEqual(seen["package"], str(self.root / "daoc_cli"))
+        self.assertTrue(marker.exists())
+        self.assertEqual(stub_calls(self.stubs), [])
+
+    def test_the_bundled_python_never_writes_bytecode_into_the_signed_bundle(self):
+        python = self.tmp / "python" / "bin" / "python3"
+        python.parent.mkdir(parents=True)
+        flags = self.tmp / "bundled-python-flags"
+        python.write_text(f'#!/bin/sh\necho "$1 $2" > {shlex.quote(str(flags))}\nexec /usr/bin/python3 "$@"\n')
+        python.chmod(0o755)
+        self.assertTrue(self.probe()["dont_write_bytecode"])
+        self.assertEqual(flags.read_text().split(), ["-B", "-I"])
 
 
 if __name__ == "__main__":

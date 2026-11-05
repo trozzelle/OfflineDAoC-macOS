@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from daoc_cli import events
 from daoc_cli.errors import DaocError, say
 from daoc_cli.files import sha256, sha256_of
 
@@ -32,6 +33,9 @@ def download(url: str, dest: Path) -> None:
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
         with urllib.request.urlopen(req) as r, tmp.open("wb") as f:
+            length = r.headers.get("Content-Length") or ""
+            events.emit("download", path=str(tmp), bytes=int(length) if length.isdigit() else None,
+                        what=dest.name)
             shutil.copyfileobj(r, f, 1 << 20)
     except OSError as e:
         raise DaocError(f"download of {url} failed: {e}") from None
@@ -166,3 +170,16 @@ def extract(archive: Path, root_folder: str, dest_dir: Path) -> Path:
         zf.extractall(dest_dir)
     say(f"  extracted to {target}")
     return target
+
+
+def fetch_verified(url: str, dest: Path, size: Optional[int], want: str,
+                   fetch_url: Downloader) -> None:
+    """dest, fetched with fetch_url unless it is already there with size and
+    sha256 want; a download that fails the hash is deleted and refused."""
+    if dest.is_file() and (size is None or dest.stat().st_size == size) and sha256(dest) == want:
+        return
+    dest.unlink(missing_ok=True)
+    fetch_url(url, dest)
+    if sha256(dest) != want:
+        dest.unlink()
+        raise DaocError(f"{dest.name} failed SHA-256 verification")

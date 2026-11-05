@@ -10,8 +10,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Mapping, NoReturn, Optional, Sequence, Union
+from typing import Any, Dict, Mapping, NoReturn, Optional, Sequence, Union
 
+from daoc_cli import events
 from daoc_cli.errors import DaocError
 
 StrPath = Union[str, "os.PathLike[str]"]
@@ -30,6 +31,8 @@ def run(
     env: Optional[Mapping[str, str]] = None,
     verbose: bool = False,
     check: bool = True,
+    input: Optional[str] = None,
+    new_session: bool = False,
 ) -> "subprocess.CompletedProcess[str]":
     """Run argv and wait for it.
 
@@ -37,13 +40,19 @@ def run(
     Otherwise both are captured as text into the result. With check, a non-zero
     exit replays the captured stdout then stderr to stderr and raises DaocError;
     without check the caller judges the result and nothing is replayed.
+    input is written to the child's stdin. new_session starts the child without
+    a controlling terminal. With the app listening (DAOC_EVENTS) a child without
+    input gets /dev/null as stdin, so it can never read the app's answers.
     """
     args = _argv(argv)
     name = Path(args[0]).name
     pipe = None if verbose else subprocess.PIPE
+    kwargs: Dict[str, Any] = {"input": input} if input is not None else (
+        {"stdin": subprocess.DEVNULL} if events.on() else {})
     try:
         result = subprocess.run(
-            args, cwd=cwd, env=env, stdout=pipe, stderr=pipe, text=True, errors="replace"
+            args, cwd=cwd, env=env, stdout=pipe, stderr=pipe, text=True, errors="replace",
+            start_new_session=new_session, **kwargs
         )
     except OSError as e:
         raise DaocError(f"cannot run {args[0]}: {e.strerror or e}") from None
@@ -106,6 +115,7 @@ def execv(
             os.chdir(cwd)
         except OSError as e:
             raise DaocError(f"cannot enter {os.fspath(cwd)}: {e.strerror or e}") from None
+    events.close_on_exec()
     try:
         if env is None:
             os.execv(args[0], args)

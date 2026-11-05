@@ -1,8 +1,11 @@
-"""Every path daoc uses, derived from one Checkout root.
+"""Every path daoc uses, derived from a code root and a data home.
 
-The Checkout is the home: the git checkout holding this package also
-holds the manifest, the Server and Client installs and the download caches.
-There is no --home / DAOC_HOME; tests pass an explicit root instead.
+Two roots. The code root holds daoc itself (daoc_cli/, manifest.json,
+version.txt, client/DAoCLauncher.app, server/tools/). The data home holds what
+daoc installs and records (dist/, server/dist/, downloads/, upstream/, .daoc/).
+In a git Checkout both are the Checkout. OfflineDAoC.app keeps the code root
+read-only inside its bundle and sets DAOC_DATA (not DAOC_HOME: daoc-server.sh
+reads that as its own folder) to the data home; Checkout(home=...) overrides it.
 """
 import json
 import os
@@ -65,25 +68,31 @@ def _flavour_fix() -> str:
 
 
 class Checkout:
-    def __init__(self, root: Optional[Union[str, Path]] = None) -> None:
+    def __init__(self, root: Optional[Union[str, Path]] = None,
+                 home: Optional[Union[str, Path]] = None) -> None:
         self.root = Path(root).resolve() if root is not None else ROOT
-        self.server_dir = self.root / "server" / "dist" / "daoc-server"
-        self.client_root = self.root / "dist" / "OfflineDAoC"
+        if home is not None:
+            self.home = Path(home).resolve()
+        else:
+            data = _env_path("DAOC_DATA")
+            self.home = data.resolve() if data is not None else self.root
+        self.server_dir = self.home / "server" / "dist" / "daoc-server"
+        self.client_root = self.home / "dist" / "OfflineDAoC"
         self.app_dir = self.client_root / "runtime" / "client-opendaoc" / "app"
-        self.new_client_root = self.root / "dist" / "new-client"
+        self.new_client_root = self.home / "dist" / "new-client"
         self.new_client_project = self.new_client_root / "godot"
-        self.godot_app = self.root / "dist" / "godot" / "Godot_mono.app"
-        self.flavour_file = self.root / "dist" / ".wine-flavour"
+        self.godot_app = self.home / "dist" / "godot" / "Godot_mono.app"
+        self.flavour_file = self.home / "dist" / ".wine-flavour"
         # The overrides resolve against the caller's cwd now; the recorded
         # flavour behind the defaults is read on first use of wine_home/prefix,
         # so a bad record fails only the commands that use Wine.
         self._wine_home_env = _env_path("DAOC_WINE_HOME")
         self._prefix_env = _env_path("DAOC_WINEPREFIX")
         self.launcher_src = self.root / "client" / "DAoCLauncher.app"
-        self.launcher_app = self.root / "dist" / "DAoCLauncher.app"
-        self.graphics_src = self.root / "upstream" / "graphics"
-        self.downloads = self.root / "downloads"
-        self.state = self.root / ".daoc"
+        self.launcher_app = self.home / "dist" / "DAoCLauncher.app"
+        self.graphics_src = self.home / "upstream" / "graphics"
+        self.downloads = self.home / "downloads"
+        self.state = self.home / ".daoc"
 
     @property
     def flavour(self) -> str:
@@ -103,7 +112,7 @@ class Checkout:
     def flavour_paths(self, flavour: str) -> Tuple[Path, Path]:
         """(wine home, prefix) a flavour installs into under dist/."""
         f = FLAVOURS[flavour]
-        dist = self.root / "dist"
+        dist = self.home / "dist"
         return dist / f.wine_dir, dist / f.prefix_dir
 
     @cached_property

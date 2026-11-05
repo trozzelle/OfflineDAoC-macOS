@@ -347,6 +347,16 @@ class KeychainLockTest(unittest.TestCase):
         self.assertNotIsInstance(cm.exception, keychain.NotSaved)
         self.assertFalse(any(c[1] == "unlock-keychain" for c in security.calls))
 
+    def test_saved_reads_no_secret(self):
+        security = FakeSecurity(locked=False, items={"login_account": "acct"})
+        with mock.patch.object(keychain.proc, "run", security):
+            self.assertIs(keychain.saved(), True)
+        self.assertNotIn("-w", security.calls[0])
+        with mock.patch.object(keychain.proc, "run", FakeSecurity(locked=False, items={})):
+            self.assertIs(keychain.saved(), False)
+        with mock.patch.object(keychain.proc, "run", FakeSecurity(locked=True, items={})):
+            self.assertIsNone(keychain.saved())
+
     def test_missing_item_is_not_saved(self):
         with self.assertRaises(keychain.NotSaved):
             self.read(FakeSecurity(locked=False, items={}), tty=True)

@@ -2,17 +2,20 @@
 
 The wrapper is a small sh file at ~/.local/bin/daoc with the Checkout path
 baked in, not a symlink: when the Checkout moves or is deleted the
-wrapper says so, names the fix and exits 127. A file there that lacks MARKER is
-not ours and is never replaced. If ~/.local/bin is not on PATH, a tty user is
-offered the PATH line in ~/.zprofile (default no); otherwise it is only printed.
+wrapper says so, names the fix and exits 127. When the data home is not the
+Checkout (OfflineDAoC.app), the wrapper also exports DAOC_DATA. A file there
+that lacks MARKER is not ours and is never replaced. If ~/.local/bin is not on
+PATH, a tty user is offered the PATH line in ~/.zprofile (default no);
+otherwise it is only printed.
 """
 import argparse
 import os
 import shlex
 import sys
 from pathlib import Path
+from typing import Optional
 
-from daoc_cli.errors import DaocError, ask
+from daoc_cli.errors import DaocError, ask, interactive
 from daoc_cli.files import atomic_write
 
 MARKER = "# daoc wrapper written by daoc self-install"
@@ -28,12 +31,14 @@ def register(groups: "argparse._SubParsersAction") -> None:
     p.set_defaults(func=handle)
 
 
-def wrapper_text(root: Path) -> str:
+def wrapper_text(root: Path, data: Optional[Path] = None) -> str:
     q = shlex.quote(str(root))
+    export = f"DAOC_DATA={shlex.quote(str(data))}\nexport DAOC_DATA\n" if data is not None else ""
     return (
         "#!/bin/sh\n"
         f"{MARKER}\n"
         f"CHECKOUT={q}\n"
+        f"{export}"
         'if [ ! -x "$CHECKOUT/daoc" ]; then\n'
         f"    echo {shlex.quote(f'daoc: checkout {root} is gone (moved or deleted); run ./daoc self-install from its new location')} >&2\n"
         "    exit 127\n"
@@ -61,7 +66,7 @@ def _on_path(bin_dir: Path) -> bool:
 
 def _offer_path(home: Path) -> None:
     profile = home / ".zprofile"
-    if not sys.stdin.isatty():
+    if not interactive():
         print("~/.local/bin is not on PATH. Add this line to your shell profile (e.g. ~/.zprofile):",
               file=sys.stderr)
         print(f"  {PATH_LINE}", file=sys.stderr)
@@ -82,13 +87,14 @@ def _offer_path(home: Path) -> None:
 
 def handle(args: argparse.Namespace, checkout) -> int:
     root = Path(os.path.realpath(str(checkout.root)))
+    data = Path(os.path.realpath(str(checkout.home)))
     home = Path.home()
     bin_dir = home / ".local" / "bin"
     target = bin_dir / "daoc"
     if (target.exists() or target.is_symlink()) and (target.is_symlink() or not _ours(target)):
         raise DaocError(f"{target} exists and was not written by daoc self-install; "
                         "move it aside and re-run", code=2)
-    atomic_write(target, wrapper_text(root), mode=0o755)
+    atomic_write(target, wrapper_text(root, data if data != root else None), mode=0o755)
     print(f"Wrote {target} -> {root}/daoc", file=sys.stderr)
     if not _on_path(bin_dir):
         _offer_path(home)

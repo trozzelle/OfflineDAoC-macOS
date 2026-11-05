@@ -219,17 +219,6 @@ def ensure_dotnet(checkout: Checkout) -> None:
     proc.run([checkout.root / "server" / "tools" / "setup-dotnet.sh"], cwd=checkout.root)
 
 
-def _fetch_verified(url: str, dest: Path, size: Optional[int], want: str,
-                    fetch_url: release.Downloader) -> None:
-    if dest.is_file() and (size is None or dest.stat().st_size == size) and sha256(dest) == want:
-        return
-    dest.unlink(missing_ok=True)
-    fetch_url(url, dest)
-    if sha256(dest) != want:
-        dest.unlink()
-        raise DaocError(f"{dest.name} failed SHA-256 verification")
-
-
 def install_godot(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Downloader) -> None:
     """The pinned macOS Godot .NET build at dist/godot/Godot_mono.app."""
     godot = pin["godot"]
@@ -242,7 +231,7 @@ def install_godot(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Do
     cache.mkdir(parents=True, exist_ok=True)
     zip_path = cache / release.plain_name(godot["url"].rsplit("/", 1)[-1], "godot url")
     say(f"fetching Godot ({int(godot['bytes']) // 1024 ** 2} MB)")
-    _fetch_verified(godot["url"], zip_path, godot.get("bytes"), godot["sha256"], fetch_url)
+    release.fetch_verified(godot["url"], zip_path, godot.get("bytes"), godot["sha256"], fetch_url)
     unpack = home.parent / ".godot.new"
     shutil.rmtree(unpack, ignore_errors=True)
     proc.run([DITTO, "-x", "-k", zip_path, unpack])
@@ -256,7 +245,8 @@ def install_godot(checkout: Checkout, pin: Dict[str, Any], fetch_url: release.Do
 
 def _requirements(checkout: Checkout, game: Game, pin: Dict[str, Any], fresh: bool) -> None:
     if fresh:
-        free = shutil.disk_usage(checkout.root).free
+        checkout.home.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(checkout.home).free
         need = needed_bytes(pin)
         if free < need:
             raise DaocError(f"the new client needs {need / 1024 ** 3:.1f} GB free while it installs; "
@@ -319,7 +309,7 @@ def install(checkout: Checkout, game: Game, fetch_url: Optional[release.Download
             n += 1
             zip_path = cache / name
             say(f"  part {n}/{len(parts)}: {name}")
-            _fetch_verified(rel["release_url"] + name, zip_path, part.get("bytes"), part["sha256"], fetch_url)
+            release.fetch_verified(rel["release_url"] + name, zip_path, part.get("bytes"), part["sha256"], fetch_url)
             if is_update:
                 found = read_patch(zip_path, rel["root_folder"])
                 if found is not None:

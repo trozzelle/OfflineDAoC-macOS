@@ -7,8 +7,8 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 | `daoc` | Overview: checkout, newer release, installs, server state, pins |
 | `daoc --version` | Print the daoc release this checkout runs |
 | `daoc self-install` | Write the `~/.local/bin/daoc` wrapper for this checkout |
-| `daoc server install [--verbose]` | Build `server/dist/daoc-server` for the selected game version |
-| `daoc server start` | Start the server (holds the terminal with the admin screen) |
+| `daoc server install [--from-source] [--verbose]` | Install the server for the selected game version: the pinned prebuilt server, or a build from source |
+| `daoc server start [--console \| --detach]` | Start the server (holds the terminal with the admin screen; `--detach` returns once it is ready) |
 | `daoc server stop` | Save and stop the server |
 | `daoc server status` | Print `running (pid N)` or `stopped` |
 | `daoc server update [--check]` | Move the server to the server repo's latest commit for the selected version and rebuild |
@@ -27,6 +27,8 @@ Every `daoc` action at a glance. `daoc <group> --help` has the details.
 | `daoc dev ship-pins` | Write the effective pins into `manifest.json` |
 | `daoc dev e2e [a] [p] [--client new]` | End-to-end acceptance run on ports 20300/20400 (the new client: on 10300, which must be free) |
 | `daoc dev edition-sql VERSION` | Write the version's Sluaghbinder world overlay from upstream's two edition databases |
+| `daoc dev pack-server VERSION [--out DIR]` | Build the version's Shipped server pin and pack the prebuilt tarball |
+| `daoc dev ship-prebuilt VERSION TARBALL URL` | Pin a prebuilt tarball's url, size and hash in manifest.json |
 
 See [PLAY.md](PLAY.md), [GRAPHICS.md](GRAPHICS.md), [UPDATING.md](UPDATING.md)
 and [DEVELOPMENT.md](DEVELOPMENT.md).

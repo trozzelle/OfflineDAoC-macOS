@@ -1,6 +1,8 @@
 """daoc server / admin / progress: passthrough argv, missing install, install build step."""
 import io
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -9,7 +11,7 @@ from unittest import mock
 
 from tests.support import make_checkout, path_stubs, run_cli, stub_calls
 
-from daoc_cli import errors, games, keychain, proc, selection, server
+from daoc_cli import errors, games, keychain, pins, proc, selection, server
 from daoc_cli.checkout import Checkout
 from daoc_cli.selection import Selection
 
@@ -27,11 +29,11 @@ class PassthroughTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def install(self):
+    def install(self, server_script="#!/bin/sh\n# daoc-server.sh start [--console|--detach] | stop | status\n"):
         self.co.server_dir.mkdir(parents=True)
         for name in ("daoc-server.sh", "daoc-admin", "daoc-progress"):
             p = self.co.server_dir / name
-            p.write_text("#!/bin/sh\n")
+            p.write_text(server_script if name == "daoc-server.sh" else "#!/bin/sh\n")
             p.chmod(0o755)
 
     def execv_calls(self, argv):
@@ -57,9 +59,26 @@ class PassthroughTest(unittest.TestCase):
         self.install()
         script = str(self.co.server_dir / "daoc-server.sh")
         for argv, want in ((["start", "--console"], ["start", "--console"]),
+                           (["start", "--detach"], ["start", "--detach"]),
                            (["start"], ["start"]), (["stop"], ["stop"]), (["status"], ["status"])):
             calls = self.execv_calls(["server", *argv])
             self.assertEqual(calls, [([script, *want], self.co.server_dir)])
+
+    def test_detach_on_a_script_that_predates_it_is_refused_before_any_exec(self):
+        self.install("#!/bin/sh\n# daoc-server.sh start [--console] | stop | status\n")
+        with mock.patch.object(proc, "execv", side_effect=Exec):
+            code, out, err = run_cli(["server", "start", "--detach"], self.root)
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "daoc: this server install predates start --detach; "
+                              "update it with daoc server install\n")
+        # The other actions still pass through to an old script.
+        calls = self.execv_calls(["server", "start", "--console"])
+        self.assertEqual(calls[0][0][1:], ["start", "--console"])
+
+    def test_console_and_detach_are_mutually_exclusive(self):
+        self.install()
+        code, out, err = run_cli(["server", "start", "--console", "--detach"], self.root)
+        self.assertEqual(code, 2)
 
     def test_missing_install_exits_1(self):
         for argv in (["admin", "help"], ["progress"], ["server", "status"], ["server", "start"]):
@@ -94,12 +113,14 @@ class InstallTest(unittest.TestCase):
         (src / ".git").mkdir(parents=True)
         tools = self.root / "server" / "tools"
         tools.mkdir(parents=True)
+        (self.root / "server" / "vendor").mkdir()   # a git Checkout has the build sources
         # What `git archive` of the navmesh paths yields.
         fixture = Path(self.tmp.name) / "archive"
         (fixture / "world" / "navmesh").mkdir(parents=True)
         (fixture / "world" / "navmesh" / "zone000.nav.xz").write_bytes(b"xz")
         (fixture / "world" / "navmesh-manifest.sha256").write_text("x  zone000.nav\n")
         build_env = Path(self.tmp.name) / "stubs" / "build.env"
+        self.build_out = Path(self.tmp.name) / "stubs" / "build.out"
         self.stubs = path_stubs(self.tmp.name, {
             "git": (f'[ "$3" = rev-parse ] && echo "${{HEAD_SHA:-{self.ref}}}"\n'
                     '[ "$3" = remote ] && [ "$4" = get-url ] && echo "$ORIGIN_URL"\n'
@@ -110,7 +131,8 @@ class InstallTest(unittest.TestCase):
             "cmake": "exit 0",
             "setup-dotnet.sh": "exit 0",
             "build-release.sh": (f'm=$DAOC_NAVMESH_SRC/world/navmesh-manifest.sha256; [ -f "$m" ] && m=present\n'
-                                 f'echo "$PWD|$DAOC_SOURCE_REPO|$DAOC_GAME_VERSION|$m" >> {build_env}'),
+                                 f'echo "$PWD|$DAOC_SOURCE_REPO|$DAOC_GAME_VERSION|$m" >> {build_env}\n'
+                                 f'echo "$DAOC_SERVER_OUT" >> {self.build_out}'),
         })
         self.build_env = build_env
         for name in ("setup-dotnet.sh", "build-release.sh"):
@@ -129,6 +151,23 @@ class InstallTest(unittest.TestCase):
     def git_calls(self, verb):
         return [c for c in stub_calls(self.stubs) if c[0] == "git" and c[3] == verb]
 
+    def test_building_from_source_needs_a_checkout_with_the_build_sources(self):
+        shutil.rmtree(self.root / "server" / "vendor")
+        code, _, err = run_cli(["server", "install"], self.root, env=self.env)
+        self.assertEqual(code, 2)
+        self.assertIn("needs a git checkout of daoc-macos", err)
+        self.assertEqual(stub_calls(self.stubs), [])
+
+    def test_from_source_builds_even_with_a_prebuilt_pinned(self):
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["versions"]["0.35"]["server"]["prebuilt"] = {"url": "https://x/y.tar.xz", "bytes": 1, "sha256": "0" * 64}
+        path.write_text(json.dumps(manifest))
+        code, _, err = run_cli(["server", "install", "--from-source"], self.root, env=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c[0] for c in stub_calls(self.stubs)][-1], "build-release.sh")
+        self.assertNotIn("prebuilt", pins.installed(self.co, "server"))
+
     def test_install_builds_with_resolved_cwd_and_pinned_repo(self):
         code, _, err = run_cli(["server", "install"], self.root,
                                env=dict(self.env, DAOC_SOURCE_REPO="/elsewhere"))
@@ -139,6 +178,17 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(stub_calls(self.stubs)[-1][1:], [])
         env = self.build_env.read_text().strip()
         self.assertEqual(env, f"{self.root}|{self.root / 'upstream' / 'server'}|0.35|present")
+
+    def test_a_data_home_holds_the_clone_and_the_install(self):
+        data = Path(os.path.realpath(self.tmp.name)) / "data"
+        src = data / "upstream" / "server"
+        (src / ".git").mkdir(parents=True)
+        code, _, err = run_cli(["server", "install"], self.root, env=dict(self.env, DAOC_DATA=str(data)))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.build_env.read_text().strip(), f"{self.root}|{src}|0.35|present")
+        self.assertEqual(self.build_out.read_text().strip(), str(data / "server" / "dist" / "daoc-server"))
+        self.assertEqual((data / "server" / "dist" / "daoc-server" / "config" / "edition").read_text(),
+                         "sluaghbinder\n")
 
     def test_install_passes_version_and_navmesh_src(self):
         self.select("0.36b")
