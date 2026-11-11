@@ -1,7 +1,7 @@
 # Development
 
 For maintainers and contributors: running the tests, the performance and
-end-to-end gates, shipping pins, and where the design notes live.
+end-to-end gates, shipping pins, building the app, and where the design docs live.
 
 ## Tests
 
@@ -95,12 +95,9 @@ repository's `main` environment.
   it through Gatekeeper, run Setup with the original client, Play into the world, create bots,
   quit with the server running.
 
-## Design and notes
+## Design
 
 - [DESIGN.md](DESIGN.md) — repo layout, manifest schema, install flows, server
   updates and saved progress
-- [CLIENT-NOTES.md](CLIENT-NOTES.md) — client findings under Wine on Apple
-  silicon (x87 performance under Rosetta and FEX, privacy prompts, the Local
-  Network stall, game.dll's `Shared` section, prefix user, linkdead wait)
 - [server/README.md](../server/README.md) — the macOS server port: build
   pipeline, differences from the Linux repo, maintenance

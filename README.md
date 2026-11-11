@@ -156,7 +156,7 @@ Details: [docs/PLAY.md](docs/PLAY.md#arm64-wine-no-rosetta).
 **Developing**
 
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): tests, benchmark gate, maintainer
-  commands, and the design and research notes
+  commands, the app build, and the design docs
 
 ## License
 

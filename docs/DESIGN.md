@@ -411,9 +411,7 @@ reduced precision, mtld3d config, large-address-aware) ride on `--env` when `win
 daoc runs on it, and the Launcher on the same test, gets `DYLD_FALLBACK_LIBRARY_PATH`
 to its `ext/lib` (`checkout.wine_env`): without it Wine runs but finds no FreeType
 ("Wine cannot find the FreeType font library"). The launcher's `DAOC_FPS_OVERLAY=1` shows the Metal
-Performance HUD. The evidence behind this, and the other client pitfalls (TCC
-prompt, the `crossover` prefix user, the linkdead wait after a kill), is in
-`docs/CLIENT-NOTES.md`.
+Performance HUD.
 
 The release ships the original 1.127 Windows client; the patch lets it talk to a
 local OpenDAoC server without breaking on the encryption handshake.
