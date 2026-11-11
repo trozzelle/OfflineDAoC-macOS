@@ -72,7 +72,7 @@ The rest of this page is the command-line way, from a git checkout.
 
 <!-- x-release-please-start-version -->
 ```bash
-git clone --branch v0.4.0 <this repo> daoc-macos && cd daoc-macos
+git clone --branch v0.5.0 <this repo> daoc-macos && cd daoc-macos
 ./daoc self-install      # puts `daoc` in ~/.local/bin
 
 daoc server install      # build the server

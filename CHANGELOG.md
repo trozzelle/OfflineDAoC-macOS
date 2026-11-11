@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.5.0](https://github.com/trozzelle/OfflineDAoC-macOS/compare/v0.4.0...v0.5.0) (2026-11-11)
+
+
+### Features
+
+* ./daoc runs a bundled Python beside its code root ([b00e770](https://github.com/trozzelle/OfflineDAoC-macOS/commit/b00e7703c4b698448a13a995f88ad25ddfab375d))
+* a data home apart from the code root (DAOC_DATA) ([18ea83d](https://github.com/trozzelle/OfflineDAoC-macOS/commit/18ea83df0e37d1896f1f26ea9da347a081e0c861))
+* **app:** app model, sheets, self-test and quit handling ([8a78ea7](https://github.com/trozzelle/OfflineDAoC-macOS/commit/8a78ea7eb9816adad549d14d6cdcebd6ea20cb4d))
+* **app:** launcher with Play, server, bots, settings and updates ([bf77694](https://github.com/trozzelle/OfflineDAoC-macOS/commit/bf776946f9bc04cbc9176703389dd66feee8dadf))
+* **app:** run daoc with an event pipe, answers and a log ([312c673](https://github.com/trozzelle/OfflineDAoC-macOS/commit/312c6739952dad1fec8e651ab6580a9c5a87109f))
+* **app:** Setup wizard ([a3f9abb](https://github.com/trozzelle/OfflineDAoC-macOS/commit/a3f9abb90d35ebf2b2b81679bef7c64aacbeee3a))
+* **app:** status, bots, Setup plan and release models ([f9064e9](https://github.com/trozzelle/OfflineDAoC-macOS/commit/f9064e936f08b72a5fd6d94d9158aa6966533eda))
+* **app:** Swift package with the daoc event protocol ([ae3ac8a](https://github.com/trozzelle/OfflineDAoC-macOS/commit/ae3ac8a02b1274e9284d12bcb45d6abb2e95c1f7))
+* **client:** the app saves the game account through a secret event ([4fd89c2](https://github.com/trozzelle/OfflineDAoC-macOS/commit/4fd89c2d26e9f56de83b85676a40df6bd9b20794))
+* daoc status --json for the OfflineDAoC app ([b68c90d](https://github.com/trozzelle/OfflineDAoC-macOS/commit/b68c90d4748706d8ef6ba27080fc5ebb063a0b70))
+* **dev:** pack-server and ship-prebuilt for the prebuilt server ([ce4fd2f](https://github.com/trozzelle/OfflineDAoC-macOS/commit/ce4fd2fbb007ca6beebab06aa2918e87187244c5))
+* download events name the file growing on disk ([7c80c20](https://github.com/trozzelle/OfflineDAoC-macOS/commit/7c80c2096c62dce13571e1215ea1282774a006b3))
+* JSON event channel for the OfflineDAoC app (DAOC_EVENTS) ([b74ea28](https://github.com/trozzelle/OfflineDAoC-macOS/commit/b74ea28b4040954aeba6217e668a61af6b4e08d0))
+* OfflineDAoC.app, a one-click installer and launcher for macOS ([90dc933](https://github.com/trozzelle/OfflineDAoC-macOS/commit/90dc933fac6e770213fb8a99e53b7a8578e980b5))
+* **server:** --from-source, and Local pins never carry a prebuilt ([de645ea](https://github.com/trozzelle/OfflineDAoC-macOS/commit/de645ea39809439a8dcf0a148d63e5dadc283cbe))
+* **server:** install a pinned prebuilt server without a build toolchain ([4a7f637](https://github.com/trozzelle/OfflineDAoC-macOS/commit/4a7f637165179488da288cee87c979a2b810b6a3))
+* **server:** pin the prebuilt 0.37 server; app/dev-run.sh runs the app on a test data folder ([73e5d03](https://github.com/trozzelle/OfflineDAoC-macOS/commit/73e5d0301a426daf049adc622fc47c95bd3d565b))
+* **server:** start --detach returns once the server is ready ([97e1922](https://github.com/trozzelle/OfflineDAoC-macOS/commit/97e19223f0e338daf947bcb5f8eb3fd52ce939be))
+
+
+### Bug Fixes
+
+* **app:** a Keychain account from another install does not skip Setup's account step ([1db992c](https://github.com/trozzelle/OfflineDAoC-macOS/commit/1db992c0baf9fe7d399af6952a1624711f085e2e))
+* **app:** a late answer never raises SIGPIPE; interrupt before spawn is kept ([6070e7d](https://github.com/trozzelle/OfflineDAoC-macOS/commit/6070e7d560bc16b26a01b44a1502d774d7b60315))
+* **app:** Escape always answers No in the ask sheet ([8492191](https://github.com/trozzelle/OfflineDAoC-macOS/commit/84921919591a12760f6e4249ed892b2c8a504b6e))
+* **app:** Install daoc Command is disabled while another command runs ([9ed04de](https://github.com/trozzelle/OfflineDAoC-macOS/commit/9ed04de96729e894382d47bf0d81f6370763833a))
+* **app:** launcher settings match what the CLI accepts ([8b95e93](https://github.com/trozzelle/OfflineDAoC-macOS/commit/8b95e933402f5cd64e95a9f69b713a4870d51073))
+* **app:** quit confirms before stopping work; one window; logged server stop ([6e53b5b](https://github.com/trozzelle/OfflineDAoC-macOS/commit/6e53b5bb2fc516a8a0594f6d12341add8176e674))
+* **app:** Setup resumes from the install's status ([3d0f9e6](https://github.com/trozzelle/OfflineDAoC-macOS/commit/3d0f9e6e5226f463a069d2e114df6cdd792405c4))
+* **app:** Stop and quit stop treating a finished download as running ([1fc3b94](https://github.com/trozzelle/OfflineDAoC-macOS/commit/1fc3b94f8e2fd37018c5b0a4007c504e0d2c5ff8))
+* **app:** the signed bundle never gains .pyc files; build precompiles, the bundled launcher runs python -B ([d221392](https://github.com/trozzelle/OfflineDAoC-macOS/commit/d2213922286a3a9b705963e2447bb44a359f34bb))
+* **client:** curl downloads through a .part file so an interrupted one is fetched again ([abdd02c](https://github.com/trozzelle/OfflineDAoC-macOS/commit/abdd02c9bfec8365cbfcc89e31a66b035b31b86f))
+* **server:** a short admin socket when its path is too long for macOS ([b28474a](https://github.com/trozzelle/OfflineDAoC-macOS/commit/b28474afc65b3cfeb1cbe7508b7e077683b440ce))
+* **server:** prebuilt swap records the pin last; user folders refused in any case ([a7676ae](https://github.com/trozzelle/OfflineDAoC-macOS/commit/a7676aeb5a20ba77a0be6fc7c4d44a8d668b45a8))
+* **server:** start --detach refuses a daoc-server.sh that predates it instead of hanging ([c4c130c](https://github.com/trozzelle/OfflineDAoC-macOS/commit/c4c130c06eca10a751456856d05cef7cb4024378))
+* **server:** start --detach waits for a server that is already starting ([d5d5dbb](https://github.com/trozzelle/OfflineDAoC-macOS/commit/d5d5dbbe7a3824cf56947c2f39457135780856db))
+* **server:** the fallback admin socket lives in the per-user temp folder ([4ce19f5](https://github.com/trozzelle/OfflineDAoC-macOS/commit/4ce19f5e2af8c9032a1cae05a270c7893d53d767))
+* **status:** the original client counts as installed once client install has recorded its flavour ([85dd036](https://github.com/trozzelle/OfflineDAoC-macOS/commit/85dd036b9987ce5f7e7ed0086c68d92fa5e822ea))
+* wine tools get no stdin in event mode ([c1b4d33](https://github.com/trozzelle/OfflineDAoC-macOS/commit/c1b4d3378bb80677a08cf58ed1afb8bdd7a28796))
+
 ## [0.4.0](https://github.com/trozzelle/OfflineDAoC-macOS/compare/v0.3.0...v0.4.0) (2026-10-19)
 
 
