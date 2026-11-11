@@ -505,9 +505,3 @@ client process is still alive ≥120 s later → exit 0. The client runs this
 checkout's Wine and prefix (`DAOC_WINE_HOME` / `DAOC_WINEPREFIX` override, as for
 the launcher), and that same Wine is what e2e finds and kills it by. Manual UAT
 (renders, plays) gates final acceptance after that.
-
-## Server-side notes
-
-Upstream game-logic issues (e.g. character creation with race 21 — HiberniaMinotaur
-— throws `KeyNotFoundException` in the server's stat validator) are documented in
-`docs/SERVER-NOTES.md`, never patched here.
