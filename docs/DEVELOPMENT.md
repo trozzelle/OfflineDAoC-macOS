@@ -72,6 +72,12 @@ repository's `main` environment.
 
 ## The app
 
+- Try it: `app/dev-run.sh` builds the app from this checkout, signs it ad hoc and opens it on
+  a test data folder (`~/Library/Application Support/OfflineDAoC-dev`, or `$DAOC_DEV_DATA`)
+  that is kept between runs; `app/dev-run.sh --fresh` stops that folder's server and deletes
+  it first, so Setup starts from nothing. The app's real data folder and this checkout's
+  installs are never touched, but Setup's account step replaces the Game account the CLI
+  keeps in the Keychain.
 - Build and smoke: `app/build-app.sh /tmp/odaoc && app/sign-app.sh /tmp/odaoc/OfflineDAoC.app - && /tmp/odaoc/OfflineDAoC.app/Contents/MacOS/OfflineDAoC --self-test`.
 - Releases: `app.yml` publishes the DMG on each release tag. Its five secrets
   (`DEVELOPER_ID_P12` (base64), `P12_PASSWORD`, `NOTARY_KEY_ID`, `NOTARY_ISSUER`,
