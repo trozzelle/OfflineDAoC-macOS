@@ -12,6 +12,11 @@
 # PYTHONPATH and user site-packages out. The environment is left untouched, so
 # children see exactly the caller's PYTHONPATH.
 #
+# Inside OfflineDAoC.app the code root sits next to a standalone Python
+# (Contents/Resources/daoc beside Contents/Resources/python): that Python runs
+# daoc_cli and the Command Line Tools are neither checked nor needed. That Python
+# also runs with -B: the bundle is code-signed, so nothing may be written into it.
+#
 # DAOC_XCODE_SELECT overrides the xcode-select binary (tests only).
 
 self=$0
@@ -24,13 +29,22 @@ while [ -L "$self" ]; do
 done
 root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P) || exit 1
 
-xcode_select=${DAOC_XCODE_SELECT:-/usr/bin/xcode-select}
-if ! clt=$("$xcode_select" -p 2>/dev/null) || [ -z "$clt" ] || [ ! -d "$clt" ]; then
-  echo "daoc: the Xcode Command Line Tools are not installed; run: xcode-select --install" >&2
-  exit 1
+bundled=$(dirname -- "$root")/python/bin/python3
+if [ -x "$bundled" ]; then
+  python=$bundled
+  flags='-B -I'
+else
+  xcode_select=${DAOC_XCODE_SELECT:-/usr/bin/xcode-select}
+  if ! clt=$("$xcode_select" -p 2>/dev/null) || [ -z "$clt" ] || [ ! -d "$clt" ]; then
+    echo "daoc: the Xcode Command Line Tools are not installed; run: xcode-select --install" >&2
+    exit 1
+  fi
+  python=/usr/bin/python3
+  flags=-I
 fi
 
-exec /usr/bin/python3 -I -c '
+# shellcheck disable=SC2086
+exec "$python" $flags -c '
 import runpy, sys
 sys.path.insert(0, sys.argv.pop(1))
 runpy.run_module("daoc_cli", run_name="__main__", alter_sys=True)

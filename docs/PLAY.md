@@ -4,6 +4,8 @@ The full walkthrough: setting up the `daoc` command, installing the server and
 client, playing, stopping, and what to do when something goes wrong. The
 [README](../README.md) has the short version.
 
+Using the app? Setup and the launcher do everything below; this page is the command-line way.
+
 - [Set up the `daoc` command](#set-up-the-daoc-command)
 - [Install the server](#install-the-server)
 - [Install the client](#install-the-client)
@@ -68,6 +70,12 @@ finished steps. The prefix keeps its Windows profile folders (Documents,
 Desktop, ...) inside the prefix, so the client never triggers a macOS privacy
 prompt for your home folders. Add `--verbose` to see the Wine download's
 progress bar and wine's prefix setup logging.
+
+The client keeps its settings in the prefix:
+`dist/prefix/drive_c/users/crossover/AppData/Roaming/Electronic Arts/` (the default Wine
+names its Windows user `crossover`), or with the arm64 Wine
+`dist/prefix-arm64/drive_c/users/<your macOS user name>/AppData/Roaming/Electronic Arts/`.
+Installing the arm64 Wine copies them over from the default Wine's prefix.
 
 ### arm64 Wine (no Rosetta)
 
@@ -257,10 +265,18 @@ Set in the environment; `daoc client start` forwards them.
   (up to 10 tries; each attempt is traced to `/tmp/daoc-launcher.log`).
 - **No login screen after ~3 minutes.** Note what is on screen and check
   `tail -50 /tmp/daoc-wine.log`.
-- **The client sits without logging in.** Two known causes, described in
-  [CLIENT-NOTES.md](CLIENT-NOTES.md): an unanswered macOS privacy prompt, and a
-  login within 60 s of a killed client (the server still holds the character
-  linkdead).
+- **The client sits at 0% CPU before its window appears.** macOS is waiting for
+  an answer to a privacy prompt for "wine" (usually about Documents), which is
+  easy to miss behind other windows; answer it. `daoc client install` sets the
+  prefix up so the prompt does not come, but runs with the FPS overlay have still
+  raised it.
+- **The client sits at the login after a crash or kill.** A client that was killed
+  instead of quit with `/quit` leaves its character linkdead on the server for
+  60 s, and a login in that time is refused. `daoc client stop` waits for it;
+  otherwise wait a minute and start again.
+- **The server errors when you create a Hibernia Minotaur.** The server's stat
+  check has no entry for that race (`KeyNotFoundException: 'HiberniaMinotaur'` in
+  the server log); pick another Hibernia race.
 - **arm64 Wine: ~10–15 FPS in world.** `daoc` runs it with
   `FEX_X87REDUCEDPRECISION=1`; check that your environment does not set it to `0`
   (see [Performance](#performance-and-the-fps-overlay)). Without it FEX emulates

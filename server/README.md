@@ -91,6 +91,7 @@ tools/setup-dotnet.sh        one-time .NET 10 SDK installer
 tools/fetch-upstream-db.sh   unpacks/verifies the pinned OpenDAoC-Database dump
 deploy/daoc-server.sh        start/stop/status (equivalent of the Linux launcher)
 deploy/daoc-admin            admin TUI/CLI wrapper
+deploy/admin-socket.sh       the admin socket's path (run/admin.sock, or a short path in your private temp folder when that is too long); sourced by the two scripts above
 deploy/daoc-progress         world upgrade / progress import wrapper (macOS port addition)
 tools/ProgressImport/        daoc-progress source: upstream Offline DAoC's progress importer, ported
 deploy/navmesh-install.sh    navmesh installer (macOS port): --from-xz <world/navmesh>, --from-dir

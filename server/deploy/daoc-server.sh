@@ -7,6 +7,8 @@
 #                                     screen here (quit it with Ctrl+Q: stop the server or leave it running)
 #   ./daoc-server.sh start --console  raw server console in the foreground instead (Ctrl+C, SIGTERM
 #                                     or "exit" stop it); also used automatically without a terminal
+#   ./daoc-server.sh start --detach   start in the background, wait until it is ready, and return
+#                                     (no admin screen; the OfflineDAoC app uses this)
 #   ./daoc-server.sh stop      stop a running server cleanly (saves first)
 #   ./daoc-server.sh status    is it running?
 #   ./daoc-admin               manage bots, population and accounts (terminal GUI or commands)
@@ -34,6 +36,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DAOC_HOME="${DAOC_HOME:-$HERE}"
 PIDFILE="$DAOC_HOME/run/server.pid"
+# shellcheck source=admin-socket.sh
+. "$HERE/admin-socket.sh"
+ADMIN_SOCKET=$(admin_socket "$DAOC_HOME")
 
 die() { echo "daoc-server: $*" >&2; exit 1; }
 
@@ -53,14 +58,51 @@ game_port() {
 
 port_in_use() { nc -z -w 1 127.0.0.1 "$(game_port)" >/dev/null 2>&1; }
 
+# Is the server listening? The admin socket exists and the console log says so.
+ready() {
+  [[ -S $ADMIN_SOCKET ]] && grep -q "Server is now listening" "$DAOC_HOME/logs/console.out" 2>/dev/null
+}
+
+# Wait up to 180 s, one dot a second, for server $1 to be ready.
+# Returns 0 ready, 1 the process died, 2 still not ready after 180 s.
+wait_ready() {
+  local pid=$1 i
+  for ((i = 0; i < 180; i++)); do
+    kill -0 "$pid" 2>/dev/null || return 1
+    ready && return 0
+    printf '.'
+    sleep 1
+  done
+  return 2
+}
+
 start() {
   local mode=${1:-}
+  # --detach: background start, wait until ready, return (the OfflineDAoC app).
   # --console, or no terminal (init system, redirect): run the raw server console in the foreground.
-  local console=false
-  [[ $mode == --console || ! -t 0 || ! -t 1 ]] && console=true
+  local console=false detach=false
+  if [[ $mode == --detach ]]; then
+    detach=true
+  elif [[ $mode == --console || ! -t 0 || ! -t 1 ]]; then
+    console=true
+  fi
 
-  if running_pid >/dev/null; then
-    $console && die "already running (pid $(running_pid))"
+  local pid rc
+  if pid=$(running_pid); then
+    if $detach; then
+      # A server that is still booting (a terminal start, or a detached start that timed out)
+      # is not ready yet: wait for it the way a fresh start does, but never kill it.
+      printf 'already running (pid %s)' "$pid"
+      wait_ready "$pid"; rc=$?
+      echo
+      [[ $rc == 0 ]] && exit 0
+      if [[ $rc == 1 ]]; then echo "The server (pid $pid) stopped before it was ready."
+      else echo "The server is not ready after 180 s."; fi >&2
+      echo "Last lines of $DAOC_HOME/logs/console.out:" >&2
+      tail -n 25 "$DAOC_HOME/logs/console.out" >&2
+      exit 1
+    fi
+    $console && die "already running (pid $pid)"
     exec "$DAOC_HOME/daoc-admin"   # already running: just open the admin screen
   fi
   [[ -x $DAOC_HOME/bin/CoreServer ]] || die "no server program in $DAOC_HOME/bin"
@@ -81,8 +123,9 @@ start() {
   done
   ! port_in_use || die "port $(game_port) is already in use (another server is running; see <Port> in config/serverconfig.xml)"
 
-  # The admin socket (used by ./daoc-admin) lives in run/.
-  export DAOC_ADMIN_SOCKET="$DAOC_HOME/run/admin.sock"
+  # The admin socket (used by ./daoc-admin): run/admin.sock, or a short path in the per-user
+  # temp folder when that would be too long for a unix socket (see admin-socket.sh).
+  export DAOC_ADMIN_SOCKET="$ADMIN_SOCKET"
   cd "$DAOC_HOME/bin"
 
   if $console; then
@@ -93,25 +136,30 @@ start() {
 
   # Default: server in the background (nohup so closing this terminal does not stop it),
   # then the admin screen in this terminal.
-  local log="$DAOC_HOME/logs/console.out" pid i
+  local log="$DAOC_HOME/logs/console.out"
   [[ -f $log ]] && mv -f "$log" "$DAOC_HOME/logs/console.prev.out"
   nohup ./CoreServer --start "-config=$DAOC_HOME/config/serverconfig.xml" </dev/null >"$log" 2>&1 &
   pid=$!
   disown "$pid" 2>/dev/null || true
   echo "$pid" > "$PIDFILE"
   printf 'Starting server (pid %s)' "$pid"
-  for ((i = 0; i < 180; i++)); do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo; echo "The server did not start. Last lines of $log:" >&2
-      tail -n 25 "$log" >&2
-      rm -f "$PIDFILE"
-      exit 1
-    fi
-    [[ -S $DAOC_ADMIN_SOCKET ]] && grep -q "Server is now listening" "$log" && break
-    printf '.'
-    sleep 1
-  done
+  wait_ready "$pid"; rc=$?
   echo
+  if [[ $rc == 1 ]]; then
+    echo "The server did not start. Last lines of $log:" >&2
+    tail -n 25 "$log" >&2
+    rm -f "$PIDFILE"
+    exit 1
+  fi
+  if $detach; then
+    if [[ $rc == 0 ]]; then
+      echo "Server running (pid $pid)"
+      exit 0
+    fi
+    echo "The server is not ready after 180 s. Last lines of $log:" >&2
+    tail -n 25 "$log" >&2
+    exit 1
+  fi
   exec "$DAOC_HOME/daoc-admin"
 }
 
@@ -130,5 +178,5 @@ case "${1:-}" in
   start)  start "${2:-}" ;;
   stop)   stop ;;
   status) if pid=$(running_pid); then echo "running (pid $pid)"; else echo "stopped"; fi ;;
-  *) echo "usage: $0 start [--console] | stop | status"; exit 2 ;;
+  *) echo "usage: $0 start [--console|--detach] | stop | status"; exit 2 ;;
 esac

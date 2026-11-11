@@ -110,6 +110,11 @@
         "upstream": "https://github.com/trozzelle/OfflineDAoC-macOS-server",
         "branch": "macos-0.37",
         "ref": "2637a4059d42d2b1cbd1aef5bee8151257edf6b8",
+        "prebuilt": {
+          "url": "https://github.com/trozzelle/OfflineDAoC-macOS/releases/download/server-0.37-2637a4059d42/daoc-server-0.37-2637a4059d42-osx-arm64.tar.xz",
+          "bytes": 446261244,
+          "sha256": "576148e089ed3000a4c4d31dead1cab2f044011dbbdfa97cb943aba63eeca4f6"
+        },
         "note": "Branch macos-0.37, synced to Offline DAoC v0.37 (ab4df02): the 0.37 world (0.36 base plus the game patch's db-0.37.json), navmesh set classic-si-4, classic-quests.json and classic-quest-guides.json, with the macOS fixes."
       },
       "original_client": {

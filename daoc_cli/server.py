@@ -1,6 +1,10 @@
 """`daoc server`: build the macOS server, and start/stop/status it.
 
 install:
+  When the effective server pin has `prebuilt` (written by `daoc dev ship-prebuilt`),
+  download that tarball, verify its size and SHA-256 and its .daoc-pin.json commit,
+  and replace only the top-level entries it holds: config/ data/ logs/ run/ are the
+  user's and never come from it. Otherwise (or with --from-source) build from source:
   1. Clone (or reuse) the pinned server repo in upstream/server/ and verify the
      exact commit. The macOS changes are commits in that repo
      (trozzelle/OfflineDAoC-macOS-server), so the pin names finished source.
@@ -15,6 +19,7 @@ update moves the install to the server repo's latest main, then rebuilds and
 records it as the Local pin (see update()).
 """
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -23,9 +28,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from daoc_cli import files, games, pins, proc, selection, updates
+from daoc_cli import files, games, pins, proc, release, selection, updates
 from daoc_cli.checkout import Checkout
-from daoc_cli.errors import DaocError, ask, say
+from daoc_cli.errors import DaocError, ask, interactive, say
 
 NO_INSTALL = "no Server install; run daoc server install"
 
@@ -35,6 +40,19 @@ NO_INSTALL = "no Server install; run daoc server install"
 WORLD_DATA = Path("defaults") / "world.sqlite"
 # The Edition a fresh save starts as, read by daoc-server.sh on first start.
 EDITION_FILE = Path("config") / "edition"
+
+# The prebuilt server tarball (`daoc dev pack-server`): one root folder, the
+# build's own files; never the user's folders.
+PREBUILT_ROOT = "daoc-server"
+USER_DIRS = ("config", "data", "logs", "run")
+
+
+def prebuilt_name(version: str, ref: str) -> str:
+    return f"daoc-server-{version}-{ref[:12]}-osx-arm64.tar.xz"
+
+
+# tarfile's `filter="data"` where it exists: 3.12+, and backported to 3.9.17+/3.10.12+/3.11.4+.
+EXTRACT_FILTER: Dict[str, Any] = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
 
 
 def set_edition(checkout: Checkout, edition: str) -> None:
@@ -51,9 +69,11 @@ def register(groups: "argparse._SubParsersAction") -> None:
         description="Install, run and update the local OpenDAoC server.",
     )
     actions = p.add_subparsers(dest="action", title="actions")
-    a = actions.add_parser("install", help="build server/dist/daoc-server for the selected game version")
+    a = actions.add_parser("install", help="install the server for the selected game version")
     a.add_argument("-v", "--verbose", action="store_true",
                    help="show git progress and the build's warnings and tool output")
+    a.add_argument("--from-source", action="store_true",
+                   help="build it from the server repo even when a prebuilt server is pinned")
     a.set_defaults(func=_handle_install)
     a = actions.add_parser(
         "update",
@@ -66,7 +86,10 @@ def register(groups: "argparse._SubParsersAction") -> None:
                    help="report Shipped, Local, built-from and latest; change nothing")
     a.set_defaults(func=_handle_update)
     a = actions.add_parser("start", help="start the server (daoc-server.sh start)")
-    a.add_argument("--console", action="store_true", help="run in the foreground with its console")
+    how = a.add_mutually_exclusive_group()
+    how.add_argument("--console", action="store_true", help="run in the foreground with its console")
+    how.add_argument("--detach", action="store_true",
+                     help="start in the background, wait until it is ready, and return (no admin screen)")
     a.set_defaults(func=_handle_script)
     for name, text in (("stop", "stop the server"), ("status", "print running (pid N) or stopped")):
         actions.add_parser(name, help=text).set_defaults(func=_handle_script)
@@ -74,7 +97,7 @@ def register(groups: "argparse._SubParsersAction") -> None:
 
 def _handle_install(args: argparse.Namespace, checkout: Checkout) -> int:
     game = selection.load(checkout).game
-    install(checkout, game.version, verbose=args.verbose)
+    install(checkout, game.version, verbose=args.verbose, from_source=args.from_source)
     set_edition(checkout, game.edition)
     return 0
 
@@ -91,9 +114,16 @@ def _version(checkout: Checkout) -> str:
 
 
 def _handle_script(args: argparse.Namespace, checkout: Checkout) -> int:
-    argv: List[str] = [str(script(checkout)), args.action]
-    if getattr(args, "console", False):
-        argv.append("--console")
+    path = script(checkout)
+    # A daoc-server.sh from before --detach would start the console server in the
+    # foreground (it has no terminal here) and never return.
+    if getattr(args, "detach", False) and b"--detach" not in path.read_bytes():
+        raise DaocError("this server install predates start --detach; "
+                        "update it with daoc server install", 2)
+    argv: List[str] = [str(path), args.action]
+    for flag in ("console", "detach"):
+        if getattr(args, flag, False):
+            argv.append(f"--{flag}")
     proc.execv(argv, cwd=checkout.server_dir)
 
 
@@ -136,22 +166,30 @@ def running(checkout: Checkout) -> Optional[bool]:
 
 
 def install(checkout: Checkout, version: str, verbose: bool = False,
-            pin: Optional[Dict[str, Any]] = None) -> None:
-    """Build the Server install of game version from pin (default: its effective
-    server pin)."""
-    # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
-    root = Path(os.path.realpath(checkout.root))
-    progress = "--progress" if verbose else "--quiet"
+            pin: Optional[Dict[str, Any]] = None, from_source: bool = False) -> None:
+    """Install the Server of game version from pin (default: its effective
+    server pin): its prebuilt tarball when the pin has one, else a build from
+    source (from_source forces the build)."""
     pin = pin if pin is not None else pins.effective(checkout, "server", version)
+    if pin.get("prebuilt") and not from_source:
+        _install_prebuilt(checkout, pin)
+        return
+    # Resolve symlinks: MSBuild must see one path (the old script's `cd "$(pwd -P)"`).
+    code = Path(os.path.realpath(checkout.root))
+    if not (code / "server" / "vendor").is_dir():
+        raise DaocError("building the server from source needs a git checkout of daoc-macos "
+                        f"(this daoc, {code}, has no server/vendor)", 2)
+    home = Path(os.path.realpath(checkout.home))
+    progress = "--progress" if verbose else "--quiet"
     url, ref = pin["upstream"], pin["ref"]
     navmesh_ref = pin.get("navmesh_ref") or ref
-    src = root / "upstream" / "server"
+    src = home / "upstream" / "server"
 
     # 1. Fetch the pinned server repo as a git clone and verify the exact commit
     #    (a ref the repo doesn't have fails here, loudly, before any build time is spent).
     say(f"install-server: pinned upstream {ref[:12]}")
-    (root / "downloads").mkdir(parents=True, exist_ok=True)
-    (root / "upstream").mkdir(parents=True, exist_ok=True)
+    (home / "downloads").mkdir(parents=True, exist_ok=True)
+    (home / "upstream").mkdir(parents=True, exist_ok=True)
     if src.is_dir() and not (src / ".git").is_dir():
         # Tarball-era extract (pre-git pinning): replace it with a proper clone.
         say("replacing tarball-era upstream extract with a git clone")
@@ -178,7 +216,7 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
 
     # 2. Toolchain: the port's own installer is idempotent and always safe to run.
     say(".NET 10 SDK (installed into ~/.dotnet if missing)")
-    proc.run([root / "server" / "tools" / "setup-dotnet.sh"], cwd=root, verbose=verbose)
+    proc.run([code / "server" / "tools" / "setup-dotnet.sh"], cwd=code, verbose=verbose)
     if shutil.which("cmake") is None:
         raise DaocError("cmake missing (brew install cmake)")
 
@@ -187,16 +225,105 @@ def install(checkout: Checkout, version: str, verbose: bool = False,
         # 3. Build. Pin DAOC_SOURCE_REPO to the clone verified above so the build (and the DB
         #    fetcher it calls) can't pick up a different tree from an inherited environment.
         env = dict(os.environ, DAOC_SOURCE_REPO=str(src), DAOC_GAME_VERSION=version,
-                   DAOC_NAVMESH_SRC=navmesh_src)
-        build = [str(root / "server" / "tools" / "build-release.sh")]
+                   DAOC_NAVMESH_SRC=navmesh_src,
+                   DAOC_SERVER_OUT=os.path.realpath(checkout.server_dir))
+        build = [str(code / "server" / "tools" / "build-release.sh")]
         if verbose:
             build.append("--verbose")
         # A build that stops halfway leaves an install built from no pin.
         pins.forget_installed(checkout, "server")
-        proc.run(build, cwd=root, env=env, verbose=True)
-    pins.record_installed(checkout, "server", pin)
+        proc.run(build, cwd=code, env=env, verbose=True)
+    pins.record_installed(checkout, "server", {k: v for k, v in pin.items() if k != "prebuilt"})
 
     say("install-server: done — server/dist/daoc-server; start it with daoc server start")
+
+
+def _install_prebuilt(checkout: Checkout, pin: Dict[str, Any]) -> None:
+    prebuilt = pin["prebuilt"]
+    name = release.plain_name(prebuilt["url"].rsplit("/", 1)[-1], "server.prebuilt url")
+    cache = checkout.downloads / "server"
+    cache.mkdir(parents=True, exist_ok=True)
+    tarball = cache / name
+    say(f"fetching the server ({int(prebuilt['bytes']) // 1024 ** 2} MB, built from {pin['ref'][:12]})")
+    release.fetch_verified(prebuilt["url"], tarball, prebuilt["bytes"], prebuilt["sha256"],
+                           release.download)
+    if running(checkout) is not False:
+        raise DaocError("the server is running; stop it first (daoc server stop)", 2)
+    dest = checkout.server_dir
+    stage = dest.parent / ".daoc-server.new"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    try:
+        say("unpacking the server")
+        _extract_prebuilt(tarball, stage)
+        try:
+            record = json.loads((stage / pins.INSTALLED).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        built = str(record.get("ref") or "")
+        if built != pin["ref"]:
+            raise DaocError(f"{name} was built from {built[:12] or 'an unknown commit'}, "
+                            f"not the pinned {pin['ref'][:12]}")
+        pins.forget_installed(checkout, "server")
+        (stage / pins.INSTALLED).unlink()   # the record is written last: an interrupted swap stays unrecorded
+        dest.mkdir(parents=True, exist_ok=True)
+        for entry in sorted(stage.iterdir()):
+            target = dest / entry.name
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif target.exists() or target.is_symlink():
+                target.unlink()
+            entry.rename(target)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    pins.record_installed(checkout, "server", {k: v for k, v in pin.items() if k != "prebuilt"})
+    say("install-server: done; start it with daoc server start")
+
+
+def _extract_prebuilt(tarball: Path, stage: Path) -> None:
+    """Unpack the tarball's PREBUILT_ROOT folder into stage. Refused: a member
+    outside that folder or with `..`, a link that points outside it, anything
+    but files, folders and symlinks, and the user's folders."""
+    base = os.path.realpath(stage)
+    with tarfile.open(tarball) as archive:
+        members = []
+        for member in archive.getmembers():
+            parts = Path(member.name).parts
+            if member.name.startswith("/") or not parts or parts[0] != PREBUILT_ROOT or ".." in parts:
+                raise DaocError(f"{tarball.name}: unexpected member {member.name!r}")
+            if len(parts) == 1:
+                continue
+            rel = Path(*parts[1:])
+            if rel.parts[0].lower() in USER_DIRS:   # APFS ignores case: Data/ would replace data/
+                raise DaocError(f"{tarball.name} holds {rel.parts[0]}/, which is the user's")
+            if not (member.isfile() or member.isdir() or member.issym()):
+                raise DaocError(f"{tarball.name}: {member.name!r} is not a file, folder or symlink")
+            if member.issym():
+                target = os.path.normpath(os.path.join(base, str(rel.parent), member.linkname))
+                if not target.startswith(base + os.sep):
+                    raise DaocError(f"{tarball.name}: {member.name!r} points outside the server folder")
+            member.name = str(rel)
+            members.append(member)
+        archive.extractall(stage, members=members, **EXTRACT_FILTER)
+
+
+def pack(checkout: Checkout, version: str, ref: str, out_dir: Path) -> Path:
+    """Pack the Server install, built from ref, as the prebuilt tarball in out_dir:
+    root folder PREBUILT_ROOT, symlinks kept, the user's folders left out."""
+    record = pins.installed(checkout, "server") or {}
+    if record.get("ref") != ref:
+        raise DaocError(f"the Server install was not built from {ref[:12]}; "
+                        f"run daoc dev pack-server {version}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / prebuilt_name(version, ref)
+
+    def keep(info: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+        parts = Path(info.name).parts
+        return None if len(parts) > 1 and parts[1] in USER_DIRS else info
+
+    with tarfile.open(path, "w:xz") as archive:
+        archive.add(checkout.server_dir, arcname=PREBUILT_ROOT, filter=keep)
+    return path
 
 
 NAVMESH_PATHS = ("world/navmesh", "world/navmesh-manifest.sha256")
@@ -219,7 +346,7 @@ def _export_navmesh(src: Path, navmesh_ref: str, ref: str, dest: Path, progress:
             target = (dest / member.name).resolve()
             if not str(target).startswith(base) or not (member.isfile() or member.isdir()):
                 raise DaocError(f"unexpected entry {member.name!r} in the navmesh export")
-        archive.extractall(dest)
+        archive.extractall(dest, **EXTRACT_FILTER)
     tar.unlink()
 
 
@@ -239,7 +366,7 @@ def _stop_first(checkout: Checkout) -> None:
     if state is None:
         raise DaocError(f"cannot tell whether the server is running ({detail}); "
                         "stop it first (daoc server stop)", 2)
-    if not sys.stdin.isatty():
+    if not interactive():
         raise DaocError("the server is running; stop it first (daoc server stop)", 2)
     if not ask(f"The server is {detail}. Stop it to update?"):
         raise DaocError("server update refused: the server is running", 2)
@@ -296,7 +423,7 @@ def update(checkout: Checkout) -> int:
     after = _world_hash(checkout)
     if before is None or after == before:
         return 0
-    if not sys.stdin.isatty():
+    if not interactive():
         print("World data changed; to move your progress into the new world, run:  "
               "daoc progress upgrade", file=sys.stderr)
         return 0

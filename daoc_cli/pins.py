@@ -337,20 +337,37 @@ def _dump(value: Any, indent: int = 0, inline: bool = False) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _read_manifest(checkout: Checkout) -> Tuple[Path, str, Dict[str, Any]]:
+    path = checkout.root / "manifest.json"
+    try:
+        text = path.read_text(encoding="utf-8")
+        return path, text, json.loads(text)
+    except FileNotFoundError:
+        raise DaocError(f"{path} is missing") from None
+    except (OSError, ValueError) as e:
+        raise DaocError(f"cannot read {path}: {e}") from None
+
+
+def ship_field(checkout: Checkout, group: str, version: str, key: str, value: Any) -> None:
+    """Set one field of a game version's Shipped pin in manifest.json, keeping
+    the layout, the key order and the entry's note."""
+    path, text, manifest = _read_manifest(checkout)
+    holder = (manifest.get("versions") or {}).get(version) or {}
+    entry = holder.get(group)
+    if not isinstance(entry, dict):
+        raise DaocError(f"manifest.json has no {label(group, version)} pin", 2)
+    holder[group] = _merge(entry, dict({k: v for k, v in entry.items() if k != "note"}, **{key: value}))
+    atomic_write(path, _dump(manifest) + ("\n" if text.endswith("\n") else ""))
+    checkout.__dict__.pop("manifest", None)
+
+
 def ship(checkout: Checkout) -> List[str]:
     """Write the effective pins into manifest.json, clear the Local pins, and
     return the pins whose manifest entry changed (`server@0.36`, `graphics`).
 
     Every other manifest key, each entry's `note` and the key order are kept.
     """
-    path = checkout.root / "manifest.json"
-    try:
-        text = path.read_text(encoding="utf-8")
-        manifest = json.loads(text)
-    except FileNotFoundError:
-        raise DaocError(f"{path} is missing") from None
-    except (OSError, ValueError) as e:
-        raise DaocError(f"cannot read {path}: {e}") from None
+    path, text, manifest = _read_manifest(checkout)
     written = []
     targets: List[Tuple[str, Optional[str], Dict[str, Any]]] = []
     for version, entry in (manifest.get("versions") or {}).items():

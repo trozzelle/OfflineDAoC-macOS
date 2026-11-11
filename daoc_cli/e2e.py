@@ -11,7 +11,8 @@ NOTE on ports: the user's own server may be running on 10300/10400; this test
 moves its server instance to 20300/20400 and the client launch passes the
 port explicitly.
 
-CAUTION: never delete run/admin.sock or run/server.pid while a CoreServer from
+CAUTION: never delete the admin socket (run/admin.sock, or the daoc-<n>.sock in the per-user temp
+folder when that path is too long for a unix socket) or run/server.pid while a CoreServer from
 this install is alive — shutdown needs the socket to wake a pending accept
 (the server repo's macOS admin-socket fix). Check lsof before touching run/. Nothing here removes run/.
 """
@@ -56,7 +57,7 @@ class _Run:
         self.account = account
         self.password = password
         self.server_dir = checkout.server_dir
-        self.evidence = checkout.root / "evidence"
+        self.evidence = checkout.home / "evidence"
         self.config = self.server_dir / "config" / "serverconfig.xml"
         self.failed = False
         self.step_name = ""
@@ -479,7 +480,7 @@ def run(checkout: Checkout, account: Optional[str] = None, password: Optional[st
         print(f"port {client_runtime.NEW_PORT} is in use (another server?); the new client only "
               "connects to it, so stop that server first", file=sys.stderr, flush=True)
         return 2
-    lock = checkout.root / ".e2e.lock"
+    lock = checkout.home / ".e2e.lock"
     # One run at a time: two concurrent runs would fight over the same wine
     # prefix, server ports, and logs.
     try:

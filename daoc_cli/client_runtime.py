@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 
 from daoc_cli import files, games, keychain, proc, selection, watchdog
 from daoc_cli.checkout import Checkout, wine_env, wine_is_arm64
-from daoc_cli.errors import DaocError, say
+from daoc_cli.errors import DaocError, interactive, say
 
 PS = "/bin/ps"
 PGREP = "/usr/bin/pgrep"
@@ -121,7 +121,7 @@ def credentials() -> Tuple[str, str]:
     try:
         return keychain.read()
     except keychain.NotSaved:
-        if not sys.stdin.isatty():
+        if not interactive():
             raise
     keychain.save_interactive()
     return keychain.read()
@@ -197,7 +197,7 @@ def _launch_once(checkout: Checkout, game_port: int, account: str, password: str
              f"{game_port} so you can create one")
     try:
         proc.run(launch_argv(checkout, account, password, chosen, game_port, dict(os.environ)),
-                 cwd=checkout.root)
+                 cwd=checkout.home)
     except DaocError as e:
         raise DaocError(e.msg, 2) from None
 
@@ -248,7 +248,7 @@ def _start_new(checkout: Checkout) -> None:
     before, log_offset = _logins(checkout, account), files.size(_server_log(checkout))
     say(f"launching the new client for {account} on port {NEW_PORT} (log: {NEW_LOG})")
     try:
-        proc.run(new_launch_argv(checkout, account, password, classic), cwd=checkout.root)
+        proc.run(new_launch_argv(checkout, account, password, classic), cwd=checkout.home)
     except DaocError as e:
         raise DaocError(e.msg, 2) from None
     waited = 0
