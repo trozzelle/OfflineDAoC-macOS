@@ -23,7 +23,7 @@ Using the app? Setup and the launcher do everything below; this page is the comm
 
 <!-- x-release-please-start-version -->
 ```bash
-git clone --branch v0.4.0 <this repo> daoc-macos && cd daoc-macos
+git clone --branch v0.5.0 <this repo> daoc-macos && cd daoc-macos
 ./daoc self-install
 ```
 <!-- x-release-please-end -->
